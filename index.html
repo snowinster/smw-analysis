@@ -1585,81 +1585,89 @@ function camStop(){
   liveStatus("");
 }
 function camRun(boxes){
-  cam.boxes = boxes; // null = détection automatique des cases en cours
-  liveStatus(boxes ? "🎥 capture active — les picks détectés se posent automatiquement"
-                   : "🔎 en attente de l'écran de draft…", boxes ? true : undefined);
+  // boxes fournies = calibration manuelle (5 cases à toi puis 5 adverses) ; sinon apprentissage AUTO par surbrillance
+  cam.slots = boxes ? boxes.map((b,i)=>({box:b, side:i<5?"A":"B", id:null})) : [];
+  cam.manualBoxes = !!boxes;
+  liveStatus(boxes ? "🎥 capture active (calibration manuelle)"
+                   : "🔎 active la capture AVANT le début de la draft : les cases sont apprises au fil des picks", boxes?true:undefined);
   clearInterval(cam.timer);
-  cam.timer = setInterval(camTick, 1200);
+  cam.timer = setInterval(camTick, 900);
   camTick();
 }
-/* ----- détection AUTOMATIQUE des 10 cases de picks : on cherche les emplacements vides
-   (carrés brun sombre caractéristiques), on complète par symétrie gauche/droite ----- */
-function detectSlots(){
+/* ----- détection de la case EN SURBRILLANCE (anneau doré carré, unique à l'écran) :
+   chaque case passe par cet état au moment où elle est choisie → on apprend les 10 positions ----- */
+function detectHighlight(){
   const vw = cam.video.videoWidth, vh = cam.video.videoHeight;
   if(!vw || !vh) return null;
-  const W = 400, H = Math.round(vh*W/vw);
-  if(!cam.det || cam.det.c.height !== H){
-    const c = document.createElement("canvas"); c.width = W; c.height = H;
+  if(!cam.det || cam.det.c.width !== vw || cam.det.c.height !== vh){
+    const c = document.createElement("canvas"); c.width = vw; c.height = vh;
     cam.det = { c, ctx: c.getContext("2d", {willReadFrequently:true}) };
   }
   const ctx = cam.det.ctx;
-  ctx.drawImage(cam.video, 0, 0, W, H);
-  const d = ctx.getImageData(0, 0, W, H).data;
+  ctx.drawImage(cam.video, 0, 0, vw, vh);
+  const d = ctx.getImageData(0, 0, vw, vh).data;
+  const W = vw, H = vh;
   const mask = new Uint8Array(W*H);
   for(let i=0;i<W*H;i++){
-    const r = d[i*4], g = d[i*4+1], b = d[i*4+2];
-    // brun sombre des cases vides : sombre, r>g>=b, faiblement saturé
-    if(r>22 && r<115 && g>14 && g<90 && b<75 && r>g && g>=b-4 && (r-b)>6 && (r-b)<80) mask[i]=1;
+    const R = d[i*4], G = d[i*4+1], B = d[i*4+2];
+    if(R>110 && G>75 && B<110 && R>G && G>B && (R-B)>40) mask[i] = 1;
   }
-  const seen = new Uint8Array(W*H), comps = [];
+  const seen = new Uint8Array(W*H);
   const qx = new Int32Array(W*H), qy = new Int32Array(W*H);
+  let best = null;
   for(let y=0;y<H;y++) for(let x=0;x<W;x++){
     const idx = y*W+x;
     if(!mask[idx] || seen[idx]) continue;
     let head=0, tail=0; qx[tail]=x; qy[tail]=y; tail++; seen[idx]=1;
-    let minx=x, maxx=x, miny=y, maxy=y, count=0;
+    let mnx=x, mxx=x, mny=y, mxy=y, cnt=0;
     while(head<tail){
-      const cx=qx[head], cy=qy[head]; head++; count++;
-      if(cx<minx)minx=cx; if(cx>maxx)maxx=cx; if(cy<miny)miny=cy; if(cy>maxy)maxy=cy;
+      const cx=qx[head], cy=qy[head]; head++; cnt++;
+      if(cx<mnx)mnx=cx; if(cx>mxx)mxx=cx; if(cy<mny)mny=cy; if(cy>mxy)mxy=cy;
       if(cx+1<W){const n=cy*W+cx+1; if(mask[n]&&!seen[n]){seen[n]=1;qx[tail]=cx+1;qy[tail]=cy;tail++;}}
       if(cx>0){const n=cy*W+cx-1; if(mask[n]&&!seen[n]){seen[n]=1;qx[tail]=cx-1;qy[tail]=cy;tail++;}}
       if(cy+1<H){const n=(cy+1)*W+cx; if(mask[n]&&!seen[n]){seen[n]=1;qx[tail]=cx;qy[tail]=cy+1;tail++;}}
       if(cy>0){const n=(cy-1)*W+cx; if(mask[n]&&!seen[n]){seen[n]=1;qx[tail]=cx;qy[tail]=cy-1;tail++;}}
     }
-    const w = maxx-minx+1, h = maxy-miny+1;
-    if(w < W*0.045 || w > W*0.14) continue;      // taille plausible d'une case
-    if(h < w*0.72 || h > w*1.35) continue;        // ~carrée
-    if(count < w*h*0.45) continue;                // bien remplie
-    comps.push({x:minx, y:miny, w, h});
+    const w = mxx-mnx+1, h = mxy-mny+1;
+    if(w < W*0.05 || w > W*0.16 || w < 36) continue;     // taille plausible d'une case
+    const ratio = w/h;
+    if(ratio < 0.86 || ratio > 1.16) continue;            // carré
+    const fill = cnt/(w*h);
+    if(fill < 0.05 || fill > 0.34) continue;              // ANNEAU (cadre), pas un aplat
+    if(!best || cnt > best.cnt) best = {x:mnx, y:mny, w, h, cnt};
   }
-  if(comps.length < 4) return null;
-  const med = a => a.slice().sort((p,q)=>p-q)[a.length>>1];
-  const ms = med(comps.map(c=>c.w));
-  let slots = comps.filter(c=>Math.abs(c.w-ms) < ms*0.28);
-  // complète les cases déjà remplies (portraits colorés) par symétrie miroir gauche/droite
-  const mirrorMissing = [];
-  for(const s of slots){
-    const mx = W - (s.x + s.w);
-    if(!slots.some(o=>Math.abs(o.x-mx)<ms*0.45 && Math.abs(o.y-s.y)<ms*0.45))
-      mirrorMissing.push({x:Math.round(mx), y:s.y, w:s.w, h:s.h});
-  }
-  slots = slots.concat(mirrorMissing);
-  // dédoublonnage
-  const uniq = [];
-  for(const s of slots) if(!uniq.some(o=>Math.abs(o.x-s.x)<ms*0.4 && Math.abs(o.y-s.y)<ms*0.4)) uniq.push(s);
-  slots = uniq;
-  if(slots.length !== 10){
-    cam.lastDetCount = slots.length;
-    return null;
-  }
-  const left  = slots.filter(s=>s.x+s.w/2 <  W/2).sort((a,b)=>a.x-b.x || a.y-b.y);
-  const right = slots.filter(s=>s.x+s.w/2 >= W/2).sort((a,b)=>a.x-b.x || a.y-b.y);
-  if(left.length !== 5 || right.length !== 5) return null;
-  const sc = vw / W;
-  const box = s => [Math.round(s.x*sc), Math.round(s.y*sc), Math.round(s.w*sc), Math.round(s.h*sc)];
-  return left.map(box).concat(right.map(box));
+  return best ? [best.x, best.y, best.w, best.h] : null;
 }
-/* aperçu en direct : ce que la capture voit + les cases détectées */
+async function camTick(){
+  if(!cam.video || !simState.live) return;
+  if(cam.video.videoWidth !== cam.frameW){
+    cam.frameW = cam.video.videoWidth;
+    if(!cam.manualBoxes) cam.slots = [];
+  }
+  const vw = cam.video.videoWidth;
+  if(!cam.manualBoxes){
+    const hl = detectHighlight();
+    cam.lastHl = hl;
+    if(hl && !cam.slots.some(s=>Math.abs(s.box[0]-hl[0]) < hl[2]*0.5 && Math.abs(s.box[1]-hl[1]) < hl[3]*0.5)){
+      cam.slots.push({box:hl, side: (hl[0]+hl[2]/2) < vw/2 ? "A" : "B", id:null});
+    }
+  }
+  for(const s of cam.slots){
+    if(s.id) continue;
+    const {h, std} = cropHash(s.box);
+    if(std < 16) continue; // case encore vide (fond uniforme)
+    const id = camMatch(h);
+    if(!id) continue;
+    if(simState.picksA.some(p=>p.id===id) || simState.picksB.some(p=>p.id===id)){ s.id = id; continue; }
+    s.id = id;
+    if((s.side==="A"?simState.picksA:simState.picksB).length < 5) await simPick(id, s.side);
+  }
+  liveStatus(cam.slots.length
+    ? `🎥 capture active — ${cam.slots.length}/10 cases repérées, ${cam.slots.filter(s=>s.id).length} picks reconnus`
+    : "🔎 en attente de la draft… (les cases sont apprises quand elles passent en surbrillance)", cam.slots.length ? true : undefined);
+  camPreview();
+}
+/* aperçu en direct : ce que la capture voit + cases apprises (vert = toi, rouge = adversaire, jaune = surbrillance) */
 function camPreview(){
   let p = document.getElementById("camPreview");
   if(!simState.live || !cam.video){ p?.remove(); return; }
@@ -1676,66 +1684,18 @@ function camPreview(){
   cv.height = Math.round(300*vh/vw);
   ctx.drawImage(cam.video, 0, 0, cv.width, cv.height);
   const sc = cv.width / vw;
-  if(cam.boxes){
-    ctx.lineWidth = 1.5;
-    cam.boxes.forEach((b,i)=>{
-      ctx.strokeStyle = i<5 ? "#3fca7c" : "#f05c5c";
-      ctx.strokeRect(b[0]*sc, b[1]*sc, b[2]*sc, b[3]*sc);
-    });
+  ctx.lineWidth = 1.5;
+  for(const s of cam.slots){
+    ctx.strokeStyle = s.side==="A" ? "#3fca7c" : "#f05c5c";
+    ctx.strokeRect(s.box[0]*sc, s.box[1]*sc, s.box[2]*sc, s.box[3]*sc);
   }
+  if(cam.lastHl){ ctx.strokeStyle = "#f2c14e"; ctx.strokeRect(cam.lastHl[0]*sc, cam.lastHl[1]*sc, cam.lastHl[2]*sc, cam.lastHl[3]*sc); }
   const txt = document.getElementById("camPrevTxt");
-  if(txt) txt.textContent = cam.boxes ? "cases détectées ✔" : `recherche… (${cam.lastDetCount||0} cases vues)`;
+  if(txt) txt.textContent = cam.slots.length ? `${cam.slots.length}/10 cases · ${cam.slots.filter(s=>s.id).length} reconnus` : "en attente de surbrillance…";
 }
 function camManual(){
   if(!cam.video) return;
   camCalib(cam.video.videoWidth + "x" + cam.video.videoHeight);
-}
-function cropHash(b){
-  const mx = b[2]*0.12, my = b[3]*0.12;
-  cam.tctx.drawImage(cam.video, b[0]+mx, b[1]+my, b[2]-2*mx, b[3]-2*my, 0, 0, 9, 8);
-  const d = cam.tctx.getImageData(0, 0, 9, 8).data;
-  const lum = new Array(72);
-  let s = 0, s2 = 0;
-  for(let i=0;i<72;i++){ const l = 0.299*d[i*4] + 0.587*d[i*4+1] + 0.114*d[i*4+2]; lum[i]=l; s+=l; s2+=l*l; }
-  const std = Math.sqrt(Math.max(0, s2/72 - (s/72)**2));
-  let h = 0n;
-  for(let r=0;r<8;r++) for(let c=0;c<8;c++){ h <<= 1n; if(lum[r*9+c+1] > lum[r*9+c]) h |= 1n; }
-  return {h, std};
-}
-function camMatch(h){
-  let b1 = 99, b2 = 99, best = null;
-  for(const e of cam.db){
-    let x = h ^ e.h, d = 0;
-    while(x){ x &= x - 1n; d++; }
-    if(d < b1){ b2 = b1; b1 = d; best = e.id; } else if(d < b2) b2 = d;
-  }
-  return (b1 <= 14 && b2 - b1 >= 3) ? best : null;
-}
-async function camTick(){
-  if(!cam.video || !simState.live) return;
-  if(cam.video.videoWidth !== cam.frameW){ cam.frameW = cam.video.videoWidth; if(!cam.manualBoxes) cam.boxes = null; }
-  if(!cam.boxes){
-    const det = detectSlots();
-    if(det){
-      cam.boxes = det;
-      liveStatus("🎥 écran de draft détecté — capture active", true);
-    }else{
-      liveStatus("🔎 en attente de l'écran de draft… (les cases vides doivent être visibles)");
-    }
-    camPreview();
-    return;
-  }
-  camPreview();
-  for(let i=0;i<10;i++){
-    const side = i < 5 ? "A" : "B";
-    if((side==="A"?simState.picksA:simState.picksB).length >= 5) continue;
-    const {h, std} = cropHash(cam.boxes[i]);
-    if(std < 7) continue; // case encore vide
-    const id = camMatch(h);
-    if(!id) continue;
-    if(simState.picksA.some(p=>p.id===id) || simState.picksB.some(p=>p.id===id)) continue;
-    await simPick(id, side);
-  }
 }
 /* calibration : dessiner les 10 cases de picks sur l'image capturée (mémorisé par résolution) */
 function camCalib(key){
