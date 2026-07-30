@@ -1596,7 +1596,7 @@ function camRun(boxes){
   cam.fpSet = false; cam.oppTried = false; cam.offDraft = 0;
   liveStatus(boxes ? "🎥 capture active (calibration manuelle)" : "🔎 en attente d'une draft…", boxes?true:undefined);
   clearInterval(cam.timer);
-  cam.timer = setInterval(camTick, 900);
+  cam.timer = setInterval(camTick, 600);
   camTick();
 }
 /* ----- lecture d'une image complète de la capture ----- */
@@ -1613,13 +1613,14 @@ function grabFrame(){
 /* écran de DRAFT présent ? (emblème VS doré au centre + panneaux latéraux sombres) */
 function onDraftScreen(f){
   const {d, W, H} = f;
-  let gold = 0, n = 0;
+  let gold = 0, n = 0, sx = 0;
   for(let y = Math.floor(H*0.15); y < H*0.55; y += 2) for(let x = Math.floor(W*0.42); x < W*0.58; x += 2){
     const i = (y*W+x)*4, R = d[i], G = d[i+1], B = d[i+2];
-    if(R>110 && G>75 && B<110 && R>G && G>B && (R-B)>40) gold++;
+    if(R>110 && G>75 && B<110 && R>G && G>B && (R-B)>40){ gold++; sx += x; }
     n++;
   }
   if(gold/n < 0.008) return false;
+  cam.midX = sx/gold; // centre réel du plateau (l'emblème VS), pas le milieu de l'écran partagé
   let lum = 0, m = 0;
   for(let y = Math.floor(H*0.2); y < H*0.5; y += 5) for(let x = Math.floor(W*0.15); x < W*0.35; x += 5){
     const i = (y*W+x)*4;
@@ -1693,7 +1694,24 @@ function detectPortraits(f){
 function addSlot(box, vw){
   if(cam.slots.length >= 10) return;
   if(cam.slots.some(s=>Math.abs(s.box[0]-box[0]) < box[2]*0.5 && Math.abs(s.box[1]-box[1]) < box[3]*0.5)) return;
-  cam.slots.push({box, side: (box[0]+box[2]/2) < vw/2 ? "A" : "B", id:null, diag:null});
+  const mid = cam.midX || vw/2;
+  cam.slots.push({box, side: (box[0]+box[2]/2) < mid ? "A" : "B", id:null, diag:null, pend:null, pendN:0, emptyN:0});
+}
+/* applique (ou remplace) le pick d'un slot dans le simulateur */
+async function applySlotPick(s, newId){
+  const arr = s.side==="A" ? simState.picksA : simState.picksB;
+  if(s.id){
+    const ix = arr.findIndex(p=>p.id===s.id);
+    if(ix > -1){
+      arr.splice(ix, 1);
+      const h = simState.history.lastIndexOf(s.side);
+      if(h > -1) simState.history.splice(h, 1);
+    }
+  }
+  s.id = newId; s.pend = null; s.pendN = 0; s.emptyN = 0;
+  if(newId && !simState.picksA.some(p=>p.id===newId) && !simState.picksB.some(p=>p.id===newId) && arr.length < 5)
+    await simPick(newId, s.side);
+  else if(!newId) renderSim();
 }
 /* ----- reconnaissance : signature couleur v2 (16x16, coins badges masqués, z-norm par canal) ----- */
 const SIG_T = 16;
@@ -1701,14 +1719,15 @@ const SIG_IDX = (()=>{ const a=[]; for(let y=0;y<SIG_T;y++) for(let x=0;x<SIG_T;
 function sigFromCanvas(){
   const d = cam.tctx.getImageData(0, 0, SIG_T, SIG_T).data;
   const n = SIG_IDX.length, v = new Float32Array(n*3);
-  let lum = 0;
+  let lum = 0, std = 0;
   for(let ch=0; ch<3; ch++){
     let m=0; for(let i=0;i<n;i++) m += d[SIG_IDX[i]*4+ch]; m/=n;
     let s=0; for(let i=0;i<n;i++){ const dd=d[SIG_IDX[i]*4+ch]-m; s+=dd*dd; } s=Math.sqrt(s/n)||1;
     for(let i=0;i<n;i++) v[ch*n+i] = (d[SIG_IDX[i]*4+ch]-m)/s;
     lum += m * [0.3,0.6,0.1][ch];
+    std += s * [0.3,0.6,0.1][ch];
   }
-  return {v, lum};
+  return {v, lum, std};
 }
 const SIG_CROPS = [];
 for(const top of [0.18, 0.22, 0.26]) for(const bot of [0.04, 0.08, 0.12]) for(const side of [0.08, 0.11, 0.14]) SIG_CROPS.push({top, bot, side});
@@ -1769,23 +1788,42 @@ async function camTick(){
   // lecture du pseudo adverse (une fois, si aucun adversaire renseigné)
   if(!cam.oppTried && !simState.b && cam.slots.length){ cam.oppTried = true; camFindOpponent().catch(()=>{}); }
   for(const s of cam.slots){
-    if(s.id) continue;
     let best = null;
     for(const cv of SIG_CROPS){
-      const {v, lum} = cropSig(s.box, cv);
+      const {v, lum, std} = cropSig(s.box, cv);
       if(lum < 55){ if(!best) best = {dark:true, lum}; continue; }  // côté assombri : on attendra qu'il s'éclaire
       const m = camMatchSig(v);
-      if(!best || best.dark || m.rel > best.m?.rel) best = {m, lum};
+      if(!best || best.dark || m.rel > (best.m?.rel ?? -1)) best = {m, lum, std};
     }
     if(!best) continue;
-    if(best.dark){ s.diag = {std:best.lum, txt:"sombre — en attente d'éclairage"}; continue; }
+    if(best.dark){ if(!s.id) s.diag = {std:best.lum, txt:"sombre — en attente d'éclairage"}; continue; }
     const m = best.m;
-    if(m.id){
-      s.id = m.id;
+    // case redevenue vide alors qu'elle est éclairée → le joueur a retiré son pick
+    if(s.id && !m.id && best.std < 10){
+      s.emptyN = (s.emptyN||0) + 1;
+      if(s.emptyN >= 2){ s.diag = {std:best.lum, txt:"pick retiré"}; await applySlotPick(s, null); }
+      continue;
+    }
+    s.emptyN = 0;
+    if(m.id && m.id !== s.id){
+      // nouveau monstre confiant : immédiat si la case était libre, confirmé 2 fois si c'est un REMPLACEMENT
+      if(!s.id){
+        s.diag = {std:best.lum, txt:`${monCache.get(m.id)?.name || m.best.name} ✔ (d=${m.d1.toFixed(2)}, marge ${Math.round(m.rel*100)}%)`};
+        await applySlotPick(s, m.id);
+      }else{
+        s.pendN = (s.pend === m.id) ? (s.pendN||0)+1 : 1;
+        s.pend = m.id;
+        if(s.pendN >= 2){
+          s.diag = {std:best.lum, txt:`remplacé par ${monCache.get(m.id)?.name || m.best.name} ✔`};
+          await applySlotPick(s, m.id);
+        }else{
+          s.diag = {std:best.lum, txt:`changement en cours ? ${monCache.get(m.id)?.name || m.best.name}…`};
+        }
+      }
+    }else if(m.id && m.id === s.id){
+      s.pend = null; s.pendN = 0;
       s.diag = {std:best.lum, txt:`${monCache.get(m.id)?.name || m.best.name} ✔ (d=${m.d1.toFixed(2)}, marge ${Math.round(m.rel*100)}%)`};
-      if(!simState.picksA.some(p=>p.id===m.id) && !simState.picksB.some(p=>p.id===m.id)
-         && (s.side==="A"?simState.picksA:simState.picksB).length < 5) await simPick(m.id, s.side);
-    }else{
+    }else if(!s.id){
       s.diag = {std:best.lum, txt:`? ${m.best?.name||"—"} (d=${m.d1.toFixed(2)}, marge ${Math.round(m.rel*100)}%)`};
     }
   }
