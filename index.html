@@ -1077,7 +1077,7 @@ function viewAddCalc(){
 
 /* ================= SIMULATEUR DE DRAFT ================= */
 const simState = { a:null, b:null, fp:"A", lds:true, picksA:[], picksB:[], boxA:null, boxB:null, season:null, history:[], showBoxA:false, showBoxB:false, editBoxA:false, editBoxB:false, anonBox:null, anonFilter:"",
-  anonSort:"element",
+  anonSort:"played",
   boxSort: (()=>{ try{ return localStorage.getItem("simBoxSort_v2") || "element"; }catch(e){ return "element"; } })() };
 const ELEM_ORDER = {Fire:0, Water:1, Wind:2, Light:3, Dark:4};
 
@@ -1467,8 +1467,8 @@ function simSideHTML(side, mirrored){
         oninput="simAnonFilter(this.value)">
       <label class="muted" style="font-size:12.5px">Tri
         <select onchange="simAnonSortChange(this.value)">
-          <option value="element" ${simState.anonSort==="element"?"selected":""}>Élément</option>
           <option value="played" ${simState.anonSort==="played"?"selected":""}>Popularité</option>
+          <option value="element" ${simState.anonSort==="element"?"selected":""}>Élément</option>
           <option value="name" ${simState.anonSort==="name"?"selected":""}>Nom (A→Z)</option>
         </select>
       </label>
@@ -1530,7 +1530,6 @@ function anonGridHTML(){
     case "name":   list.sort((a,b)=> (a.name||"").localeCompare(b.name||"")); break;
     default:       list.sort((a,b)=> (ELEM_ORDER[a.element]??9)-(ELEM_ORDER[b.element]??9) || b.played-a.played);
   }
-  list = list.slice(0, 60);
   if(!list.length) return '<span class="muted">Aucun monstre trouvé.</span>';
   return list.map(m=>{
     const taken = simState.picksA.some(p=>p.id===m.id) || simState.picksB.some(p=>p.id===m.id);
