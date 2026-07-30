@@ -1842,9 +1842,8 @@ async function renderSim(){
   }
   const token = ++simRenderToken;
   const turn = simTurn();
-  // équipe first pick à gauche, second pick à droite, VS au milieu (comme en jeu)
-  const L = simState.fp, R = L==="A" ? "B" : "A";
-  let html = `<div class="vs-wrap">${simSideHTML(L,false)}<div class="vs-mid">VS</div>${simSideHTML(R,true)}</div>`;
+  // TOI toujours à gauche, l'adversaire à droite (l'ordre de remplissage FP/SP reste géré par slot)
+  let html = `<div class="vs-wrap">${simSideHTML("A",false)}<div class="vs-mid">VS</div>${simSideHTML("B",true)}</div>`;
   if(!simState.b) html += '<div class="note" style="margin-bottom:12px">💡 Adversaire non renseigné : les recommandations sont théoriques (méta globale). Pose ses picks avec le champ 🔍 de son côté - ou renseigne son pseudo pour activer sa box et les badges « dans sa box ».</div>';
   if(!simState.a){
     $b.innerHTML = html + '<div class="panel muted">👉 Choisis ton compte (joueur A) ou clique une puce « Mes comptes ».</div>';
