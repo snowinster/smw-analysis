@@ -1695,7 +1695,9 @@ function addSlot(box, vw){
   if(cam.slots.length >= 10) return;
   if(cam.slots.some(s=>Math.abs(s.box[0]-box[0]) < box[2]*0.5 && Math.abs(s.box[1]-box[1]) < box[3]*0.5)) return;
   const mid = cam.midX || vw/2;
-  cam.slots.push({box, side: (box[0]+box[2]/2) < mid ? "A" : "B", id:null, diag:null, pend:null, pendN:0, emptyN:0});
+  const side = (box[0]+box[2]/2) < mid ? "A" : "B";
+  if(cam.slots.filter(s=>s.side===side).length >= 5) return; // jamais plus de 5 cases par équipe
+  cam.slots.push({box, side, id:null, diag:null, pend:null, pendN:0, emptyN:0, weak:null, weakN:0});
 }
 /* reconstruit les cases non détectées : miroir autour du VS + complétion des carrés 2x2 */
 function completeSlots(f){
@@ -1945,7 +1947,20 @@ async function camTick(){
       s.pend = null; s.pendN = 0;
       s.diag = {std:best.lum, txt:`${monCache.get(m.id)?.name || m.best.name} ✔ (d=${m.d1.toFixed(2)}, marge ${Math.round(m.rel*100)}%)`};
     }else if(!s.id){
-      s.diag = {std:best.lum, txt:`? ${m.best?.name||"—"} (d=${m.d1.toFixed(2)}, marge ${Math.round(m.rel*100)}%)`};
+      // acceptation par STABILITÉ : match faible mais identique 3 analyses de suite → validé
+      if(m.best && m.rel >= 0.16 && m.d1 <= 1.3){
+        s.weakN = (s.weak === m.best.id) ? (s.weakN||0)+1 : 1;
+        s.weak = m.best.id;
+        if(s.weakN >= 3){
+          s.diag = {std:best.lum, txt:`${monCache.get(m.best.id)?.name || m.best.name} ✔ (stable ×3, marge ${Math.round(m.rel*100)}%)`};
+          await applySlotPick(s, m.best.id);
+          continue;
+        }
+        s.diag = {std:best.lum, txt:`probable : ${m.best.name} (${s.weakN}/3, marge ${Math.round(m.rel*100)}%)`};
+      }else{
+        s.weak = null; s.weakN = 0;
+        s.diag = {std:best.lum, txt:`? ${m.best?.name||"—"} (d=${m.d1.toFixed(2)}, marge ${Math.round(m.rel*100)}%)`};
+      }
     }
   }
   await processBoxRow(f); // TES picks via les coches de la box (fiable même si ton plateau est sombre)
