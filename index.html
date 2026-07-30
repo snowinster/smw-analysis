@@ -1771,7 +1771,7 @@ function scanBoxRow(f){
   }
   const checks = [];
   for(const c of maskComponents(ymask, W, H)){
-    if(c.w > W*0.03 && c.cnt > c.w*c.h*0.25) checks.push(c);
+    if(c.w > W*0.032 && c.w < W*0.08 && c.h > H*0.025 && c.cnt > 700 && c.cnt > c.w*c.h*0.25) checks.push(c);
   }
   return checks;
 }
@@ -1794,7 +1794,10 @@ async function processBoxRow(f){
     if(isChecked && !e.checked){
       e.checked = true; e.offN = 0;
       if(e.id && !simState.picksA.some(p=>p.id===e.id) && !simState.picksB.some(p=>p.id===e.id)
-         && simState.picksA.length < 5) await simPick(e.id, "A");
+         && simState.picksA.length < 5){
+        camLog(`→ ${monCache.get(e.id)?.name||e.id} posé côté A (coche de box, x=${e.box[0]})`);
+        await simPick(e.id, "A");
+      }
     }else if(!isChecked && e.checked){
       // coche disparue (pick annulé) : confirmé sur 2 analyses
       e.offN = (e.offN||0) + 1;
@@ -1816,6 +1819,12 @@ function camSetFP(side){
     renderSim();
   }
 }
+/* journal des placements (visible dans le diagnostic) */
+function camLog(msg){
+  cam.journal = cam.journal || [];
+  cam.journal.push(msg);
+  if(cam.journal.length > 8) cam.journal.shift();
+}
 /* applique (ou remplace) le pick d'un slot dans le simulateur */
 async function applySlotPick(s, newId){
   const arr = s.side==="A" ? simState.picksA : simState.picksB;
@@ -1828,9 +1837,11 @@ async function applySlotPick(s, newId){
     }
   }
   s.id = newId; s.pend = null; s.pendN = 0; s.emptyN = 0;
-  if(newId && !simState.picksA.some(p=>p.id===newId) && !simState.picksB.some(p=>p.id===newId) && arr.length < 5)
+  if(newId && !simState.picksA.some(p=>p.id===newId) && !simState.picksB.some(p=>p.id===newId) && arr.length < 5){
+    camLog(`→ ${monCache.get(newId)?.name||newId} posé côté ${s.side} (plateau, x=${s.box[0]})`);
     await simPick(newId, s.side);
-  else if(!newId) renderSim();
+  }
+  else if(!newId){ camLog(`← pick retiré côté ${s.side}`); renderSim(); }
 }
 /* ----- reconnaissance : signature couleur v2 (16x16, coins badges masqués, z-norm par canal) ----- */
 const SIG_T = 16;
@@ -2017,7 +2028,8 @@ function camPreview(){
   const dg = document.getElementById("camDiag");
   if(dg) dg.innerHTML = cam.slots.map(s=>
     `<span style="color:${s.side==="A"?"#3fca7c":"#f05c5c"};font-weight:700">[${s.side}]</span> ${s.diag ? esc(s.diag.txt)+' <span class="muted">· lum '+Math.round(s.diag.std)+"</span>" : "…"}`
-  ).join("<br>");
+  ).join("<br>")
+  + (cam.journal?.length ? '<hr style="border-color:#2b3550;margin:4px 0">' + cam.journal.map(esc).join("<br>") : "");
   const txt = document.getElementById("camPrevTxt");
   if(txt) txt.textContent = cam.slots.length ? `${cam.slots.length}/10 cases · ${cam.slots.filter(s=>s.id).length} reconnus` : "aucune case détectée pour l'instant";
 }
