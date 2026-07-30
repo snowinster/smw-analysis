@@ -1762,7 +1762,7 @@ async function processBoxRow(f){
       for(const cv of SIG_CROPS){
         const {v, lum} = cropSig(e.box, cv);
         if(lum < 60) continue;
-        const m = camMatchSig(v);
+        const m = camMatchSig(v, dbForSide("A"));
         if(!best || m.rel > best.rel) best = m;
       }
       if(best && best.id && best.rel >= 0.30) e.id = best.id;
@@ -1907,10 +1907,12 @@ async function camTick(){
   if(!cam.oppTried && !simState.b && cam.slots.length){ cam.oppTried = true; camFindOpponent().catch(()=>{}); }
   for(const s of cam.slots){
     let best = null;
+    const sdb = dbForSide(s.side);
+    const lumMin = sdb !== cam.db ? 33 : 55; // base restreinte à la box → cases plus sombres lisibles
     for(const cv of SIG_CROPS){
       const {v, lum, std} = cropSig(s.box, cv);
-      if(lum < 55){ if(!best) best = {dark:true, lum}; continue; }  // côté assombri : on attendra qu'il s'éclaire
-      const m = camMatchSig(v);
+      if(lum < lumMin){ if(!best) best = {dark:true, lum}; continue; }
+      const m = camMatchSig(v, sdb);
       if(!best || best.dark || m.rel > (best.m?.rel ?? -1)) best = {m, lum, std};
     }
     if(!best) continue;
