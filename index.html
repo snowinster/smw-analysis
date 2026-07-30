@@ -2028,7 +2028,7 @@ async function camTick(){
       }
     }
   }
-  await processBoxRow(f); // TES picks via les coches de la box (fiable même si ton plateau est sombre)
+  // (lecture de la box du bas désactivée : elle défile et créait des confusions — seules les 10 cases du plateau comptent)
   liveStatus(`🎥 draft en cours — ${cam.slots.length}/10 cases, ${cam.slots.filter(s=>s.id).length} picks reconnus`, true);
   camPreview();
 }
