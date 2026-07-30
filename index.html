@@ -226,6 +226,7 @@ td.best{color:var(--win);font-weight:800}
   <a class="navlink" href="#/monsters" data-nav="monsters">Monstres</a>
   <a class="navlink" href="#/compare" data-nav="compare">Comparateur</a>
   <a class="navlink" href="#/simulator" data-nav="sim">Simulateur</a>
+  <a class="navlink" href="#/tools/add" data-nav="addcalc">ADD Calc</a>
   <div class="searchwrap">
     <input id="search" type="text" placeholder="Rechercher un joueur ou un monstre…" autocomplete="off">
     <div class="search-results" id="searchResults" style="display:none"></div>
@@ -358,6 +359,7 @@ function route(){
   if(h.startsWith("#/players")){ setNav("players"); return viewLeaderboard(); }
   if(h.startsWith("#/monsters")){ setNav("monsters"); return viewMonsters(); }
   if(h.startsWith("#/simulator")){ setNav("sim"); return viewSimulator(); }
+  if(h.startsWith("#/tools/add")){ setNav("addcalc"); return viewAddCalc(); }
   const mCmp = h.match(/^#\/compare(?:\/(\d+))?(?:\/(\d+))?/);
   if(mCmp){ setNav("compare"); return viewCompare(+mCmp[1]||null, +mCmp[2]||null); }
   setNav(""); return viewHome();
@@ -960,6 +962,81 @@ async function loadCompare(){
             <td class="${cb}">${pct(wb)}</td><td class="muted">${x.b.plays}</td></tr>`;
         }).join("")}</tbody></table></div>` : ""}`;
   }catch(e){ $b.innerHTML = `<div class="error-box">${esc(e.message||e)}</div>`; }
+}
+
+/* ================= ARTIFACT ADD CALCULATOR ================= */
+/* Dégâts additionnels des substats d'artefacts "Additional Damage by % of X" :
+   dégâts plats par coup = stat finale (runes incluses) × coefficient, arrondi vers le bas par stat. */
+const ADD_DEFS = [
+  {key:"hp",  label:"% des PV",  stat:"PV",  roll:"0,2 – 0,3 % / roll", maxTotal:1.5,  step:0.1},
+  {key:"atk", label:"% de l'ATK", stat:"ATK", roll:"2 – 4 % / roll",     maxTotal:20,   step:1},
+  {key:"def", label:"% de la DEF", stat:"DEF", roll:"2 – 4 % / roll",    maxTotal:20,   step:1},
+  {key:"spd", label:"% de la VIT", stat:"VIT", roll:"20 – 40 % / roll",  maxTotal:200,  step:10}
+];
+function addCalcState(){
+  try{ const s = JSON.parse(localStorage.getItem("addCalc_v1")); if(s) return s; }catch(e){}
+  return { hp:30000, atk:2200, def:1400, spd:210, rhp:0, ratk:0, rdef:0, rspd:0 };
+}
+function saveAddCalc(s){ try{ localStorage.setItem("addCalc_v1", JSON.stringify(s)); }catch(e){} }
+function viewAddCalc(){
+  const s = addCalcState();
+  $app.innerHTML = `
+    <h1>Artifact ADD Calculator <span class="muted" style="font-size:13px;font-weight:400">— dégâts additionnels des artefacts</span></h1>
+    <div class="panel">
+      <h3>1 · Stats finales de ton monstre (runes incluses)</h3>
+      <div class="cards">
+        ${[["hp","PV"],["atk","ATK"],["def","DEF"],["spd","VIT"]].map(([k,l])=>`
+        <div class="card"><div class="lbl">${l}</div>
+          <input type="number" min="0" id="add_${k}" value="${s[k]}" style="width:100%;background:var(--card2);border:1px solid var(--border);border-radius:8px;color:var(--text);padding:8px;font-size:16px;font-weight:700">
+        </div>`).join("")}
+      </div>
+    </div>
+    <h2>Rendement par type de substat</h2>
+    <div class="panel tbl-wrap">
+      <table>
+        <thead><tr><th>Substat</th><th>Roll</th><th>Dégâts / roll moyen</th><th>Dégâts au max total</th><th></th></tr></thead>
+        <tbody id="addTable"></tbody>
+      </table>
+      <div class="note">« Max total » = substat montée au maximum réaliste (quadroll) : 1,5 % PV · 20 % ATK · 20 % DEF · 200 % VIT. Les dégâts sont plats, ajoutés à chaque coup, calculés sur la stat finale, et ne sont pas amplifiés par les artefacts de dégâts élémentaires.</div>
+    </div>
+    <h2>2 · Tes artefacts actuels</h2>
+    <div class="panel">
+      <div class="cards">
+        ${ADD_DEFS.map(d=>`
+        <div class="card"><div class="lbl">Total « ${d.label} » <span style="text-transform:none">(tes 2 artefacts)</span></div>
+          <div class="row" style="gap:6px">
+            <input type="number" min="0" step="${d.step}" id="add_r${d.key}" value="${s["r"+d.key]}" style="flex:1;min-width:0;background:var(--card2);border:1px solid var(--border);border-radius:8px;color:var(--text);padding:8px;font-size:15px;font-weight:700"><b class="muted">%</b>
+          </div>
+        </div>`).join("")}
+      </div>
+      <div id="addTotal" style="margin-top:14px"></div>
+    </div>`;
+  const refresh = () => {
+    const v = {};
+    for(const k of ["hp","atk","def","spd","rhp","ratk","rdef","rspd"])
+      v[k] = Math.max(0, parseFloat(document.getElementById("add_"+k)?.value) || 0);
+    saveAddCalc(v);
+    const statOf = {hp:v.hp, atk:v.atk, def:v.def, spd:v.spd};
+    const avgRoll = {hp:0.25, atk:3, def:3, spd:30};
+    const rows = ADD_DEFS.map(d=>({
+      d, perRoll: Math.floor(statOf[d.key] * avgRoll[d.key]/100), atMax: Math.floor(statOf[d.key] * d.maxTotal/100)
+    }));
+    const best = Math.max(...rows.map(r=>r.atMax));
+    document.getElementById("addTable").innerHTML = rows.map(r=>`
+      <tr><td><b>${r.d.label}</b> <span class="muted">(${num(statOf[r.d.key])} ${r.d.stat})</span></td>
+        <td class="muted">${r.d.roll}</td>
+        <td>${num(r.perRoll)}</td>
+        <td><b style="color:${r.atMax===best?'var(--win)':'var(--text)'}">${num(r.atMax)}</b>${r.atMax===best?' <span class="inbox-badge">meilleur</span>':""}</td>
+        <td><div class="rr-bar" style="min-width:90px"><div class="rr-fill" style="width:${best?Math.round(100*r.atMax/best):0}%"></div></div></td></tr>`).join("");
+    const parts = ADD_DEFS.map(d=>({d, dmg: Math.floor(statOf[d.key] * v["r"+d.key]/100)})).filter(x=>x.dmg>0);
+    const total = parts.reduce((a,x)=>a+x.dmg, 0);
+    document.getElementById("addTotal").innerHTML = total
+      ? `<div class="row" style="align-items:baseline;gap:14px"><span style="font-size:30px;font-weight:900;color:var(--accent2)">+${num(total)}</span>
+         <span>dégâts additionnels par coup <span class="muted">(${parts.map(x=>`${num(x.dmg)} via ${x.d.label}`).join(" + ")})</span></span></div>`
+      : '<span class="muted">Renseigne les % de tes artefacts pour voir le total de dégâts additionnels par coup.</span>';
+  };
+  document.querySelectorAll('#app input[type="number"]').forEach(el=>el.addEventListener("input", refresh));
+  refresh();
 }
 
 /* ================= SIMULATEUR DE DRAFT ================= */
