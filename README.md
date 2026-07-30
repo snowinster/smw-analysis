@@ -1,4 +1,4 @@
-# SMW Analysis
+# SWAnalysis
 
 Outil personnel d'analyse RTA pour Summoners War : profils de joueurs, historique de combats, méta des monstres, tendances, comparateur et **simulateur de draft** avec recommandations statistiques (matchups, synergies, first picks, bans).
 
