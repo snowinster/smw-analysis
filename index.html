@@ -1077,7 +1077,9 @@ function viewAddCalc(){
 
 /* ================= SIMULATEUR DE DRAFT ================= */
 const simState = { a:null, b:null, fp:"A", lds:true, picksA:[], picksB:[], boxA:null, boxB:null, season:null, history:[], showBoxA:false, showBoxB:false, editBoxA:false, editBoxB:false, anonBox:null, anonFilter:"",
-  boxSort: (()=>{ try{ return localStorage.getItem("simBoxSort_v1") || "plays"; }catch(e){ return "plays"; } })() };
+  anonSort:"element",
+  boxSort: (()=>{ try{ return localStorage.getItem("simBoxSort_v2") || "element"; }catch(e){ return "element"; } })() };
+const ELEM_ORDER = {Fire:0, Water:1, Wind:2, Light:3, Dark:4};
 
 /* ----- personnalisation de la box (suppressions/ajouts), persistée par compte ----- */
 const BOX_CUSTOM_KEY = "simBoxCustom_v1";
@@ -1102,12 +1104,13 @@ function refreshBox(side){
 }
 function sortBoxList(list){
   const wr = x => x.plays ? x.wins/x.plays : -1;
+  const el = x => ELEM_ORDER[x.element] ?? 9;
   const l = list.slice();
   switch(simState.boxSort){
     case "wr":      l.sort((a,b)=> wr(b)-wr(a) || b.plays-a.plays); break;
     case "name":    l.sort((a,b)=> (a.name||"").localeCompare(b.name||"")); break;
-    case "element": l.sort((a,b)=> (a.element||"").localeCompare(b.element||"") || b.plays-a.plays); break;
-    default:        l.sort((a,b)=> b.plays-a.plays);
+    case "plays":   l.sort((a,b)=> b.plays-a.plays); break;
+    default:        l.sort((a,b)=> el(a)-el(b) || b.plays-a.plays); // élément (ordre du jeu), puis popularité
   }
   return l;
 }
@@ -1462,6 +1465,13 @@ function simSideHTML(side, mirrored){
       <input id="simAnonFilter" placeholder="🔍 Filtrer les monstres…" autocomplete="off" value="${esc(simState.anonFilter||"")}"
         style="flex:1;max-width:300px;background:var(--card);border:1px solid var(--border);border-radius:10px;color:var(--text);padding:9px 13px;font-size:14px;outline:none"
         oninput="simAnonFilter(this.value)">
+      <label class="muted" style="font-size:12.5px">Tri
+        <select onchange="simAnonSortChange(this.value)">
+          <option value="element" ${simState.anonSort==="element"?"selected":""}>Élément</option>
+          <option value="played" ${simState.anonSort==="played"?"selected":""}>Popularité</option>
+          <option value="name" ${simState.anonSort==="name"?"selected":""}>Nom (A→Z)</option>
+        </select>
+      </label>
       <span class="muted" style="font-size:12px">clic ou glisser-déposer pour poser son pick</span>
     </div>
     <div class="picks" style="margin-top:10px;max-height:260px;overflow-y:auto" id="anonGrid">${anonGridHTML()}</div>` : `
@@ -1476,10 +1486,10 @@ function simSideHTML(side, mirrored){
     <div class="row" style="margin-top:8px;gap:8px">
       <label class="muted" style="font-size:12.5px">Tri</label>
       <select onchange="simBoxSortChange(this.value)">
+        <option value="element" ${simState.boxSort==="element"?"selected":""}>Élément</option>
         <option value="plays" ${simState.boxSort==="plays"?"selected":""}>Parties jouées</option>
         <option value="wr" ${simState.boxSort==="wr"?"selected":""}>Winrate</option>
         <option value="name" ${simState.boxSort==="name"?"selected":""}>Nom (A→Z)</option>
-        <option value="element" ${simState.boxSort==="element"?"selected":""}>Élément</option>
       </select>
       <button class="btn" onclick="simToggleEdit('${side}')">${editBox?"✔ Terminer":"✏️ Modifier la box"}</button>
       ${editBox ? `${nbRemoved?`<span class="muted" style="font-size:12px">${nbRemoved} masqué(s)</span>`:""}
@@ -1514,12 +1524,17 @@ function anonGridHTML(){
   if(!box) return '<span class="muted">Chargement de la liste des monstres…</span>';
   const norm = s => (s||"").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g,"");
   const q = norm(simState.anonFilter||"");
-  let list = q ? box.filter(m=>norm(m.name).includes(q)) : box;
+  let list = q ? box.filter(m=>norm(m.name).includes(q)) : box.slice();
+  switch(simState.anonSort){
+    case "played": list.sort((a,b)=> b.played-a.played); break;
+    case "name":   list.sort((a,b)=> (a.name||"").localeCompare(b.name||"")); break;
+    default:       list.sort((a,b)=> (ELEM_ORDER[a.element]??9)-(ELEM_ORDER[b.element]??9) || b.played-a.played);
+  }
   list = list.slice(0, 60);
   if(!list.length) return '<span class="muted">Aucun monstre trouvé.</span>';
   return list.map(m=>{
     const taken = simState.picksA.some(p=>p.id===m.id) || simState.picksB.some(p=>p.id===m.id);
-    return `<div class="pick mon-click" style="${taken?"opacity:.25;pointer-events:none":""}" draggable="true" data-drag-id="${m.id}" onclick="simPick(${m.id},'B')" title="${esc(m.name)} · ${num(m.played)} picks dans la méta">
+    return `<div class="pick mon-click" style="${taken?"opacity:.25;pointer-events:none":""}" draggable="true" data-drag-id="${m.id}" onclick="simPick(${m.id},'B')" title="${esc(m.name)}${m.element?" · "+(ELEM_FR[m.element]||m.element):""} · ${num(m.played)} picks dans la méta">
       <img src="${monImg(m.img)}" loading="lazy"></div>`;
   }).join("");
 }
@@ -1527,6 +1542,11 @@ function simAnonFilter(v){
   simState.anonFilter = v;
   const g = document.getElementById("anonGrid");
   if(g) g.innerHTML = anonGridHTML(); // re-rend uniquement la grille : le champ garde le focus
+}
+function simAnonSortChange(v){
+  simState.anonSort = v;
+  const g = document.getElementById("anonGrid");
+  if(g) g.innerHTML = anonGridHTML();
 }
 function simToggleBox(side){
   if(side==="A") simState.showBoxA = !simState.showBoxA;
@@ -1565,8 +1585,8 @@ async function renderSim(){
       if(simState.anonBox || simState.b) return;
       simState.anonBox = [...meta.values()]
         .sort((a,b)=>(b.played||0)-(a.played||0))
-        .map(m=>({id:m.monster_id, name:m.name, img:m.image_filename, played:m.played||0}));
-      for(const m of simState.anonBox) if(!monCache.has(m.id)) monCache.set(m.id, {name:m.name, image_filename:m.img});
+        .map(m=>({id:m.monster_id, name:m.name, img:m.image_filename, played:m.played||0, element:m.element||null}));
+      for(const m of simState.anonBox) if(!monCache.has(m.id)) monCache.set(m.id, {name:m.name, image_filename:m.img, element:m.element||undefined});
       renderSim();
     }).catch(()=>{});
   }

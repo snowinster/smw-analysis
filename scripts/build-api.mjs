@@ -19,6 +19,23 @@ const write = async (name, obj) => {
 
 await fs.mkdir(OUT, { recursive: true });
 
+// ---- éléments de tous les monstres (bestiaire SWARFARM, com2us_id → element) ----
+async function buildElements(){
+  const map = {};
+  let url = "https://swarfarm.com/api/v2/monsters/?limit=500";
+  while(url){
+    const r = await fetch(url);
+    if(!r.ok) throw new Error("SWARFARM HTTP " + r.status);
+    const page = await r.json();
+    for(const m of page.results) if(m.com2us_id) map[m.com2us_id] = m.element;
+    url = page.next;
+  }
+  return map;
+}
+const elements = await buildElements();
+await write("elements.json", { source: "swarfarm.com", elements });
+console.log("éléments SWARFARM :", Object.keys(elements).length, "monstres");
+
 const seasonsR = await j("/general/seasons");
 const seasons = (seasonsR.data || []).map(s => s.season).sort((a, b) => b - a);
 const latest = seasons[0];
@@ -33,6 +50,7 @@ async function buildMeta(season){
     rows.push(...(r.data || []));
     if(!((r.count || 0) > off + 500)) break;
   }
+  for(const m of rows) m.element = elements[m.monster_id] || null; // enrichissement SWARFARM
   return rows;
 }
 
