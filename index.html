@@ -1554,7 +1554,8 @@ async function camStart(){
   }
   try{
     if(!cam.db){
-      const r = await fetch(api/icon-sigs.json, {cache:no-cache});
+      const r = await fetch("api/icon-sigs.json?v=" + Math.floor(Date.now()/60000), {cache:"reload"});
+      if(!r.ok) throw new Error("HTTP " + r.status);
       const j = await r.json();
       const sc = j.scale || 40;
       cam.db = Object.entries(j.sigs).map(([id, b64])=>{
@@ -1563,7 +1564,7 @@ async function camStart(){
         return {id:+id, name: monCache.get(+id)?.name || ("#"+id), v};
       });
     }
-  }catch(e){ liveStatus("✖ empreintes d'icônes indisponibles (api/icon-hashes.json)", false); liveOff(); return; }
+  }catch(e){ liveStatus("✖ base de reconnaissance inaccessible (" + (e?.message||e) + ") — réessaie dans 1 min", false); liveOff(); return; }
   try{
     cam.stream = await navigator.mediaDevices.getDisplayMedia({video:{frameRate:5}, audio:false});
   }catch(e){ liveStatus("✖ partage d'écran refusé", false); liveOff(); return; }
