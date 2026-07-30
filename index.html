@@ -1554,9 +1554,14 @@ async function camStart(){
   }
   try{
     if(!cam.db){
-      const r = await fetch("api/icon-hashes.json", {cache:"no-cache"});
+      const r = await fetch(api/icon-sigs.json, {cache:no-cache});
       const j = await r.json();
-      cam.db = Object.entries(j.hashes).map(([id,h])=>({id:+id, h:BigInt("0x"+h)}));
+      const sc = j.scale || 40;
+      cam.db = Object.entries(j.sigs).map(([id, b64])=>{
+        const bin = atob(b64), v = new Float32Array(bin.length);
+        for(let i=0;i<bin.length;i++){ let x = bin.charCodeAt(i); if(x>127) x-=256; v[i]=x/sc; }
+        return {id:+id, name: monCache.get(+id)?.name || ("#"+id), v};
+      });
     }
   }catch(e){ liveStatus("✖ empreintes d'icônes indisponibles (api/icon-hashes.json)", false); liveOff(); return; }
   try{
@@ -1566,7 +1571,7 @@ async function camStart(){
   cam.video.srcObject = cam.stream;
   cam.video.muted = true;
   await cam.video.play();
-  const t = document.createElement("canvas"); t.width = 9; t.height = 8;
+  const t = document.createElement("canvas"); t.width = 16; t.height = 16;
   cam.tctx = t.getContext("2d", {willReadFrequently:true});
   cam.stream.getVideoTracks()[0].addEventListener("ended", liveOff);
   const key = cam.video.videoWidth + "x" + cam.video.videoHeight;
@@ -1587,8 +1592,8 @@ function camRun(boxes){
   // boxes fournies = calibration manuelle (5 cases à toi puis 5 adverses) ; sinon détection AUTO
   cam.slots = boxes ? boxes.map((b,i)=>({box:b, side:i<5?"A":"B", id:null, diag:null})) : [];
   cam.manualBoxes = !!boxes;
-  cam.fpSet = false; cam.oppTried = false;
-  liveStatus(boxes ? "🎥 capture active (calibration manuelle)" : "🔎 recherche des cases de draft…", boxes?true:undefined);
+  cam.fpSet = false; cam.oppTried = false; cam.offDraft = 0;
+  liveStatus(boxes ? "🎥 capture active (calibration manuelle)" : "🔎 en attente d'une draft…", boxes?true:undefined);
   clearInterval(cam.timer);
   cam.timer = setInterval(camTick, 900);
   camTick();
@@ -1603,6 +1608,23 @@ function grabFrame(){
   }
   cam.det.ctx.drawImage(cam.video, 0, 0, vw, vh);
   return { d: cam.det.ctx.getImageData(0, 0, vw, vh).data, W: vw, H: vh };
+}
+/* écran de DRAFT présent ? (emblème VS doré au centre + panneaux latéraux sombres) */
+function onDraftScreen(f){
+  const {d, W, H} = f;
+  let gold = 0, n = 0;
+  for(let y = Math.floor(H*0.15); y < H*0.55; y += 2) for(let x = Math.floor(W*0.42); x < W*0.58; x += 2){
+    const i = (y*W+x)*4, R = d[i], G = d[i+1], B = d[i+2];
+    if(R>110 && G>75 && B<110 && R>G && G>B && (R-B)>40) gold++;
+    n++;
+  }
+  if(gold/n < 0.008) return false;
+  let lum = 0, m = 0;
+  for(let y = Math.floor(H*0.2); y < H*0.5; y += 5) for(let x = Math.floor(W*0.15); x < W*0.35; x += 5){
+    const i = (y*W+x)*4;
+    lum += 0.3*d[i] + 0.6*d[i+1] + 0.1*d[i+2]; m++;
+  }
+  return lum/m < 110;
 }
 /* composantes connexes d'un masque binaire */
 function maskComponents(mask, W, H){
@@ -1625,7 +1647,7 @@ function maskComponents(mask, W, H){
   }
   return comps;
 }
-/* case en surbrillance : anneau doré carré (bonus, apprend les cases vides en avance) */
+/* case en surbrillance : anneau doré carré */
 function detectHighlight(f){
   const {d, W, H} = f;
   const mask = new Uint8Array(W*H);
@@ -1644,11 +1666,11 @@ function detectHighlight(f){
   }
   return best ? [best.x, best.y, best.w, best.h] : null;
 }
-/* slots occupés : carrés COLORÉS (portraits) dans la zone du plateau */
+/* slots : carrés colorés (portraits) OU anneaux de cadre dans la zone du plateau */
 function detectPortraits(f){
   const {d, W, H} = f;
   const mask = new Uint8Array(W*H);
-  const yMin = Math.floor(H*0.08), yMax = Math.floor(H*0.62);
+  const yMin = Math.floor(H*0.10), yMax = Math.floor(H*0.58);
   const xMin = Math.floor(W*0.08), xMax = Math.floor(W*0.92);
   for(let y=yMin;y<yMax;y++) for(let x=xMin;x<xMax;x++){
     const i = (y*W+x)*4, R=d[i], G=d[i+1], B=d[i+2];
@@ -1660,8 +1682,9 @@ function detectPortraits(f){
     if(c.w < W*0.05 || c.w > W*0.16) continue;
     const ratio = c.w/c.h;
     if(ratio < 0.8 || ratio > 1.25) continue;
-    if(c.cnt < c.w*c.h*0.45) continue;
-    if(Math.abs(c.x + c.w/2 - W/2) < W*0.07) continue; // emblème VS central
+    const fill = c.cnt/(c.w*c.h);
+    if(fill < 0.10) continue; // portrait plein OU anneau de cadre
+    if(Math.abs(c.x + c.w/2 - W/2) < W*0.07) continue;
     out.push([c.x, c.y, c.w, c.h]);
   }
   return out;
@@ -1671,43 +1694,67 @@ function addSlot(box, vw){
   if(cam.slots.some(s=>Math.abs(s.box[0]-box[0]) < box[2]*0.5 && Math.abs(s.box[1]-box[1]) < box[3]*0.5)) return;
   cam.slots.push({box, side: (box[0]+box[2]/2) < vw/2 ? "A" : "B", id:null, diag:null});
 }
-/* empreinte visuelle d'une case (dHash 64 bits, centre 76 %) + comparaison à la base d'icônes */
-function cropHash(b){
-  const mx = b[2]*0.12, my = b[3]*0.12;
-  cam.tctx.drawImage(cam.video, b[0]+mx, b[1]+my, b[2]-2*mx, b[3]-2*my, 0, 0, 9, 8);
-  const d = cam.tctx.getImageData(0, 0, 9, 8).data;
-  const lum = new Array(72);
-  let s2 = 0, s1 = 0;
-  for(let i2=0;i2<72;i2++){ const l = 0.299*d[i2*4] + 0.587*d[i2*4+1] + 0.114*d[i2*4+2]; lum[i2]=l; s1+=l; s2+=l*l; }
-  const std = Math.sqrt(Math.max(0, s2/72 - (s1/72)**2));
-  let h = 0n;
-  for(let r=0;r<8;r++) for(let c=0;c<8;c++){ h <<= 1n; if(lum[r*9+c+1] > lum[r*9+c]) h |= 1n; }
-  return {h, std};
-}
-function camMatch(h){
-  let b1 = 99, b2 = 99, best = null;
-  for(const e of cam.db){
-    let x = h ^ e.h, d = 0;
-    while(x){ x &= x - 1n; d++; }
-    if(d < b1){ b2 = b1; b1 = d; best = e.id; } else if(d < b2) b2 = d;
+/* ----- reconnaissance : signature couleur v2 (16x16, coins badges masqués, z-norm par canal) ----- */
+const SIG_T = 16;
+const SIG_IDX = (()=>{ const a=[]; for(let y=0;y<SIG_T;y++) for(let x=0;x<SIG_T;x++) if(!(y > SIG_T*0.62 && (x < SIG_T*0.40 || x > SIG_T*0.58))) a.push(y*SIG_T+x); return a; })();
+function sigFromCanvas(){
+  const d = cam.tctx.getImageData(0, 0, SIG_T, SIG_T).data;
+  const n = SIG_IDX.length, v = new Float32Array(n*3);
+  let lum = 0;
+  for(let ch=0; ch<3; ch++){
+    let m=0; for(let i=0;i<n;i++) m += d[SIG_IDX[i]*4+ch]; m/=n;
+    let s=0; for(let i=0;i<n;i++){ const dd=d[SIG_IDX[i]*4+ch]-m; s+=dd*dd; } s=Math.sqrt(s/n)||1;
+    for(let i=0;i<n;i++) v[ch*n+i] = (d[SIG_IDX[i]*4+ch]-m)/s;
+    lum += m * [0.3,0.6,0.1][ch];
   }
-  return { id: (b1 <= 14 && b2 - b1 >= 3) ? best : null, bestId: best, d1: b1, d2: b2 };
+  return {v, lum};
+}
+const SIG_CROPS = [];
+for(const top of [0.18, 0.22, 0.26]) for(const bot of [0.04, 0.08, 0.12]) for(const side of [0.08, 0.11, 0.14]) SIG_CROPS.push({top, bot, side});
+function cropSig(b, cv){
+  const x = b[0] + b[2]*cv.side, w = b[2]*(1 - 2*cv.side);
+  const y = b[1] + b[3]*cv.top,  h = b[3]*(1 - cv.top - cv.bot);
+  cam.tctx.drawImage(cam.video, x, y, w, h, 0, 0, SIG_T, SIG_T);
+  return sigFromCanvas();
+}
+const baseName = n => (n||"").split(" (")[0];
+function camMatchSig(v){
+  let d1 = 1e9, d2 = 1e9, e1 = null, e2 = null;
+  for(const e of cam.db){
+    let s = 0;
+    const ev = e.v;
+    for(let i=0;i<v.length;i++){ const dd = v[i] - ev[i]; s += dd*dd; }
+    s /= v.length;
+    if(s < d1){ if(!e1 || baseName(e1.name) !== baseName(e.name)){ d2 = d1; e2 = e1; } d1 = s; e1 = e; }
+    else if(s < d2 && (!e1 || baseName(e.name) !== baseName(e1.name))){ d2 = s; e2 = e; }
+  }
+  const rel = (d2 - d1) / (d1 + 1e-6);
+  return { id: (d1 <= 1.0 && rel >= 0.25) ? e1.id : null, best: e1, d1, rel };
 }
 async function camTick(){
-  if(!cam.video || !simState.live) return;
+  if(!cam.video || !simState.live || !cam.db) return;
   if(cam.video.videoWidth !== cam.frameW){
     cam.frameW = cam.video.videoWidth;
     if(!cam.manualBoxes) cam.slots = [];
   }
   const f = grabFrame();
   if(!f) return;
+  // porte : uniquement pendant l'écran de draft ; reset des cases quand la draft se termine
+  if(!onDraftScreen(f)){
+    cam.offDraft = (cam.offDraft||0) + 1;
+    if(cam.offDraft > 5 && cam.slots.length && !cam.manualBoxes){ cam.slots = []; cam.fpSet = false; cam.oppTried = false; }
+    liveStatus("⏸ pas d'écran de draft détecté — la capture reprendra automatiquement");
+    camPreview();
+    return;
+  }
+  cam.offDraft = 0;
   if(!cam.manualBoxes){
     const hl = detectHighlight(f);
     cam.lastHl = hl;
     if(hl) addSlot(hl, f.W);
     for(const b of detectPortraits(f)) addSlot(b, f.W);
   }
-  // premier slot actif détecté → détermine qui a le first pick
+  // premier slot actif détecté → qui a le first pick
   if(!cam.fpSet && cam.slots.length && simState.picksA.length + simState.picksB.length === 0){
     cam.fpSet = true;
     const fpSide = cam.slots[0].side;
@@ -1722,25 +1769,29 @@ async function camTick(){
   if(!cam.oppTried && !simState.b && cam.slots.length){ cam.oppTried = true; camFindOpponent().catch(()=>{}); }
   for(const s of cam.slots){
     if(s.id) continue;
-    const {h, std} = cropHash(s.box);
-    if(std < 16){ s.diag = {std, txt:"vide"}; continue; }
-    const m = camMatch(h);
-    const bestName = monCache.get(m.bestId)?.name || ("#"+m.bestId);
+    let best = null;
+    for(const cv of SIG_CROPS){
+      const {v, lum} = cropSig(s.box, cv);
+      if(lum < 55){ if(!best) best = {dark:true, lum}; continue; }  // côté assombri : on attendra qu'il s'éclaire
+      const m = camMatchSig(v);
+      if(!best || best.dark || m.rel > best.m?.rel) best = {m, lum};
+    }
+    if(!best) continue;
+    if(best.dark){ s.diag = {std:best.lum, txt:"sombre — en attente d'éclairage"}; continue; }
+    const m = best.m;
     if(m.id){
       s.id = m.id;
-      s.diag = {std, txt:`${monCache.get(m.id)?.name || m.id} ✔ (d=${m.d1})`};
+      s.diag = {std:best.lum, txt:`${monCache.get(m.id)?.name || m.best.name} ✔ (d=${m.d1.toFixed(2)}, marge ${Math.round(m.rel*100)}%)`};
       if(!simState.picksA.some(p=>p.id===m.id) && !simState.picksB.some(p=>p.id===m.id)
          && (s.side==="A"?simState.picksA:simState.picksB).length < 5) await simPick(m.id, s.side);
     }else{
-      s.diag = {std, txt:`? plus proche : ${bestName} (d=${m.d1}, 2e=${m.d2})`};
+      s.diag = {std:best.lum, txt:`? ${m.best?.name||"—"} (d=${m.d1.toFixed(2)}, marge ${Math.round(m.rel*100)}%)`};
     }
   }
-  liveStatus(cam.slots.length
-    ? `🎥 capture active — ${cam.slots.length}/10 cases, ${cam.slots.filter(s=>s.id).length} picks reconnus`
-    : "🔎 recherche des cases… (elles apparaissent dès qu'un portrait ou une surbrillance est visible)", cam.slots.length ? true : undefined);
+  liveStatus(`🎥 draft en cours — ${cam.slots.length}/10 cases, ${cam.slots.filter(s=>s.id).length} picks reconnus`, true);
   camPreview();
 }
-/* aperçu + diagnostic : ce que la capture voit, chaque case et ce que la reconnaissance en dit */
+/* aperçu + diagnostic */
 function camPreview(){
   let p = document.getElementById("camPreview");
   if(!simState.live || !cam.video){ p?.remove(); return; }
@@ -1768,7 +1819,7 @@ function camPreview(){
   if(cam.lastHl){ ctx.strokeStyle = "#f2c14e"; ctx.strokeRect(cam.lastHl[0]*sc, cam.lastHl[1]*sc, cam.lastHl[2]*sc, cam.lastHl[3]*sc); }
   const dg = document.getElementById("camDiag");
   if(dg) dg.innerHTML = cam.slots.map(s=>
-    `<span style="color:${s.side==="A"?"#3fca7c":"#f05c5c"};font-weight:700">[${s.side}]</span> ${s.diag ? esc(s.diag.txt)+' <span class="muted">· std '+Math.round(s.diag.std)+"</span>" : "…"}`
+    `<span style="color:${s.side==="A"?"#3fca7c":"#f05c5c"};font-weight:700">[${s.side}]</span> ${s.diag ? esc(s.diag.txt)+' <span class="muted">· lum '+Math.round(s.diag.std)+"</span>" : "…"}`
   ).join("<br>");
   const txt = document.getElementById("camPrevTxt");
   if(txt) txt.textContent = cam.slots.length ? `${cam.slots.length}/10 cases · ${cam.slots.filter(s=>s.id).length} reconnus` : "aucune case détectée pour l'instant";
@@ -1790,7 +1841,6 @@ async function camFindOpponent(){
     const f = grabFrame();
     if(!f) return;
     const vw = f.W, vh = f.H;
-    // localise la bande des noms : rangée sombre continue sous le plateau
     let band = null, cur = null;
     for(let y = Math.floor(vh*0.35); y < vh*0.78; y++){
       let lum = 0, n = 0;
@@ -1807,16 +1857,13 @@ async function camFindOpponent(){
     }
     if(cur && cur.y1-cur.y0 > vh*0.025 && (!band || cur.y1-cur.y0 > band.y1-band.y0)) band = cur;
     if(!band) return;
-    // moitié droite de la bande = pseudo adverse ; agrandi x2 pour l'OCR
     const sx = Math.floor(vw*0.52), sw = Math.floor(vw*0.40);
     const c = document.createElement("canvas");
     c.width = sw*2; c.height = (band.y1-band.y0)*2;
     c.getContext("2d").drawImage(cam.det.c, sx, band.y0, sw, band.y1-band.y0, 0, 0, c.width, c.height);
-    liveStatus("🔤 lecture du pseudo adverse…");
     const res = await Tesseract.recognize(c, "eng");
     let txt = (res?.data?.text || "").split("\n")[0].trim();
-    if(txt.length < 2){ liveStatus("🔤 pseudo illisible — renseigne l'adversaire à la main"); return; }
-    liveStatus(`🔤 pseudo lu : « ${txt} » — recherche…`);
+    if(txt.length < 2) return;
     const cands = [...new Set([
       txt,
       txt.replace(/[^\p{L}\p{N}_\-\. ]/gu, "").trim(),
@@ -1835,7 +1882,6 @@ async function camFindOpponent(){
         return;
       }
     }
-    liveStatus(`🔤 « ${txt} » introuvable sur swarena — mode théorique conservé`);
   }catch(e){}
 }
 function camManual(){

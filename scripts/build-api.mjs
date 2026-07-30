@@ -131,6 +131,14 @@ try{
   console.log("icon-hashes.json ignoré (jimp non installé ?) :", e.message);
 }
 
+// ---- signatures couleur v2 (reconnaissance de la capture en direct) ----
+try{
+  const { default: genSigs } = await import("./gen-sigs.mjs");
+  await genSigs();
+}catch(e){
+  console.log("icon-sigs.json ignoré :", e.message);
+}
+
 // index de l'API : saisons archivées = tous les fichiers meta-s*.json présents (jamais supprimés)
 const files = await fs.readdir(OUT);
 const archived = files.filter(f => /^meta-s\d+\.json$/.test(f)).map(f => +f.match(/\d+/)[0]).sort((a, b) => b - a);
