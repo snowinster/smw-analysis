@@ -239,7 +239,6 @@ td.best{color:var(--win);font-weight:800}
   <button class="burger" id="burgerBtn" aria-label="Menu">☰</button>
   <div class="navlinks" id="navLinks">
     <a class="navlink" href="#/monsters" data-nav="monsters">Monstres</a>
-    <a class="navlink" href="#/compare" data-nav="compare">Comparateur</a>
     <a class="navlink" href="#/simulator" data-nav="sim">Simulateur</a>
     <a class="navlink" href="#/tools/add" data-nav="addcalc">ADD Calc</a>
   </div>
@@ -382,8 +381,6 @@ function route(){
   if(h.startsWith("#/monsters")){ setNav("monsters"); return viewMonsters(); }
   if(h.startsWith("#/simulator")){ setNav("sim"); return viewSimulator(); }
   if(h.startsWith("#/tools/add")){ setNav("addcalc"); return viewAddCalc(); }
-  const mCmp = h.match(/^#\/compare(?:\/(\d+))?(?:\/(\d+))?/);
-  if(mCmp){ setNav("compare"); return viewCompare(+mCmp[1]||null, +mCmp[2]||null); }
   setNav(""); return viewHome();
 }
 function fail(e){
@@ -849,12 +846,21 @@ async function viewMonster(id){
         <select onchange="monState.season=+this.value;monState.userChose=true;viewMonster(${id})">${seasons.map(x=>`<option value="${x}" ${x===monState.season?"selected":""}>Saison ${x}</option>`).join("")}</select>
         <label class="switch"><input type="checkbox" onchange="monState.isG3=this.checked;viewMonster(${id})" ${g3?"checked":""}><span class="tk"></span><span>Guardian 3+ uniquement</span></label>
       </div>
-      ${sumR.data ? `<div class="cards" style="margin-bottom:18px">
-        <div class="card"><div class="lbl">Pick rate</div><div class="big">${pct(s.pick_rate)}</div><div class="muted" style="font-size:12px">${num(s.picks)} picks</div></div>
-        <div class="card"><div class="lbl">Winrate</div><div class="big">${pct(s.win_rate)}</div><div class="muted" style="font-size:12px">${num(s.wins)} victoires</div></div>
-        <div class="card"><div class="lbl">Ban rate</div><div class="big">${pct(s.ban_rate)}</div><div class="muted" style="font-size:12px">${num(s.bans)} bans</div></div>
-        <div class="card"><div class="lbl">Lead rate</div><div class="big">${pct(s.lead_rate)}</div></div>
-      </div>` : `<div class="panel muted">Pas de statistiques pour la saison ${monState.season}.</div>`}
+      ${sumR.data ? (()=>{
+        const statCard = (icon,label,val,color,sub) => `
+          <div class="card">
+            <div class="lbl">${icon} ${label}</div>
+            <div class="big" style="color:${color}">${pct(val)}</div>
+            <div class="rr-bar" style="margin:9px 0 7px;height:6px"><div class="rr-fill" style="width:${Math.min(100,Math.round((val||0)*100))}%;background:${color}"></div></div>
+            <div class="muted" style="font-size:12px">${sub||"&nbsp;"}</div>
+          </div>`;
+        return `<div class="cards" style="margin-bottom:18px">
+          ${statCard("🎯","Pick rate", s.pick_rate, "var(--accent2)", num(s.picks)+" picks")}
+          ${statCard("🏆","Winrate", s.win_rate, s.win_rate>=0.5?"var(--win)":"var(--lose)", num(s.wins)+" victoires")}
+          ${statCard("🚫","Ban rate", s.ban_rate, "var(--lose)", num(s.bans)+" bans")}
+          ${statCard("👑","Lead rate", s.lead_rate, "var(--gold)", "")}
+        </div>`;
+      })() : `<div class="panel muted">Pas de statistiques pour la saison ${monState.season}.</div>`}
       ${hist.length>2 ? `<h2>Tendance - Saison ${monState.season}</h2><div class="panel chart-wrap" id="chartPanel">
         <div class="legend"><span><span class="dot" style="background:var(--accent2)"></span>Popularité (% des combats)</span><span><span class="dot" style="background:var(--win)"></span>Winrate (%)</span></div>
         ${dualChart(hist)}</div>` : ""}
@@ -932,26 +938,7 @@ function dualChart(hist){
     ${dots}</svg>`;
 }
 
-/* ================= COMPARATEUR ================= */
-const cmpState = { a:null, b:null, season:null };
-async function viewCompare(a, b){
-  if(a) cmpState.a = a;
-  if(b) cmpState.b = b;
-  $app.innerHTML = `
-    <h1>Comparateur de joueurs</h1>
-    <div class="cmp-pickers">
-      <div class="cmp-pick"><input id="cmpA" placeholder="🔍 Joueur A…" autocomplete="off"><div class="cmp-results" id="cmpResA" style="display:none"></div></div>
-      <div class="cmp-pick"><input id="cmpB" placeholder="🔍 Joueur B…" autocomplete="off"><div class="cmp-results" id="cmpResB" style="display:none"></div></div>
-    </div>
-    <div id="cmpBody">${cmpState.a && cmpState.b ? '<div class="loading">Chargement de la comparaison…</div>' : '<div class="panel muted">Choisis deux joueurs avec les champs ci-dessus.</div>'}</div>`;
-  attachCmpPicker("cmpA","cmpResA", id=>{ cmpState.a=id; cmpHash(); });
-  attachCmpPicker("cmpB","cmpResB", id=>{ cmpState.b=id; cmpHash(); });
-  if(cmpState.a && cmpState.b) loadCompare();
-}
-function cmpHash(){
-  const h = `#/compare/${cmpState.a||0}/${cmpState.b||0}`;
-  if(location.hash === h) viewCompare(cmpState.a, cmpState.b); else location.hash = h;
-}
+/* attachCmpPicker + probePlayer : utilisés par le simulateur */
 function attachCmpPicker(inputId, listId, onPick){
   const $in = document.getElementById(inputId), $list = document.getElementById(listId);
   let t = null;
@@ -981,58 +968,6 @@ async function probePlayer(id){
   await Promise.all(all.map(async x=>{ sums[x] = await api(`/player/${id}/summary?season=${x}`).then(r=>r.data||null).catch(()=>null); }));
   return { seasons: all.filter(x=>sums[x]), sums };
 }
-async function loadCompare(){
-  const $b = document.getElementById("cmpBody");
-  try{
-    const [A, B] = await Promise.all([probePlayer(cmpState.a), probePlayer(cmpState.b)]);
-    const common = A.seasons.filter(x=>B.seasons.includes(x));
-    if(!common.length){ $b.innerHTML = '<div class="error-box">Ces deux joueurs n\'ont aucune saison en commun avec des données.</div>'; return; }
-    if(!cmpState.season || !common.includes(cmpState.season)) cmpState.season = common[0];
-    const sa = A.sums[cmpState.season], sb = B.sums[cmpState.season];
-    const wr  = x => x.wizard_battles ? x.wizard_wins/x.wizard_battles : null;
-    const fwr = x => x.first_pick_battles ? x.first_pick_wins/x.first_pick_battles : null;
-    const swr = x => x.second_pick_battles ? x.second_pick_wins/x.second_pick_battles : null;
-    const row = (label, va, vb, fmt) => {
-      const best = va==null||vb==null||va===vb ? 0 : (va>vb ? 1 : 2);
-      return `<tr><td class="muted">${label}</td><td class="${best===1?"best":""}">${fmt(va)}</td><td class="${best===2?"best":""}">${fmt(vb)}</td></tr>`;
-    };
-    const mapB = new Map((sb.monster_played||[]).map(m=>[m.unit_master_id, m]));
-    const commonMons = (sa.monster_played||[]).filter(m=>mapB.has(m.unit_master_id))
-      .map(m=>({a:m, b:mapB.get(m.unit_master_id)}))
-      .sort((x,y)=>(y.a.plays+y.b.plays)-(x.a.plays+x.b.plays)).slice(0,30);
-    const mwr = m => m.plays ? m.wins/m.plays : null;
-    $b.innerHTML = `
-      <div class="season-tabs">${common.map(x=>`<button class="${x===cmpState.season?"active":""}" onclick="cmpState.season=${x};loadCompare()">S${x}</button>`).join("")}</div>
-      <div class="panel tbl-wrap">
-        <table>
-          <thead><tr><th style="width:30%"></th>
-            <th><a href="#/player/${cmpState.a}"><img class="avatar" src="${esc(sa.wizard_picture||'')}" onerror="this.style.visibility='hidden'"> ${flag(sa.wizard_country)} <b>${esc(sa.wizard_name)}</b></a></th>
-            <th><a href="#/player/${cmpState.b}"><img class="avatar" src="${esc(sb.wizard_picture||'')}" onerror="this.style.visibility='hidden'"> ${flag(sb.wizard_country)} <b>${esc(sb.wizard_name)}</b></a></th></tr></thead>
-          <tbody>
-            <tr><td class="muted">Rang</td><td>${tierName(sa.last_rating_id)}</td><td>${tierName(sb.last_rating_id)}</td></tr>
-            ${row("Score", sa.last_score, sb.last_score, num)}
-            ${row("Combats", sa.wizard_battles, sb.wizard_battles, num)}
-            ${row("Winrate", wr(sa), wr(sb), pct)}
-            ${row("First pick WR", fwr(sa), fwr(sb), pct)}
-            ${row("Second pick WR", swr(sa), swr(sb), pct)}
-            ${row("Monstres différents joués", (sa.monster_played||[]).length, (sb.monster_played||[]).length, num)}
-          </tbody>
-        </table>
-      </div>
-      ${commonMons.length ? `<h2>Monstres joués par les deux (${commonMons.length})</h2>
-      <div class="panel tbl-wrap"><table>
-        <thead><tr><th>Monstre</th><th>WR ${esc(sa.wizard_name)}</th><th>Parties</th><th>WR ${esc(sb.wizard_name)}</th><th>Parties</th></tr></thead>
-        <tbody>${commonMons.map(x=>{
-          const wa = mwr(x.a), wb = mwr(x.b);
-          const ca = wa==null?"":(wa>=(wb??0)?"best":""), cb = wb==null?"":(wb>(wa??0)?"best":"");
-          return `<tr class="clickable" onclick="location.hash='#/monster/${x.a.unit_master_id}'">
-            <td><img class="mon-ico" src="${monImg(x.a.image_filename)}" loading="lazy"> &nbsp;${esc(x.a.name)}</td>
-            <td class="${ca}">${pct(wa)}</td><td class="muted">${x.a.plays}</td>
-            <td class="${cb}">${pct(wb)}</td><td class="muted">${x.b.plays}</td></tr>`;
-        }).join("")}</tbody></table></div>` : ""}`;
-  }catch(e){ $b.innerHTML = `<div class="error-box">${esc(e.message||e)}</div>`; }
-}
-
 /* ================= ARTIFACT ADD CALCULATOR ================= */
 /* Dégâts additionnels des substats d'artefacts "Additional Damage by % of X" :
    dégâts plats par coup = stat finale (runes incluses) × coefficient, arrondi vers le bas par stat. */
