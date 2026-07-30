@@ -27,6 +27,8 @@ button{font-family:inherit}
 /* ---------- Nav ---------- */
 nav{display:flex;align-items:center;gap:24px;padding:14px 28px;background:rgba(22,27,39,.88);backdrop-filter:blur(10px);border-bottom:1px solid var(--border);position:sticky;top:0;z-index:50;flex-wrap:wrap}
 nav .logo{font-weight:800;font-size:20px;background:linear-gradient(90deg,var(--accent),var(--accent2));-webkit-background-clip:text;background-clip:text;color:transparent;cursor:pointer}
+.navlinks{display:contents}
+.burger{display:none;background:var(--card);border:1px solid var(--border);border-radius:9px;color:var(--text);font-size:18px;padding:5px 11px;cursor:pointer}
 nav a.navlink{color:var(--muted);font-weight:600;font-size:14px;padding:6px 10px;border-radius:8px}
 nav a.navlink:hover,nav a.navlink.active{color:var(--text);background:var(--card2)}
 .searchwrap{position:relative;margin-left:auto;min-width:260px;flex:0 1 340px}
@@ -189,10 +191,14 @@ td.best{color:var(--win);font-weight:800}
 
 /* ---------- mobile ---------- */
 @media (max-width:700px){
-  nav{padding:10px 12px;gap:6px}
-  nav .logo{font-size:16px;margin-right:2px}
-  nav a.navlink{padding:6px 8px;font-size:12.5px}
+  nav{padding:10px 12px;gap:8px}
+  nav .logo{font-size:16px;margin-right:auto}
+  .burger{display:block}
+  .navlinks{display:none;position:absolute;top:100%;left:0;right:0;background:rgba(22,27,39,.97);backdrop-filter:blur(10px);border-bottom:1px solid var(--border);padding:8px 12px 12px;flex-direction:column;gap:4px;z-index:60}
+  nav.open .navlinks{display:flex}
+  nav a.navlink{padding:11px 12px;font-size:14.5px;border-radius:9px}
   .searchwrap{flex:1 1 100%;min-width:0;order:10}
+  .hide-sm{display:none!important}
   main{padding:14px 10px 60px}
   h1{font-size:21px;margin-bottom:14px}
   h2{font-size:16px}
@@ -228,12 +234,15 @@ td.best{color:var(--win);font-weight:800}
 </head>
 <body>
 
-<nav>
+<nav id="topnav">
   <span class="logo" onclick="location.hash='#/'">SMW Analysis</span>
-  <a class="navlink" href="#/monsters" data-nav="monsters">Monstres</a>
-  <a class="navlink" href="#/compare" data-nav="compare">Comparateur</a>
-  <a class="navlink" href="#/simulator" data-nav="sim">Simulateur</a>
-  <a class="navlink" href="#/tools/add" data-nav="addcalc">ADD Calc</a>
+  <button class="burger" id="burgerBtn" aria-label="Menu">☰</button>
+  <div class="navlinks" id="navLinks">
+    <a class="navlink" href="#/monsters" data-nav="monsters">Monstres</a>
+    <a class="navlink" href="#/compare" data-nav="compare">Comparateur</a>
+    <a class="navlink" href="#/simulator" data-nav="sim">Simulateur</a>
+    <a class="navlink" href="#/tools/add" data-nav="addcalc">ADD Calc</a>
+  </div>
   <div class="searchwrap">
     <input id="search" type="text" placeholder="Rechercher un joueur ou un monstre…" autocomplete="off">
     <div class="search-results" id="searchResults" style="display:none"></div>
@@ -354,6 +363,12 @@ function goPlayer(id){ $sr.style.display="none"; $search.value=""; location.hash
 
 /* ================= router ================= */
 window.addEventListener("hashchange", route);
+/* menu burger (mobile) */
+const $nav = document.getElementById("topnav");
+document.getElementById("burgerBtn").onclick = e => { e.stopPropagation(); $nav.classList.toggle("open"); };
+document.getElementById("navLinks").addEventListener("click", ()=> $nav.classList.remove("open"));
+window.addEventListener("hashchange", ()=> $nav.classList.remove("open"));
+document.addEventListener("click", e => { if(!e.target.closest("#topnav")) $nav.classList.remove("open"); });
 function setNav(name){
   document.querySelectorAll("[data-nav]").forEach(a => a.classList.toggle("active", a.dataset.nav===name));
 }
@@ -450,17 +465,17 @@ async function loadLb(){
   }catch(e){ $t.innerHTML = `<div class="error-box">${esc(e.message)}</div>`; }
 }
 function playersTable(rows, offset){
-  return `<table><thead><tr><th>#</th><th>Joueur</th><th>Pays</th><th>Score</th><th>Combats</th><th>Victoires</th><th>Winrate</th></tr></thead><tbody>` +
+  return `<table><thead><tr><th>#</th><th>Joueur</th><th class="hide-sm">Pays</th><th>Score</th><th class="hide-sm">Combats</th><th class="hide-sm">Victoires</th><th>Winrate</th></tr></thead><tbody>` +
     rows.map((p,i)=>{
       const rk = offset+i+1;
       const wr = p.wizard_battles ? p.wizard_wins/p.wizard_battles : null;
       return `<tr class="clickable" onclick="location.hash='#/player/${p.wizard_id}'">
         <td><span class="rank-badge ${rk<=3?"top"+rk:""}">${rk}</span></td>
         <td><img class="avatar" src="${esc(p.wizard_picture||'')}" onerror="this.style.visibility='hidden'"> &nbsp;<b>${esc(p.wizard_name)}</b></td>
-        <td>${flag(p.wizard_country)} ${esc(p.wizard_country||"")}</td>
+        <td class="hide-sm">${flag(p.wizard_country)} ${esc(p.wizard_country||"")}</td>
         <td><b>${num(p.last_score)}</b></td>
-        <td>${num(p.wizard_battles)}</td>
-        <td>${num(p.wizard_wins)}</td>
+        <td class="hide-sm">${num(p.wizard_battles)}</td>
+        <td class="hide-sm">${num(p.wizard_wins)}</td>
         <td>${pct(wr)}</td></tr>`;
     }).join("") + "</tbody></table>";
 }
@@ -511,18 +526,18 @@ async function loadMo(){
 }
 function monstersTable(rows, offset=0, sortable=false){
   const arrow = c => moState.orderBy===c ? (moState.dir==="DESC"?" ▼":" ▲") : "";
-  const th = (label,col) => sortable
-    ? `<th class="sortable" onclick="moSort('${col}')">${label}${arrow(col)}</th>`
-    : `<th>${label}</th>`;
-  return `<table><thead><tr><th>#</th><th>Monstre</th>${th("Joué","played")}${th("Winrate","win_rate")}${th("Pick rate","pick_rate")}${th("Ban rate","ban_rate")}${th("Lead rate","lead_rate")}</tr></thead><tbody>` +
+  const th = (label,col,cls="") => sortable
+    ? `<th class="sortable ${cls}" onclick="moSort('${col}')">${label}${arrow(col)}</th>`
+    : `<th class="${cls}">${label}</th>`;
+  return `<table><thead><tr><th>#</th><th>Monstre</th>${th("Joué","played")}${th("Winrate","win_rate")}${th("Pick rate","pick_rate")}${th("Ban rate","ban_rate","hide-sm")}${th("Lead rate","lead_rate","hide-sm")}</tr></thead><tbody>` +
     rows.map((m,i)=>`<tr class="clickable" onclick="location.hash='#/monster/${m.monster_id}'" title="Voir la fiche de ${esc(m.name)}">
       <td><span class="rank-badge">${offset+i+1}</span></td>
       <td><img class="mon-ico" src="${monImg(m.image_filename)}" loading="lazy"> &nbsp;<b>${esc(m.name)}</b></td>
       <td>${num(m.played)}</td>
       <td>${pct(m.win_rate)}</td>
       <td>${pct(m.pick_rate)}</td>
-      <td>${pct(m.ban_rate)}</td>
-      <td>${pct(m.lead_rate)}</td></tr>`).join("") + "</tbody></table>";
+      <td class="hide-sm">${pct(m.ban_rate)}</td>
+      <td class="hide-sm">${pct(m.lead_rate)}</td></tr>`).join("") + "</tbody></table>";
 }
 
 /* ================= JOUEUR ================= */
