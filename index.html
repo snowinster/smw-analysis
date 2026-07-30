@@ -598,6 +598,11 @@ async function viewPlayer(id){
 
 /* ----- box RTA cumulée (fusion des bestiaires de toutes les saisons déjà sondées) ----- */
 function mergedBestiaryHTML(seasons){
+  // limité aux 2 dernières saisons (sauf comptes curated), le reste est trop ancien
+  if(!BOX_KEEP_ALL_SEASONS.has(plState.id)){
+    const latest = seasonsCache?.[0] ?? Math.max(...seasons);
+    seasons = seasons.filter(s => s >= latest-1);
+  }
   if(seasons.length < 2) return "";
   const merged = new Map();
   for(const se of seasons){
@@ -1239,13 +1244,24 @@ async function getFirstPickStats(){
 const ELEM_FR = {Fire:"Feu", Water:"Eau", Wind:"Vent", Light:"Lumière", Dark:"Ténèbres"};
 const ELEM_COLOR = {Fire:"#ff6b5e", Water:"#4ea1ff", Wind:"#f2c14e", Light:"#e8ecf5", Dark:"#b06bf0"};
 const elemTag = el => el ? `<span style="color:${ELEM_COLOR[el]||"#8b95ab"}">● ${ELEM_FR[el]||el}</span>` : "";
+// comptes dont la box (éditée à la main) garde toutes les saisons
+const BOX_KEEP_ALL_SEASONS = new Set([2091173]); // Julien_bnrch
 async function loadSimBox(id){
   const probe = await probePlayer(id);
+  // box limitée aux 2 dernières saisons (le reste est trop ancien), sauf comptes curated
+  let useSeasons = probe.seasons;
+  if(!BOX_KEEP_ALL_SEASONS.has(id)){
+    const latest = (await getSeasons())[0];
+    useSeasons = probe.seasons.filter(s => s >= latest-1);
+  }
   const merged = new Map();
   let name = "", pic = "";
   for(const se of probe.seasons){
     const su = probe.sums[se];
     if(!name){ name = su.wizard_name; pic = su.wizard_picture||""; }
+  }
+  for(const se of useSeasons){
+    const su = probe.sums[se];
     for(const b of (su.monster_played||[])){
       let e = merged.get(b.unit_master_id);
       if(!e){ e = {...b, plays:0, wins:0}; merged.set(b.unit_master_id, e); }
