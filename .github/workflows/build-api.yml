@@ -1,0 +1,27 @@
+name: Build API
+
+on:
+  schedule:
+    - cron: "0 4 * * *"   # tous les jours à 4h00 UTC
+  workflow_dispatch:       # + déclenchable à la main depuis l'onglet Actions
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Collecte des données
+        run: node scripts/build-api.mjs
+      - name: Commit si changements
+        run: |
+          git config user.name "smw-api-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add api
+          git diff --cached --quiet || git commit -m "API : mise à jour quotidienne des données"
+          git push

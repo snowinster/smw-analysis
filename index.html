@@ -1164,6 +1164,19 @@ const metaCache = new Map();
 async function getMetaStats(){
   const s = simState.season;
   if(metaCache.has(s)) return metaCache.get(s);
+  // 1) notre propre API statique (générée chaque nuit par GitHub Actions)
+  try{
+    const r = await fetch(`api/meta-s${s}.json`, {cache:"no-cache"});
+    if(r.ok){
+      const own = await r.json();
+      if(own.monsters?.length){
+        const map2 = new Map(own.monsters.map(m=>[m.monster_id, m]));
+        metaCache.set(s, map2);
+        return map2;
+      }
+    }
+  }catch(e){}
+  // 2) repli : swarena en direct
   const map = new Map();
   for(const season of [s, s-1]){
     const r = await api(`/monsters?season=${season}&isG3=false&isSL=false&played=0&orderBy=played&orderDirection=DESC&limit=500&offset=0`).catch(()=>({data:null}));
@@ -1187,6 +1200,19 @@ const fpStatsCache = new Map();
 async function getFirstPickStats(){
   const season = simState.season;
   if(fpStatsCache.has(season)) return fpStatsCache.get(season);
+  // 1) notre propre API statique : le calcul lourd est déjà fait chaque nuit côté serveur
+  try{
+    const r = await fetch(`api/firstpicks-s${season}.json`, {cache:"no-cache"});
+    if(r.ok){
+      const own = await r.json();
+      if(own.stats?.length){
+        const m = new Map(own.stats.map(x=>[x.monster_id, {n:x.openings, w:x.wins}]));
+        fpStatsCache.set(season, m);
+        return m;
+      }
+    }
+  }catch(e){}
+  // 2) repli : calcul en direct dans le navigateur
   const LS_KEY = "fpStats_v4_" + season;
   try{
     const s = JSON.parse(localStorage.getItem(LS_KEY));
