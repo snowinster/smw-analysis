@@ -1,0 +1,1798 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SMW Analysis — Stats RTA Summoners War</title>
+<style>
+:root{
+  --bg:#0d1117; --bg2:#161b27; --card:#1a2130; --card2:#212a3d;
+  --border:#2b3550; --text:#e6e9f0; --muted:#8b95ab;
+  --accent:#7c6cf0; --accent2:#4ea1ff;
+  --win:#3fca7c; --lose:#f05c5c; --gold:#f2c14e;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--text);font-family:'Segoe UI',system-ui,sans-serif;min-height:100vh}
+a{color:inherit;text-decoration:none}
+button{font-family:inherit}
+
+/* ---------- Nav ---------- */
+nav{display:flex;align-items:center;gap:24px;padding:14px 28px;background:var(--bg2);border-bottom:1px solid var(--border);position:sticky;top:0;z-index:50;flex-wrap:wrap}
+nav .logo{font-weight:800;font-size:20px;background:linear-gradient(90deg,var(--accent),var(--accent2));-webkit-background-clip:text;background-clip:text;color:transparent;cursor:pointer}
+nav a.navlink{color:var(--muted);font-weight:600;font-size:14px;padding:6px 10px;border-radius:8px}
+nav a.navlink:hover,nav a.navlink.active{color:var(--text);background:var(--card2)}
+.searchwrap{position:relative;margin-left:auto;min-width:260px;flex:0 1 340px}
+.searchwrap input{width:100%;padding:9px 14px;border-radius:10px;border:1px solid var(--border);background:var(--card);color:var(--text);font-size:14px;outline:none}
+.searchwrap input:focus{border-color:var(--accent)}
+.search-results{position:absolute;top:110%;left:0;right:0;background:var(--card);border:1px solid var(--border);border-radius:10px;overflow:hidden;max-height:420px;overflow-y:auto;box-shadow:0 12px 30px rgba(0,0,0,.5)}
+.search-results .sr-head{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);padding:8px 12px 4px}
+.search-results .sr-item{display:flex;align-items:center;gap:10px;padding:8px 12px;cursor:pointer;font-size:14px}
+.search-results .sr-item:hover{background:var(--card2)}
+.search-results img{width:30px;height:30px;border-radius:6px;object-fit:cover;background:var(--bg2)}
+
+/* ---------- Layout ---------- */
+main{max-width:1200px;margin:0 auto;padding:28px 20px 80px}
+h1{font-size:26px;margin-bottom:18px}
+h2{font-size:18px;margin:26px 0 12px;color:var(--text)}
+.muted{color:var(--muted)}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:14px}
+.card{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:16px}
+.card .big{font-size:24px;font-weight:800}
+.card .lbl{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px}
+.panel{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:18px;margin-bottom:18px}
+.row{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.spacer{flex:1}
+select,.btn{background:var(--card2);color:var(--text);border:1px solid var(--border);border-radius:9px;padding:7px 12px;font-size:14px;cursor:pointer}
+.btn:hover{border-color:var(--accent)}
+.btn.primary{background:var(--accent);border-color:var(--accent);font-weight:700}
+.loading{text-align:center;padding:50px;color:var(--muted);font-size:15px}
+.error-box{background:#3a1e26;border:1px solid #74303f;color:#ffb4c0;border-radius:12px;padding:16px;margin:14px 0}
+
+/* ---------- Tables ---------- */
+table{width:100%;border-collapse:collapse;font-size:14px}
+th{color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:.05em;text-align:left;padding:10px 12px;border-bottom:1px solid var(--border);white-space:nowrap;cursor:default}
+th.sortable{cursor:pointer}
+th.sortable:hover{color:var(--text)}
+td{padding:9px 12px;border-bottom:1px solid rgba(43,53,80,.5);vertical-align:middle}
+tr.clickable{cursor:pointer}
+tr.clickable:hover{background:var(--card2)}
+.tbl-wrap{overflow-x:auto}
+.avatar{width:34px;height:34px;border-radius:8px;object-fit:cover;background:var(--bg2);vertical-align:middle}
+.mon-ico{width:38px;height:38px;border-radius:8px;background:var(--bg2)}
+.rank-badge{display:inline-block;min-width:30px;text-align:center;font-weight:700;color:var(--muted)}
+.rank-badge.top1{color:var(--gold)} .rank-badge.top2{color:#c8d2e8} .rank-badge.top3{color:#d49a6a}
+
+/* ---------- Player page ---------- */
+.player-head{display:flex;gap:20px;align-items:center;flex-wrap:wrap;margin-bottom:20px}
+.player-head img.pfp{width:84px;height:84px;border-radius:16px;object-fit:cover;background:var(--card2);border:2px solid var(--border)}
+.player-head .pname{font-size:28px;font-weight:800}
+.tier{display:inline-block;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:700;background:var(--card2);border:1px solid var(--border);color:var(--accent2)}
+.season-tabs{display:flex;gap:8px;flex-wrap:wrap;margin:14px 0}
+.season-tabs button{padding:7px 16px;border-radius:20px;border:1px solid var(--border);background:var(--card);color:var(--muted);cursor:pointer;font-weight:600;font-size:13px}
+.season-tabs button.active{background:var(--accent);border-color:var(--accent);color:#fff}
+
+/* bestiaire */
+.bestiary{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px}
+.beast{display:flex;gap:10px;align-items:center;background:var(--card2);border:1px solid var(--border);border-radius:10px;padding:8px}
+.beast img{width:42px;height:42px;border-radius:8px;background:var(--bg2)}
+.beast .bn{font-size:12.5px;font-weight:600;line-height:1.2}
+.beast .bs{font-size:11.5px;color:var(--muted)}
+
+/* battles */
+.battle{border:1px solid var(--border);border-radius:12px;margin-bottom:12px;overflow:hidden;background:var(--card2)}
+.battle .b-head{display:flex;align-items:center;gap:10px;padding:8px 14px;font-size:12.5px;color:var(--muted);background:rgba(0,0,0,.18)}
+.battle.win .b-head{border-left:4px solid var(--win)}
+.battle.lose .b-head{border-left:4px solid var(--lose)}
+.b-result{font-weight:800;font-size:13px}
+.battle.win .b-result{color:var(--win)} .battle.lose .b-result{color:var(--lose)}
+.b-side{display:flex;align-items:center;gap:12px;padding:10px 14px;flex-wrap:wrap}
+.b-side + .b-side{border-top:1px dashed var(--border)}
+.b-who{width:210px;min-width:170px;display:flex;flex-direction:column;gap:2px}
+.b-who .n{font-weight:700;font-size:14px;cursor:pointer}
+.b-who .n:hover{color:var(--accent2)}
+.b-who .s{font-size:12px;color:var(--muted)}
+.picks{display:flex;gap:6px;flex-wrap:wrap}
+.pick{position:relative;width:46px;height:46px}
+.pick img{width:46px;height:46px;border-radius:9px;background:var(--bg2);display:block}
+.pick.banned img{filter:grayscale(1) brightness(.45)}
+.pick.banned::after{content:"✕";position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--lose);font-size:22px;font-weight:900}
+.pick.leader::before{content:"★";position:absolute;top:-7px;left:-4px;color:var(--gold);font-size:14px;z-index:2;text-shadow:0 1px 3px #000}
+.fp-badge{font-size:10.5px;font-weight:700;color:var(--accent2);border:1px solid var(--accent2);padding:1px 7px;border-radius:10px;white-space:nowrap}
+
+/* chart */
+.chart-wrap{width:100%;overflow-x:auto}
+.chart-tip{position:fixed;pointer-events:none;background:#0009;backdrop-filter:blur(4px);border:1px solid var(--border);border-radius:8px;padding:7px 10px;font-size:12.5px;z-index:100;display:none;white-space:nowrap}
+
+.pager{display:flex;gap:8px;align-items:center;justify-content:center;margin-top:14px}
+
+/* ---------- fiche monstre / comparateur / tendances ---------- */
+.two-col{display:grid;grid-template-columns:1fr 1fr;gap:22px}
+@media (max-width:700px){ .two-col{grid-template-columns:1fr} }
+h3{font-size:13px;color:var(--muted);margin:4px 0 10px;text-transform:uppercase;letter-spacing:.06em}
+.skill{display:flex;gap:14px;padding:12px 0;border-bottom:1px solid rgba(43,53,80,.5)}
+.skill:last-child{border-bottom:none}
+.skill img{width:48px;height:48px;border-radius:10px;background:var(--bg2);flex-shrink:0}
+.sk-name{font-weight:700;margin-bottom:3px}
+.sk-desc{font-size:13.5px;color:var(--muted);line-height:1.45}
+.sk-mult{font-size:12px;margin-top:3px}
+.basestats{display:flex;gap:16px;flex-wrap:wrap;font-size:13px;color:var(--muted);margin-top:6px}
+.basestats b{color:var(--text)}
+.cmp-pickers{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:16px}
+.cmp-pick{position:relative}
+.cmp-pick input{width:100%;padding:10px 14px;border-radius:10px;border:1px solid var(--border);background:var(--card);color:var(--text);font-size:14px;outline:none}
+.cmp-pick input:focus{border-color:var(--accent)}
+.cmp-results{position:absolute;top:105%;left:0;right:0;background:var(--card);border:1px solid var(--border);border-radius:10px;z-index:60;max-height:300px;overflow-y:auto;box-shadow:0 12px 30px rgba(0,0,0,.5)}
+td.best{color:var(--win);font-weight:800}
+.trend-row{display:flex;align-items:center;gap:12px;padding:8px 6px;border-bottom:1px solid rgba(43,53,80,.5);cursor:pointer}
+.trend-row:hover{background:var(--card2)}
+.trend-row:last-child{border-bottom:none}
+.trend-row .tname{flex:1;font-weight:600;font-size:14px}
+.delta{font-weight:800;font-size:13px;min-width:72px;text-align:right}
+.delta.up{color:var(--win)} .delta.down{color:var(--lose)}
+.legend{display:flex;gap:18px;font-size:12.5px;color:var(--muted);margin-bottom:8px}
+.legend .dot{display:inline-block;width:10px;height:10px;border-radius:5px;margin-right:5px;vertical-align:middle}
+
+/* ---------- simulateur ---------- */
+.sim-side{border:1px solid var(--border);border-radius:12px;padding:12px 14px;margin-bottom:10px;background:var(--card2)}
+.sim-side.turn{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
+.sim-side .sim-name{font-weight:700;margin-bottom:8px;display:flex;align-items:center;gap:8px;font-size:14px}
+.sim-slots{display:flex;gap:8px;flex-wrap:wrap}
+.vs-wrap{display:grid;grid-template-columns:1fr auto 1fr;gap:12px;align-items:stretch;margin-bottom:12px}
+.vs-mid{align-self:center;font-size:36px;font-weight:900;color:var(--gold);text-shadow:0 2px 14px rgba(242,193,78,.45);padding:0 8px}
+.team-slots{display:flex;gap:14px;align-items:center;margin-top:10px;justify-content:center}
+.team-slots.right{flex-direction:row-reverse}
+.slot-grid{display:grid;grid-template-columns:repeat(2,86px);gap:10px}
+@media (max-width:860px){ .vs-wrap{grid-template-columns:1fr} .vs-mid{text-align:center;padding:4px 0} .team-slots.right{flex-direction:row} }
+.slot{width:86px;height:86px;border-radius:14px;background:var(--bg2);border:2px dashed var(--border);display:flex;align-items:center;justify-content:center;position:relative}
+.slot img{width:100%;height:100%;border-radius:12px;object-fit:cover}
+.slot .rm{position:absolute;top:-8px;right:-8px;width:22px;height:22px;border-radius:11px;background:var(--lose);color:#fff;font-size:12px;font-weight:800;display:none;align-items:center;justify-content:center;cursor:pointer;border:none;z-index:2}
+.slot:hover .rm{display:flex}
+.slot.next{border-color:var(--accent);border-style:solid}
+.sugg{display:flex;align-items:center;gap:10px;padding:7px 8px;border-radius:9px;cursor:pointer;border-bottom:1px solid rgba(43,53,80,.4)}
+.sugg:hover{background:var(--card2)}
+.sugg img{width:38px;height:38px;border-radius:8px;background:var(--bg2)}
+.sugg .sg-n{flex:1;font-size:13.5px;font-weight:600}
+.sugg .sg-n .sub{font-size:11px;color:var(--muted);font-weight:400}
+.sugg .sg-wr{font-weight:800;font-size:13.5px}
+.inbox-badge{font-size:10px;font-weight:700;color:var(--win);border:1px solid var(--win);padding:1px 6px;border-radius:9px}
+.ban-badge{font-size:10px;font-weight:700;color:var(--lose);border:1px solid var(--lose);padding:1px 6px;border-radius:9px;white-space:nowrap}
+.sugg.hid{display:none}
+.more-btn{width:100%;margin-top:8px;text-align:center}
+.fp-radio label{margin-right:14px;cursor:pointer}
+.chip{display:inline-flex;align-items:center;gap:7px;padding:5px 11px;border-radius:20px;border:1px solid var(--border);background:var(--card);cursor:pointer;font-size:13px;font-weight:600}
+.chip img{width:22px;height:22px;border-radius:11px;object-fit:cover}
+.chip:hover{border-color:var(--accent)}
+.chip.active{background:var(--accent);border-color:var(--accent);color:#fff}
+.chip-x{color:var(--muted);font-size:11px;margin-left:2px;cursor:pointer}
+.chip-x:hover{color:var(--lose)}
+.pick.editable:hover::after{content:"✕";position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:900;font-size:20px;background:rgba(240,92,92,.45);border-radius:9px}
+.pick .custom-tag{position:absolute;bottom:-5px;right:-5px;background:var(--accent);color:#fff;font-size:9px;font-weight:800;border-radius:6px;padding:1px 4px;z-index:2}
+.rune-row{margin-bottom:8px}
+.rune-row .rr-label{display:flex;justify-content:space-between;font-size:13.5px;margin-bottom:3px}
+.rune-row .rr-bar{height:8px;border-radius:5px;background:var(--bg2);overflow:hidden}
+.rune-row .rr-fill{height:100%;border-radius:5px;background:linear-gradient(90deg,var(--accent),var(--accent2))}
+.note{font-size:12px;color:var(--muted);background:var(--bg2);border-radius:8px;padding:8px 10px;margin-top:12px}
+.mon-click{cursor:pointer}
+.mon-click:hover{outline:2px solid var(--accent);outline-offset:1px;border-radius:8px}
+.foot-note{margin-top:40px;font-size:12.5px;color:var(--muted);text-align:center}
+@media (max-width:640px){ .b-who{width:100%} nav{gap:10px} }
+</style>
+</head>
+<body>
+
+<nav>
+  <span class="logo" onclick="location.hash='#/'">SMW Analysis</span>
+  <a class="navlink" href="#/players" data-nav="players">Classement</a>
+  <a class="navlink" href="#/monsters" data-nav="monsters">Monstres</a>
+  <a class="navlink" href="#/trends" data-nav="trends">Tendances</a>
+  <a class="navlink" href="#/compare" data-nav="compare">Comparateur</a>
+  <a class="navlink" href="#/simulator" data-nav="sim">Simulateur</a>
+  <div class="searchwrap">
+    <input id="search" type="text" placeholder="Rechercher un joueur ou un monstre…" autocomplete="off">
+    <div class="search-results" id="searchResults" style="display:none"></div>
+  </div>
+</nav>
+
+<main id="app"><div class="loading">Chargement…</div></main>
+<div class="chart-tip" id="chartTip"></div>
+
+<script>
+"use strict";
+const API = "https://api.swarena.gg";
+const ASSETS = "https://assets.swarena.gg/monster-pictures/";
+const $app = document.getElementById("app");
+
+/* ================= utils ================= */
+async function api(path){
+  const r = await fetch(API + path);
+  if(!r.ok) throw new Error("API " + r.status + " sur " + path);
+  const j = await r.json();
+  if(j && j.error !== undefined) return { data: null };
+  return j;
+}
+const pct = (x, d=1) => x==null||isNaN(x) ? "—" : (x*100).toFixed(d) + " %";
+const num = x => x==null ? "—" : Number(x).toLocaleString("fr-FR");
+const esc = s => String(s??"").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+function flag(cc){
+  if(!cc || cc.length!==2) return "";
+  return String.fromCodePoint(...[...cc.toUpperCase()].map(c=>0x1F1A5+c.charCodeAt(0)));
+}
+function fmtDate(iso){
+  if(!iso) return "";
+  const d = new Date(iso.replace(" ","T"));
+  return isNaN(d) ? iso : d.toLocaleString("fr-FR",{day:"2-digit",month:"short",year:"numeric",hour:"2-digit",minute:"2-digit"});
+}
+// mapping officiel extrait du code de swarena : 1xxx=Challenger, 2xxx=Fighter, 3xxx=Conquérant, 4xxx=Guardian (G4=Légende), 5xxx=Légende
+function tierName(rid){
+  if(!rid) return "—";
+  const t = String(rid);
+  const base = {1:"Challenger",2:"Fighter",3:"Conquérant",4:"Guardian",5:"Légende"}[t[0]];
+  if(!base) return "—";
+  const sub = t[3];
+  if(base==="Guardian" && sub==="4") return "Légende";
+  return base==="Légende" ? base : base + " " + sub;
+}
+const monImg = f => f ? ASSETS + f : "";
+
+/* --------- cache monstres (id -> {name,image_filename,element}) --------- */
+const monCache = new Map();
+try{ const s = JSON.parse(localStorage.getItem("monCache_v1")||"{}"); for(const k in s) monCache.set(+k, s[k]); }catch(e){}
+let saveTimer = null;
+function saveMonCache(){
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(()=>{ try{ localStorage.setItem("monCache_v1", JSON.stringify(Object.fromEntries(monCache))); }catch(e){} }, 800);
+}
+const monPending = new Map();
+async function getMonster(id){
+  if(monCache.has(id)) return monCache.get(id);
+  if(monPending.has(id)) return monPending.get(id);
+  const p = api("/monster/" + id).then(r => {
+    const m = r.data ? {name:r.data.name, image_filename:r.data.image_filename, element:r.data.element, slug:r.data.slug} : {name:"#"+id, image_filename:null};
+    monCache.set(id, m); saveMonCache(); monPending.delete(id);
+    return m;
+  }).catch(()=>{ monPending.delete(id); return {name:"#"+id, image_filename:null}; });
+  monPending.set(id, p);
+  return p;
+}
+async function preloadMonsters(ids){ await Promise.all([...new Set(ids)].map(getMonster)); }
+
+/* --------- saisons --------- */
+let seasonsCache = null;
+async function getSeasons(){
+  if(seasonsCache) return seasonsCache;
+  const r = await api("/general/seasons");
+  seasonsCache = (r.data||[]).map(s=>s.season).sort((a,b)=>b-a);
+  return seasonsCache;
+}
+
+/* ================= recherche globale ================= */
+const $search = document.getElementById("search");
+const $sr = document.getElementById("searchResults");
+let searchTimer = null;
+$search.addEventListener("input", () => {
+  clearTimeout(searchTimer);
+  const q = $search.value.trim();
+  if(q.length < 2){ $sr.style.display="none"; return; }
+  searchTimer = setTimeout(() => doSearch(q), 300);
+});
+document.addEventListener("click", e => { if(!e.target.closest(".searchwrap")) $sr.style.display="none"; });
+async function doSearch(q){
+  $sr.style.display="block";
+  $sr.innerHTML = '<div class="sr-item muted">Recherche…</div>';
+  try{
+    const [pl, mo] = await Promise.all([
+      api("/player/search/" + encodeURIComponent(q)).catch(()=>({data:[]})),
+      api("/monster/search/" + encodeURIComponent(q)).catch(()=>({data:[]}))
+    ]);
+    let html = "";
+    const players = (pl.data||[]).slice(0,8);
+    const monsters = (mo.data||[]).slice(0,6);
+    if(players.length){
+      html += '<div class="sr-head">Joueurs</div>' + players.map(p =>
+        `<div class="sr-item" onclick="goPlayer(${p.id})">
+           <img src="${esc(p.wizard_picture_url||'')}" onerror="this.style.visibility='hidden'">
+           <span>${esc(p.wizard_name)}</span></div>`).join("");
+    }
+    if(monsters.length){
+      html += '<div class="sr-head">Monstres</div>' + monsters.map(m =>
+        `<div class="sr-item" onclick="goMonsterBySlug('${esc(m.slug)}')">
+           <img src="${monImg(m.image_filename)}">
+           <span>${esc(m.name)} <span class="muted">· ${esc(m.element||"")}</span></span></div>`).join("");
+    }
+    $sr.innerHTML = html || '<div class="sr-item muted">Aucun résultat</div>';
+  }catch(e){ $sr.innerHTML = '<div class="sr-item muted">Erreur de recherche</div>'; }
+}
+function goPlayer(id){ $sr.style.display="none"; $search.value=""; location.hash = "#/player/" + id; }
+
+/* ================= router ================= */
+window.addEventListener("hashchange", route);
+function setNav(name){
+  document.querySelectorAll("[data-nav]").forEach(a => a.classList.toggle("active", a.dataset.nav===name));
+}
+function route(){
+  const h = location.hash || "#/";
+  const mPlayer = h.match(/^#\/player\/(\d+)/);
+  if(mPlayer){ setNav(""); return viewPlayer(+mPlayer[1]); }
+  const mMon = h.match(/^#\/monster\/(\d+)/);
+  if(mMon){ setNav("monsters"); return viewMonster(+mMon[1]); }
+  if(h.startsWith("#/players")){ setNav("players"); return viewLeaderboard(); }
+  if(h.startsWith("#/monsters")){ setNav("monsters"); return viewMonsters(); }
+  if(h.startsWith("#/trends")){ setNav("trends"); return viewTrends(); }
+  if(h.startsWith("#/simulator")){ setNav("sim"); return viewSimulator(); }
+  const mCmp = h.match(/^#\/compare(?:\/(\d+))?(?:\/(\d+))?/);
+  if(mCmp){ setNav("compare"); return viewCompare(+mCmp[1]||null, +mCmp[2]||null); }
+  setNav(""); return viewHome();
+}
+function fail(e){
+  $app.innerHTML = `<div class="error-box"><b>Erreur :</b> ${esc(e.message||e)}<br><span class="muted">L'API de swarena est peut-être temporairement indisponible.</span></div>`;
+}
+
+/* ================= HOME ================= */
+async function viewHome(){
+  $app.innerHTML = '<div class="loading">Chargement…</div>';
+  try{
+    const [stats, seasons] = await Promise.all([api("/general/stats"), getSeasons()]);
+    const latest = seasons[0];
+    let played = latest;
+    let topPlayers = [], topMons = [];
+    // la saison en cours peut être vide → on recule jusqu'à trouver des données
+    for(const s of seasons){
+      const [p, m] = await Promise.all([
+        api(`/players?season=${s}&isSL=false&limit=5&offset=0`).catch(()=>({data:null})),
+        api(`/monsters?season=${s}&isG3=false&isSL=false&played=0&orderBy=played&orderDirection=DESC&limit=6&offset=0`).catch(()=>({data:null}))
+      ]);
+      if(p.data && p.data.length){ topPlayers = p.data; topMons = m.data||[]; played = s; break; }
+    }
+    $app.innerHTML = `
+      <h1>Statistiques RTA — Summoners War</h1>
+      <div class="cards">
+        <div class="card"><div class="lbl">Joueurs suivis</div><div class="big">${num(stats.wizards_count)}</div></div>
+        <div class="card"><div class="lbl">Combats analysés</div><div class="big">${num(stats.battles_count)}</div></div>
+        <div class="card"><div class="lbl">Saisons couvertes</div><div class="big">${seasons.length} <span class="muted" style="font-size:14px">(S${seasons[seasons.length-1]}–S${latest})</span></div></div>
+      </div>
+      <h2>Top joueurs — Saison ${played} <a class="btn" style="margin-left:10px;font-size:12px" href="#/players">Voir le classement complet →</a></h2>
+      <div class="panel tbl-wrap">${playersTable(topPlayers, 0)}</div>
+      <h2>Monstres les plus joués — Saison ${played} <a class="btn" style="margin-left:10px;font-size:12px" href="#/monsters">Voir tous les monstres →</a></h2>
+      <div class="panel tbl-wrap">${monstersTable(topMons)}</div>
+      <div class="foot-note">Données : api.swarena.gg · Reconstruction locale non affiliée à Swarena ni Com2uS.</div>`;
+  }catch(e){ fail(e); }
+}
+
+/* ================= LEADERBOARD ================= */
+const lbState = { season:null, page:1, limit:25 };
+async function viewLeaderboard(){
+  $app.innerHTML = '<div class="loading">Chargement…</div>';
+  try{
+    const seasons = await getSeasons();
+    if(!lbState.season) lbState.season = seasons[0];
+    $app.innerHTML = `
+      <h1>Classement des joueurs</h1>
+      <div class="row" style="margin-bottom:14px">
+        <label class="muted">Saison</label>
+        <select id="lbSeason">${seasons.map(s=>`<option value="${s}" ${s===lbState.season?"selected":""}>Saison ${s}</option>`).join("")}</select>
+      </div>
+      <div class="panel tbl-wrap" id="lbTable"><div class="loading">Chargement…</div></div>
+      <div class="pager">
+        <button class="btn" id="lbPrev">← Précédent</button>
+        <span class="muted" id="lbPage"></span>
+        <button class="btn" id="lbNext">Suivant →</button>
+      </div>`;
+    document.getElementById("lbSeason").onchange = e => { lbState.season = +e.target.value; lbState.page = 1; loadLb(); };
+    document.getElementById("lbPrev").onclick = () => { if(lbState.page>1){ lbState.page--; loadLb(); } };
+    document.getElementById("lbNext").onclick = () => { lbState.page++; loadLb(); };
+    loadLb();
+  }catch(e){ fail(e); }
+}
+async function loadLb(){
+  const $t = document.getElementById("lbTable");
+  $t.innerHTML = '<div class="loading">Chargement…</div>';
+  document.getElementById("lbPage").textContent = "Page " + lbState.page;
+  try{
+    const off = (lbState.page-1)*lbState.limit;
+    const r = await api(`/players?season=${lbState.season}&isSL=false&limit=${lbState.limit}&offset=${off}`);
+    $t.innerHTML = (r.data && r.data.length) ? playersTable(r.data, off) : '<div class="loading">Aucune donnée pour cette saison.</div>';
+  }catch(e){ $t.innerHTML = `<div class="error-box">${esc(e.message)}</div>`; }
+}
+function playersTable(rows, offset){
+  return `<table><thead><tr><th>#</th><th>Joueur</th><th>Pays</th><th>Score</th><th>Combats</th><th>Victoires</th><th>Winrate</th></tr></thead><tbody>` +
+    rows.map((p,i)=>{
+      const rk = offset+i+1;
+      const wr = p.wizard_battles ? p.wizard_wins/p.wizard_battles : null;
+      return `<tr class="clickable" onclick="location.hash='#/player/${p.wizard_id}'">
+        <td><span class="rank-badge ${rk<=3?"top"+rk:""}">${rk}</span></td>
+        <td><img class="avatar" src="${esc(p.wizard_picture||'')}" onerror="this.style.visibility='hidden'"> &nbsp;<b>${esc(p.wizard_name)}</b></td>
+        <td>${flag(p.wizard_country)} ${esc(p.wizard_country||"")}</td>
+        <td><b>${num(p.last_score)}</b></td>
+        <td>${num(p.wizard_battles)}</td>
+        <td>${num(p.wizard_wins)}</td>
+        <td>${pct(wr)}</td></tr>`;
+    }).join("") + "</tbody></table>";
+}
+
+/* ================= MONSTRES ================= */
+const moState = { season:null, page:1, limit:50, orderBy:"played", dir:"DESC", isG3:false };
+async function viewMonsters(){
+  $app.innerHTML = '<div class="loading">Chargement…</div>';
+  try{
+    const seasons = await getSeasons();
+    if(!moState.season) moState.season = seasons[0];
+    $app.innerHTML = `
+      <h1>Statistiques des monstres</h1>
+      <div class="row" style="margin-bottom:14px">
+        <label class="muted">Saison</label>
+        <select id="moSeason">${seasons.map(s=>`<option value="${s}" ${s===moState.season?"selected":""}>Saison ${s}</option>`).join("")}</select>
+        <label class="muted"><input type="checkbox" id="moG3" ${moState.isG3?"checked":""}> Guardian 3+ uniquement</label>
+      </div>
+      <div class="panel tbl-wrap" id="moTable"><div class="loading">Chargement…</div></div>
+      <div class="pager">
+        <button class="btn" id="moPrev">← Précédent</button>
+        <span class="muted" id="moPage"></span>
+        <button class="btn" id="moNext">Suivant →</button>
+      </div>`;
+    document.getElementById("moSeason").onchange = e => { moState.season = +e.target.value; moState.page=1; loadMo(); };
+    document.getElementById("moG3").onchange = e => { moState.isG3 = e.target.checked; moState.page=1; loadMo(); };
+    document.getElementById("moPrev").onclick = () => { if(moState.page>1){ moState.page--; loadMo(); } };
+    document.getElementById("moNext").onclick = () => { moState.page++; loadMo(); };
+    loadMo();
+  }catch(e){ fail(e); }
+}
+function moSort(col){
+  if(moState.orderBy===col) moState.dir = moState.dir==="DESC" ? "ASC" : "DESC";
+  else { moState.orderBy = col; moState.dir = "DESC"; }
+  moState.page = 1; loadMo();
+}
+async function loadMo(){
+  const $t = document.getElementById("moTable");
+  $t.innerHTML = '<div class="loading">Chargement…</div>';
+  try{
+    const off = (moState.page-1)*moState.limit;
+    const q = `season=${moState.season}&isG3=${moState.isG3}&isSL=false&played=0&orderBy=${moState.orderBy}&orderDirection=${moState.dir}&limit=${moState.limit}&offset=${off}`;
+    const r = await api("/monsters?" + q);
+    const total = r.count || 0;
+    document.getElementById("moPage").textContent = `Page ${moState.page} / ${Math.max(1, Math.ceil(total/moState.limit))} · ${num(total)} monstres`;
+    $t.innerHTML = (r.data && r.data.length) ? monstersTable(r.data, off, true) : '<div class="loading">Aucune donnée.</div>';
+  }catch(e){ $t.innerHTML = `<div class="error-box">${esc(e.message)}</div>`; }
+}
+function monstersTable(rows, offset=0, sortable=false){
+  const arrow = c => moState.orderBy===c ? (moState.dir==="DESC"?" ▼":" ▲") : "";
+  const th = (label,col) => sortable
+    ? `<th class="sortable" onclick="moSort('${col}')">${label}${arrow(col)}</th>`
+    : `<th>${label}</th>`;
+  return `<table><thead><tr><th>#</th><th>Monstre</th>${th("Joué","played")}${th("Winrate","win_rate")}${th("Pick rate","pick_rate")}${th("Ban rate","ban_rate")}${th("Lead rate","lead_rate")}</tr></thead><tbody>` +
+    rows.map((m,i)=>`<tr class="clickable" onclick="location.hash='#/monster/${m.monster_id}'" title="Voir la fiche de ${esc(m.name)}">
+      <td><span class="rank-badge">${offset+i+1}</span></td>
+      <td><img class="mon-ico" src="${monImg(m.image_filename)}" loading="lazy"> &nbsp;<b>${esc(m.name)}</b></td>
+      <td>${num(m.played)}</td>
+      <td>${pct(m.win_rate)}</td>
+      <td>${pct(m.pick_rate)}</td>
+      <td>${pct(m.ban_rate)}</td>
+      <td>${pct(m.lead_rate)}</td></tr>`).join("") + "</tbody></table>";
+}
+
+/* ================= JOUEUR ================= */
+const plState = { id:null, season:null };
+let plSummaries = {}; // cache des résumés par saison pour le joueur affiché
+async function viewPlayer(id){
+  $app.innerHTML = '<div class="loading">Chargement du profil…</div>';
+  try{
+    if(plState.id !== id){ plState.id = id; plState.season = null; plSummaries = {}; }
+    const sr = await api(`/player/${id}/seasons`);
+    const allSeasons = (sr.data||[]).sort((a,b)=>b-a);
+    if(!allSeasons.length){ $app.innerHTML = '<div class="error-box">Aucune donnée pour ce joueur.</div>'; return; }
+
+    // on teste chaque saison en parallèle : seules celles avec de vraies données deviennent des onglets
+    await Promise.all(allSeasons.filter(x=>plSummaries[x]===undefined).map(async x=>{
+      plSummaries[x] = await api(`/player/${id}/summary?season=${x}`).then(r=>r.data||null).catch(()=>null);
+    }));
+    const seasons = allSeasons.filter(x=>plSummaries[x]);
+    if(!seasons.length){ $app.innerHTML = '<div class="error-box">Ce joueur est référencé mais n\'a aucune donnée de combat exploitable.</div>'; return; }
+    if(!plState.season || !seasons.includes(plState.season)) plState.season = seasons[0];
+    const season = plState.season;
+
+    const [histR, lbR] = await Promise.all([
+      api(`/player/${id}/history?season=${season}`).catch(()=>({data:[]})),
+      api(`/player/${id}/last-battles?season=${season}`).catch(()=>({data:[]}))
+    ]);
+    const s = plSummaries[season] || {};
+    const hist = histR.data || [];
+    const battles = lbR.data || [];
+
+    const wr  = s.wizard_battles ? s.wizard_wins/s.wizard_battles : null;
+    const fwr = s.first_pick_battles ? s.first_pick_wins/s.first_pick_battles : null;
+    const swr = s.second_pick_battles ? s.second_pick_wins/s.second_pick_battles : null;
+    const bestiary = (s.monster_played||[]).slice().sort((a,b)=>b.plays-a.plays);
+
+    $app.innerHTML = `
+      <div class="player-head">
+        <img class="pfp" src="${esc(s.wizard_picture||'')}" onerror="this.style.visibility='hidden'">
+        <div>
+          <div class="pname">${esc(s.wizard_name||("Joueur #"+id))} <span style="font-size:20px">${flag(s.wizard_country)}</span></div>
+          <div class="row" style="margin-top:6px">
+            <span class="tier">${tierName(s.last_rating_id)}</span>
+            <span class="muted">Score <b style="color:var(--text)">${num(s.last_score)}</b></span>
+            <span class="muted">ID ${id}</span>
+          </div>
+        </div>
+      </div>
+      <div class="season-tabs">${seasons.map(x=>`<button class="${x===season?"active":""}" onclick="plState.season=${x};viewPlayer(${id})">S${x}</button>`).join("")}</div>
+      <div class="cards" style="margin-bottom:18px">
+        <div class="card"><div class="lbl">Combats</div><div class="big">${num(s.wizard_battles)}</div></div>
+        <div class="card"><div class="lbl">Victoires</div><div class="big">${num(s.wizard_wins)}</div></div>
+        <div class="card"><div class="lbl">Winrate</div><div class="big">${pct(wr)}</div></div>
+        <div class="card"><div class="lbl">First pick</div><div class="big">${pct(fwr)}</div><div class="muted" style="font-size:12px">${num(s.first_pick_wins)} / ${num(s.first_pick_battles)}</div></div>
+        <div class="card"><div class="lbl">Second pick</div><div class="big">${pct(swr)}</div><div class="muted" style="font-size:12px">${num(s.second_pick_wins)} / ${num(s.second_pick_battles)}</div></div>
+      </div>
+      ${hist.length ? `<h2>Évolution du score — Saison ${season}</h2><div class="panel chart-wrap" id="chartPanel">${scoreChart(hist)}</div>` : ""}
+      ${bestiary.length ? `<h2>Bestiaire (${bestiary.length} monstres)</h2><div class="panel bestiary">${
+        bestiary.map(b=>{
+          const bwr = b.plays ? Math.round(100*b.wins/b.plays) : 0;
+          return `<div class="beast mon-click" onclick="location.hash='#/monster/${b.unit_master_id}'" title="${esc(b.name)} — ${b.plays} parties, ${b.wins} victoires · cliquer pour la fiche">
+            <img src="${monImg(b.image_filename)}" loading="lazy">
+            <div><div class="bn">${esc(b.name)}</div><div class="bs">${b.plays} parties · <b style="color:${bwr>=50?'var(--win)':'var(--lose)'}">${bwr} %</b></div></div></div>`;
+        }).join("")}</div>` : ""}
+      ${mergedBestiaryHTML(seasons)}
+      <h2>Derniers combats ${battles.length?`(${battles.length})`:""}</h2>
+      <div id="battleList">${battles.length ? '<div class="loading">Chargement des drafts…</div>' : '<div class="panel muted">Aucun replay disponible pour cette saison.</div>'}</div>
+      <div class="foot-note">Données : api.swarena.gg</div>`;
+
+    attachChartTips();
+    if(battles.length) renderBattles(battles, id);
+  }catch(e){ fail(e); }
+}
+
+/* ----- box RTA cumulée (fusion des bestiaires de toutes les saisons déjà sondées) ----- */
+function mergedBestiaryHTML(seasons){
+  if(seasons.length < 2) return "";
+  const merged = new Map();
+  for(const se of seasons){
+    const su = plSummaries[se];
+    if(!su) continue;
+    for(const b of (su.monster_played||[])){
+      let e = merged.get(b.unit_master_id);
+      if(!e){ e = {...b, plays:0, wins:0, nbSeasons:0}; merged.set(b.unit_master_id, e); }
+      e.plays += b.plays; e.wins += b.wins; e.nbSeasons++;
+    }
+  }
+  if(!merged.size) return "";
+  const list = [...merged.values()].sort((a,b)=>b.plays-a.plays);
+  return `<details style="margin-top:22px">
+    <summary style="cursor:pointer;font-size:18px;font-weight:700;margin-bottom:12px">
+      Box RTA cumulée — ${list.length} monstres vus sur ${seasons.length} saisons (S${Math.min(...seasons)}–S${Math.max(...seasons)})
+      <span class="muted" style="font-size:12.5px;font-weight:400">· cliquer pour ouvrir</span>
+    </summary>
+    <div class="panel bestiary" style="margin-top:10px">${list.map(b=>{
+      const bwr = b.plays ? Math.round(100*b.wins/b.plays) : 0;
+      return `<div class="beast mon-click" onclick="location.hash='#/monster/${b.unit_master_id}'" title="${esc(b.name)} — ${b.plays} parties sur ${b.nbSeasons} saison(s)">
+        <img src="${monImg(b.image_filename)}" loading="lazy">
+        <div><div class="bn">${esc(b.name)}</div><div class="bs">${b.plays} parties · <b style="color:${bwr>=50?'var(--win)':'var(--lose)'}">${bwr} %</b></div></div></div>`;
+    }).join("")}</div>
+    <div class="note">Ce n'est pas la box complète du compte (Com2uS ne l'expose pas publiquement) : ce sont tous les monstres que ce joueur a réellement joués en RTA sur les saisons couvertes par swarena.</div>
+  </details>`;
+}
+
+/* ----- graphe score (SVG) ----- */
+function scoreChart(hist){
+  const pts = hist.filter(h=>h.score>0);
+  if(pts.length<2) return '<div class="muted">Pas assez de données pour tracer le graphe.</div>';
+  const W = Math.max(700, pts.length*22), H = 260, P = 38;
+  const min = Math.min(...pts.map(p=>p.score)), max = Math.max(...pts.map(p=>p.score));
+  const span = (max-min)||1;
+  const X = i => P + i*(W-2*P)/(pts.length-1);
+  const Y = v => H-P - (v-min)*(H-2*P)/span;
+  const line = pts.map((p,i)=>`${X(i).toFixed(1)},${Y(p.score).toFixed(1)}`).join(" ");
+  const grid = [0,.25,.5,.75,1].map(f=>{
+    const v = Math.round(min+f*span), y = Y(v);
+    return `<line x1="${P}" y1="${y}" x2="${W-P}" y2="${y}" stroke="#2b3550" stroke-dasharray="3 4"/><text x="6" y="${y+4}" fill="#8b95ab" font-size="11">${v}</text>`;
+  }).join("");
+  const dots = pts.map((p,i)=>
+    `<circle cx="${X(i).toFixed(1)}" cy="${Y(p.score).toFixed(1)}" r="4.5" fill="#7c6cf0" stroke="#0d1117" stroke-width="1.5"
+       data-tip="${esc(p.date_add)} — score ${p.score} · ${p.battles} combats, ${p.wins} V"/>`).join("");
+  return `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">
+    ${grid}
+    <polyline points="${line}" fill="none" stroke="url(#gline)" stroke-width="2.5" stroke-linejoin="round"/>
+    <defs><linearGradient id="gline" x1="0" x2="1"><stop offset="0" stop-color="#7c6cf0"/><stop offset="1" stop-color="#4ea1ff"/></linearGradient></defs>
+    ${dots}</svg>`;
+}
+function attachChartTips(){
+  const tip = document.getElementById("chartTip");
+  const panel = document.getElementById("chartPanel");
+  if(!panel) return;
+  panel.addEventListener("mousemove", e=>{
+    const t = e.target.closest("[data-tip]");
+    if(t){ tip.style.display="block"; tip.textContent=t.dataset.tip; tip.style.left=(e.clientX+14)+"px"; tip.style.top=(e.clientY-10)+"px"; }
+    else tip.style.display="none";
+  });
+  panel.addEventListener("mouseleave", ()=> tip.style.display="none");
+}
+
+/* ----- rendu des combats ----- */
+async function renderBattles(battles, viewerId){
+  const ids = [];
+  for(const b of battles) for(const k in (b.user_list||{})){
+    for(const u of (b.user_list[k].pick_info?.unit_list||[])) ids.push(u.unit_master_id);
+  }
+  await preloadMonsters(ids);
+  const $bl = document.getElementById("battleList");
+  if(!$bl) return;
+  $bl.innerHTML = battles.map(b=>{
+    const users = Object.values(b.user_list||{});
+    const me = users.find(u=>u.wizard_id===viewerId) || users[0];
+    const opp = users.find(u=>u!==me);
+    const won = me && me.win_lose===1;
+    return `<div class="battle ${won?"win":"lose"}">
+      <div class="b-head">
+        <span class="b-result">${won?"VICTOIRE":"DÉFAITE"}</span>
+        <span>${fmtDate(b.date_add_iso)}</span>
+        ${b.special_league?'<span class="fp-badge">Ligue spéciale</span>':""}
+        <span class="spacer"></span>
+        <span>Replay #${b.replay_rid_ref??""}</span>
+      </div>
+      ${sideHTML(me, viewerId)}${opp?sideHTML(opp, viewerId):""}
+    </div>`;
+  }).join("");
+}
+function sideHTML(u, viewerId){
+  if(!u) return "";
+  const picks = (u.pick_info?.unit_list||[]).slice().sort((a,b)=>a.pick_slot_id-b.pick_slot_id);
+  const banned = new Set(u.pick_info?.banned_slot_ids||[]);
+  const leader = u.pick_info?.leader_slot_id;
+  return `<div class="b-side">
+    <div class="b-who">
+      <span class="n" onclick="location.hash='#/player/${u.wizard_id}'">${flag(u.country)} ${esc(u.wizard_name)}${u.wizard_id===viewerId?"":" ↗"}</span>
+      <span class="s">Score ${num(u.score)} · rang ${num(u.rank)} ${u.is_first_pick?'· <span class="fp-badge">First pick</span>':""}</span>
+    </div>
+    <div class="picks">${picks.map(p=>{
+      const m = monCache.get(p.unit_master_id) || {};
+      const cls = ["pick", banned.has(p.pick_slot_id)?"banned":"", p.pick_slot_id===leader?"leader":""].join(" ");
+      return `<div class="${cls} mon-click" onclick="location.hash='#/monster/${p.unit_master_id}'" title="${esc(m.name||p.unit_master_id)}${p.pick_slot_id===leader?" (leader)":""}${banned.has(p.pick_slot_id)?" (banni)":""} · cliquer pour la fiche">
+        <img src="${monImg(m.image_filename)}" loading="lazy"></div>`;
+    }).join("")}</div>
+  </div>`;
+}
+
+/* ================= runes d'un monstre (modal) ================= */
+// mappings officiels extraits du code de swarena (M8 / V8)
+const SET_NAMES = {1:"Energy",2:"Guard",3:"Swift",4:"Blade",5:"Rage",6:"Focus",7:"Endure",8:"Fatal",10:"Despair",11:"Vampire",13:"Violent",14:"Nemesis",15:"Will",16:"Shield",17:"Revenge",18:"Destroy",19:"Fight",20:"Determination",21:"Enhance",22:"Accuracy",23:"Tolerance"};
+const STAT_NAMES = {1:"HP",2:"HP%",3:"ATK",4:"ATK%",5:"DEF",6:"DEF%",8:"SPD",9:"Taux crit",10:"Dégâts crit",11:"RES",12:"ACC"};
+const STAT_PRIO  = {8:1,9:2,10:2,1:3,2:3,3:3,4:3,5:3,6:3,11:4,12:4};
+function runeBars(list, nameFn){
+  const total = list.reduce((a,x)=>a+x.count, 0) || 1;
+  return list.map(x=>{
+    const label = x.sets==="other" ? "Autres" : nameFn(x.sets);
+    const p = Math.round(100*x.count/total);
+    return `<div class="rune-row">
+      <div class="rr-label"><span>${esc(label)}</span><span class="muted">${p} % · ${num(x.count)}</span></div>
+      <div class="rr-bar"><div class="rr-fill" style="width:${p}%"></div></div></div>`;
+  }).join("");
+}
+async function fetchRunes(id){
+  for(const s of [27,26,25,24]){
+    try{ const r = await api(`/monster/${id}/runes?season=${s}`); if(r.data) return {data:r.data, season:s}; }
+    catch(e){}
+  }
+  return null;
+}
+function runesSectionHTML(r){
+  if(!r || (!r.data.rune_sets?.length && !r.data.rune_usage?.length)) return "";
+  const setName  = ids => ids.map(i=>SET_NAMES[i]||("Set "+i)).join(" + ");
+  const statName = ids => ids.slice().sort((a,b)=>(STAT_PRIO[a]||9)-(STAT_PRIO[b]||9)).map(i=>STAT_NAMES[i]||("Stat "+i)).join(" / ");
+  return `<h2>Runes historiques <span class="muted" style="font-size:13px;font-weight:400">(saison ${r.season} — dernières données de runes publiées)</span></h2>
+    <div class="panel">
+      <div class="two-col">
+        <div>${r.data.rune_sets?.length ? `<h3>Sets</h3>${runeBars(r.data.rune_sets, setName)}` : ""}</div>
+        <div>${r.data.rune_usage?.length ? `<h3>Main stats (slots 2/4/6)</h3>${runeBars(r.data.rune_usage, statName)}` : ""}</div>
+      </div>
+      <div class="note">⚠️ L'API ne fournit des runes que pour les saisons 24 à 27. Les runes individuelles des joueurs ne sont pas exposées par Com2uS.</div>
+    </div>`;
+}
+async function goMonsterBySlug(slug){
+  $sr.style.display = "none"; $search.value = "";
+  $app.innerHTML = '<div class="loading">Chargement…</div>';
+  try{
+    const r = await api(`/monster/${encodeURIComponent(slug)}/details`);
+    if(r.data?.id){ location.hash = "#/monster/" + r.data.id; return; }
+  }catch(e){}
+  $app.innerHTML = '<div class="error-box">Impossible de charger ce monstre.</div>';
+}
+
+/* ================= FICHE MONSTRE ================= */
+const monState = { id:null, season:null, isG3:false, userChose:false };
+async function viewMonster(id){
+  $app.innerHTML = '<div class="loading">Chargement de la fiche monstre…</div>';
+  try{
+    if(monState.id !== id){ monState.id = id; monState.season = null; monState.userChose = false; }
+    const [seasons, baseR] = await Promise.all([getSeasons(), api(`/monster/${id}`).catch(()=>({data:null}))]);
+    const base = baseR.data;
+    if(!base){ $app.innerHTML = '<div class="error-box">Monstre introuvable.</div>'; return; }
+    monCache.set(id, {name:base.name, image_filename:base.image_filename, element:base.element, slug:base.slug}); saveMonCache();
+    if(!monState.season) monState.season = seasons[0];
+    const season = monState.season, g3 = monState.isG3;
+    const pairsQ = ord => `/monster/${id}/pairs?season=${season}&isG3=${g3}&searchPairName=&orderBy=${ord}&orderDirection=DESC&minPlayedAgainst=0&minPlayedTogether=0&limit=150&offset=0`;
+    const [sumR, histR, togR, agR, detR, runes] = await Promise.all([
+      api(`/monster/${id}/summary?season=${season}&isG3=${g3}`).catch(()=>({data:null})),
+      api(`/monster/${id}/history?season=${season}&isG3=${g3}`).catch(()=>({data:[]})),
+      api(pairsQ("total_played_together")).catch(()=>({data:[]})),
+      api(pairsQ("total_played_against")).catch(()=>({data:[]})),
+      base.slug ? api(`/monster/${encodeURIComponent(base.slug)}/details`).catch(()=>({data:null})) : Promise.resolve({data:null}),
+      fetchRunes(id)
+    ]);
+    // saison sans données → on recule automatiquement (sauf si choisie manuellement)
+    if(!sumR.data && !monState.userChose){
+      const idx = seasons.indexOf(season);
+      if(idx > -1 && idx < seasons.length-1){ monState.season = seasons[idx+1]; return viewMonster(id); }
+    }
+    const s = sumR.data || {};
+    const det = detR.data;
+    const hist = histR.data || [];
+
+    const baseStats = det ? `<div class="basestats">
+        ${det.natural_stars ? `<span style="color:var(--gold)">${"★".repeat(det.natural_stars)}</span>` : ""}
+        ${det.archetype ? `<span>${esc(det.archetype)}</span>` : ""}
+        <span>PV <b>${num(det.max_lvl_hp)}</b></span><span>ATK <b>${num(det.max_lvl_attack)}</b></span>
+        <span>DEF <b>${num(det.max_lvl_defense)}</b></span><span>VIT <b>${det.speed??"—"}</b></span>
+        <span>Crit <b>${det.crit_rate??"—"}%</b></span><span>Dég. crit <b>${det.crit_damage??"—"}%</b></span>
+        <span>RES <b>${det.resistance??"—"}%</b></span><span>ACC <b>${det.accuracy??"—"}%</b></span>
+      </div>` : "";
+
+    const pairTable = (rows, playedKey, rateKey, asc, rateLabel) => {
+      // seuil adaptatif : 15 % du volume max (min 30) pour rester pertinent même en début de saison
+      const maxV = Math.max(...(rows||[]).map(x=>x[playedKey]), 0);
+      const th = Math.max(30, Math.round(maxV*0.15));
+      const f = (rows||[]).filter(x=>x[playedKey]>=th);
+      f.sort((a,b)=> asc ? a[rateKey]-b[rateKey] : b[rateKey]-a[rateKey]);
+      if(!f.length) return '<div class="muted">Pas assez de données.</div>';
+      return `<table><thead><tr><th>Monstre</th><th>${rateLabel}</th><th>Parties</th></tr></thead><tbody>` +
+        f.slice(0,8).map(x=>`<tr class="clickable" onclick="location.hash='#/monster/${x.b_monster_id}'">
+          <td><img class="mon-ico" src="${monImg(x.b_monster_image_filename)}" loading="lazy"> &nbsp;${esc(x.b_monster_name)}</td>
+          <td><b style="color:${x[rateKey]>=0.5?'var(--win)':'var(--lose)'}">${pct(x[rateKey])}</b></td>
+          <td class="muted">${num(x[playedKey])}</td></tr>`).join("") + "</tbody></table>";
+    };
+
+    const skillsHTML = det?.skills?.length ? `<h2>Compétences</h2><div class="panel">` +
+      det.skills.map(sk=>`<div class="skill">
+        <img src="https://assets.swarena.gg/monster-skills-pictures/${esc(sk.icon_filename||"")}" loading="lazy" onerror="this.style.visibility='hidden'">
+        <div>
+          <div class="sk-name">${esc(sk.name)} ${sk.passive?'<span class="fp-badge">Passif</span>':""} ${sk.cooltime?`<span class="muted" style="font-weight:400">· recharge ${sk.cooltime} tours</span>`:""}</div>
+          <div class="sk-desc">${esc(sk.description)}</div>
+          ${sk.multiplier_formula?`<div class="sk-mult muted">Multiplicateur : ${esc(sk.multiplier_formula)}</div>`:""}
+        </div></div>`).join("") +
+      (det.leader_skill ? `<div class="note">👑 Compétence de leader : ${esc(det.leader_skill.attribute||"")} +${det.leader_skill.amount||"?"}%${det.leader_skill.area?` (${esc(det.leader_skill.area)})`:""}${det.leader_skill.element?` — monstres ${esc(det.leader_skill.element)}`:""}</div>` : "") +
+      `</div>` : "";
+
+    $app.innerHTML = `
+      <div class="player-head">
+        <img class="pfp" src="${monImg(base.image_filename)}">
+        <div>
+          <div class="pname">${esc(base.name)}</div>
+          <div class="row" style="margin-top:4px"><span class="tier">${esc(base.element||"")}</span>${base.awaken_bonus?`<span class="muted" style="font-size:12.5px">${esc(base.awaken_bonus)}</span>`:""}</div>
+          ${baseStats}
+        </div>
+      </div>
+      <div class="row" style="margin:12px 0 16px">
+        <label class="muted">Saison</label>
+        <select onchange="monState.season=+this.value;monState.userChose=true;viewMonster(${id})">${seasons.map(x=>`<option value="${x}" ${x===monState.season?"selected":""}>Saison ${x}</option>`).join("")}</select>
+        <label class="muted"><input type="checkbox" onchange="monState.isG3=this.checked;viewMonster(${id})" ${g3?"checked":""}> Guardian 3+ uniquement</label>
+      </div>
+      ${sumR.data ? `<div class="cards" style="margin-bottom:18px">
+        <div class="card"><div class="lbl">Pick rate</div><div class="big">${pct(s.pick_rate)}</div><div class="muted" style="font-size:12px">${num(s.picks)} picks</div></div>
+        <div class="card"><div class="lbl">Winrate</div><div class="big">${pct(s.win_rate)}</div><div class="muted" style="font-size:12px">${num(s.wins)} victoires</div></div>
+        <div class="card"><div class="lbl">Ban rate</div><div class="big">${pct(s.ban_rate)}</div><div class="muted" style="font-size:12px">${num(s.bans)} bans</div></div>
+        <div class="card"><div class="lbl">Lead rate</div><div class="big">${pct(s.lead_rate)}</div></div>
+      </div>` : `<div class="panel muted">Pas de statistiques pour la saison ${monState.season}.</div>`}
+      ${hist.length>2 ? `<h2>Tendance — Saison ${monState.season}</h2><div class="panel chart-wrap" id="chartPanel">
+        <div class="legend"><span><span class="dot" style="background:var(--accent2)"></span>Popularité (% des combats)</span><span><span class="dot" style="background:var(--win)"></span>Winrate (%)</span></div>
+        ${dualChart(hist)}</div>` : ""}
+      <div class="two-col">
+        <div><h2>Meilleures synergies <span class="muted" style="font-size:12px;font-weight:400">(Guardian+)</span></h2><div class="panel tbl-wrap">${pairTable(togR.data,"total_played_together","win_together_rate",false,"WR ensemble")}</div></div>
+        <div><h2>Pires matchups <span class="muted" style="font-size:12px;font-weight:400">(il perd contre)</span></h2><div class="panel tbl-wrap">${pairTable(agR.data,"total_played_against","win_against_rate",true,"WR contre")}</div></div>
+      </div>
+      ${skillsHTML}
+      ${runesSectionHTML(runes)}
+      <div class="foot-note">Données : api.swarena.gg · Compétences via SWARFARM</div>`;
+    attachChartTips();
+  }catch(e){ fail(e); }
+}
+
+/* graphe double : popularité + winrate quotidiens */
+function dualChart(hist){
+  const pts = hist.filter(h=>h.total_battles>0).map(h=>({
+    d:h.battle_date, pop:100*h.monster_battles/h.total_battles,
+    wr:h.monster_battles ? 100*h.monster_wins/h.monster_battles : null, n:h.monster_battles }));
+  if(pts.length<2) return '<div class="muted">Pas assez de données.</div>';
+  const W = Math.max(700, pts.length*16), H = 260, P = 40;
+  const maxPop = Math.max(...pts.map(p=>p.pop), 1);
+  const X = i => P + i*(W-2*P)/(pts.length-1);
+  const Yp = v => H-P - (v/maxPop)*(H-2*P);
+  const Yw = v => H-P - (v/100)*(H-2*P);
+  const grid = [0,.25,.5,.75,1].map(f=>{
+    const y = H-P - f*(H-2*P);
+    return `<line x1="${P}" y1="${y}" x2="${W-P}" y2="${y}" stroke="#2b3550" stroke-dasharray="3 4"/>
+      <text x="4" y="${y+4}" fill="#4ea1ff" font-size="10">${(f*maxPop).toFixed(1)}%</text>
+      <text x="${W-P+6}" y="${y+4}" fill="#3fca7c" font-size="10">${Math.round(f*100)}%</text>`;
+  }).join("");
+  const l1 = pts.map((p,i)=>`${X(i).toFixed(1)},${Yp(p.pop).toFixed(1)}`).join(" ");
+  const l2 = pts.filter(p=>p.wr!=null).map((p)=>`${X(pts.indexOf(p)).toFixed(1)},${Yw(p.wr).toFixed(1)}`).join(" ");
+  const dots = pts.map((p,i)=>
+    `<circle cx="${X(i).toFixed(1)}" cy="${Yp(p.pop).toFixed(1)}" r="4" fill="#4ea1ff" stroke="#0d1117" stroke-width="1.2"
+      data-tip="${esc(p.d)} — popularité ${p.pop.toFixed(1)} % · winrate ${p.wr==null?"—":p.wr.toFixed(1)+" %"} · ${num(p.n)} combats"/>`).join("");
+  return `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">
+    ${grid}
+    <polyline points="${l1}" fill="none" stroke="#4ea1ff" stroke-width="2.4" stroke-linejoin="round"/>
+    <polyline points="${l2}" fill="none" stroke="#3fca7c" stroke-width="2" stroke-linejoin="round" opacity=".85"/>
+    ${dots}</svg>`;
+}
+
+/* ================= COMPARATEUR ================= */
+const cmpState = { a:null, b:null, season:null };
+async function viewCompare(a, b){
+  if(a) cmpState.a = a;
+  if(b) cmpState.b = b;
+  $app.innerHTML = `
+    <h1>Comparateur de joueurs</h1>
+    <div class="cmp-pickers">
+      <div class="cmp-pick"><input id="cmpA" placeholder="🔍 Joueur A…" autocomplete="off"><div class="cmp-results" id="cmpResA" style="display:none"></div></div>
+      <div class="cmp-pick"><input id="cmpB" placeholder="🔍 Joueur B…" autocomplete="off"><div class="cmp-results" id="cmpResB" style="display:none"></div></div>
+    </div>
+    <div id="cmpBody">${cmpState.a && cmpState.b ? '<div class="loading">Chargement de la comparaison…</div>' : '<div class="panel muted">Choisis deux joueurs avec les champs ci-dessus.</div>'}</div>`;
+  attachCmpPicker("cmpA","cmpResA", id=>{ cmpState.a=id; cmpHash(); });
+  attachCmpPicker("cmpB","cmpResB", id=>{ cmpState.b=id; cmpHash(); });
+  if(cmpState.a && cmpState.b) loadCompare();
+}
+function cmpHash(){
+  const h = `#/compare/${cmpState.a||0}/${cmpState.b||0}`;
+  if(location.hash === h) viewCompare(cmpState.a, cmpState.b); else location.hash = h;
+}
+function attachCmpPicker(inputId, listId, onPick){
+  const $in = document.getElementById(inputId), $list = document.getElementById(listId);
+  let t = null;
+  $in.addEventListener("input", ()=>{
+    clearTimeout(t);
+    const q = $in.value.trim();
+    if(q.length<2){ $list.style.display="none"; return; }
+    t = setTimeout(async ()=>{
+      $list.style.display="block";
+      $list.innerHTML = '<div class="sr-item muted">Recherche…</div>';
+      try{
+        const r = await api("/player/search/" + encodeURIComponent(q));
+        const rows = (r.data||[]).slice(0,8);
+        $list.innerHTML = rows.length ? rows.map(p=>
+          `<div class="sr-item" data-pid="${p.id}">
+             <img src="${esc(p.wizard_picture_url||'')}" onerror="this.style.visibility='hidden'"><span>${esc(p.wizard_name)}</span></div>`).join("")
+          : '<div class="sr-item muted">Aucun résultat</div>';
+        $list.querySelectorAll("[data-pid]").forEach(el=> el.onclick = ()=>{ $list.style.display="none"; $in.value=""; onPick(+el.dataset.pid); });
+      }catch(e){ $list.innerHTML = '<div class="sr-item muted">Erreur</div>'; }
+    }, 300);
+  });
+}
+async function probePlayer(id){
+  const sr = await api(`/player/${id}/seasons`);
+  const all = (sr.data||[]).sort((x,y)=>y-x);
+  const sums = {};
+  await Promise.all(all.map(async x=>{ sums[x] = await api(`/player/${id}/summary?season=${x}`).then(r=>r.data||null).catch(()=>null); }));
+  return { seasons: all.filter(x=>sums[x]), sums };
+}
+async function loadCompare(){
+  const $b = document.getElementById("cmpBody");
+  try{
+    const [A, B] = await Promise.all([probePlayer(cmpState.a), probePlayer(cmpState.b)]);
+    const common = A.seasons.filter(x=>B.seasons.includes(x));
+    if(!common.length){ $b.innerHTML = '<div class="error-box">Ces deux joueurs n\'ont aucune saison en commun avec des données.</div>'; return; }
+    if(!cmpState.season || !common.includes(cmpState.season)) cmpState.season = common[0];
+    const sa = A.sums[cmpState.season], sb = B.sums[cmpState.season];
+    const wr  = x => x.wizard_battles ? x.wizard_wins/x.wizard_battles : null;
+    const fwr = x => x.first_pick_battles ? x.first_pick_wins/x.first_pick_battles : null;
+    const swr = x => x.second_pick_battles ? x.second_pick_wins/x.second_pick_battles : null;
+    const row = (label, va, vb, fmt) => {
+      const best = va==null||vb==null||va===vb ? 0 : (va>vb ? 1 : 2);
+      return `<tr><td class="muted">${label}</td><td class="${best===1?"best":""}">${fmt(va)}</td><td class="${best===2?"best":""}">${fmt(vb)}</td></tr>`;
+    };
+    const mapB = new Map((sb.monster_played||[]).map(m=>[m.unit_master_id, m]));
+    const commonMons = (sa.monster_played||[]).filter(m=>mapB.has(m.unit_master_id))
+      .map(m=>({a:m, b:mapB.get(m.unit_master_id)}))
+      .sort((x,y)=>(y.a.plays+y.b.plays)-(x.a.plays+x.b.plays)).slice(0,30);
+    const mwr = m => m.plays ? m.wins/m.plays : null;
+    $b.innerHTML = `
+      <div class="season-tabs">${common.map(x=>`<button class="${x===cmpState.season?"active":""}" onclick="cmpState.season=${x};loadCompare()">S${x}</button>`).join("")}</div>
+      <div class="panel tbl-wrap">
+        <table>
+          <thead><tr><th style="width:30%"></th>
+            <th><a href="#/player/${cmpState.a}"><img class="avatar" src="${esc(sa.wizard_picture||'')}" onerror="this.style.visibility='hidden'"> ${flag(sa.wizard_country)} <b>${esc(sa.wizard_name)}</b></a></th>
+            <th><a href="#/player/${cmpState.b}"><img class="avatar" src="${esc(sb.wizard_picture||'')}" onerror="this.style.visibility='hidden'"> ${flag(sb.wizard_country)} <b>${esc(sb.wizard_name)}</b></a></th></tr></thead>
+          <tbody>
+            <tr><td class="muted">Rang</td><td>${tierName(sa.last_rating_id)}</td><td>${tierName(sb.last_rating_id)}</td></tr>
+            ${row("Score", sa.last_score, sb.last_score, num)}
+            ${row("Combats", sa.wizard_battles, sb.wizard_battles, num)}
+            ${row("Winrate", wr(sa), wr(sb), pct)}
+            ${row("First pick WR", fwr(sa), fwr(sb), pct)}
+            ${row("Second pick WR", swr(sa), swr(sb), pct)}
+            ${row("Monstres différents joués", (sa.monster_played||[]).length, (sb.monster_played||[]).length, num)}
+          </tbody>
+        </table>
+      </div>
+      ${commonMons.length ? `<h2>Monstres joués par les deux (${commonMons.length})</h2>
+      <div class="panel tbl-wrap"><table>
+        <thead><tr><th>Monstre</th><th>WR ${esc(sa.wizard_name)}</th><th>Parties</th><th>WR ${esc(sb.wizard_name)}</th><th>Parties</th></tr></thead>
+        <tbody>${commonMons.map(x=>{
+          const wa = mwr(x.a), wb = mwr(x.b);
+          const ca = wa==null?"":(wa>=(wb??0)?"best":""), cb = wb==null?"":(wb>(wa??0)?"best":"");
+          return `<tr class="clickable" onclick="location.hash='#/monster/${x.a.unit_master_id}'">
+            <td><img class="mon-ico" src="${monImg(x.a.image_filename)}" loading="lazy"> &nbsp;${esc(x.a.name)}</td>
+            <td class="${ca}">${pct(wa)}</td><td class="muted">${x.a.plays}</td>
+            <td class="${cb}">${pct(wb)}</td><td class="muted">${x.b.plays}</td></tr>`;
+        }).join("")}</tbody></table></div>` : ""}`;
+  }catch(e){ $b.innerHTML = `<div class="error-box">${esc(e.message||e)}</div>`; }
+}
+
+/* ================= TENDANCES ================= */
+const trState = { season:null };
+const trCache = new Map();
+async function viewTrends(){
+  $app.innerHTML = '<div class="loading">Chargement…</div>';
+  try{
+    const seasons = await getSeasons();
+    if(!trState.season) trState.season = seasons[0];
+    $app.innerHTML = `
+      <h1>Tendances méta</h1>
+      <div class="row" style="margin-bottom:14px">
+        <label class="muted">Saison</label>
+        <select id="trSeason">${seasons.map(x=>`<option value="${x}" ${x===trState.season?"selected":""}>Saison ${x}</option>`).join("")}</select>
+        <span class="muted" style="font-size:12.5px">Comparaison des 7 derniers jours vs les 7 précédents, sur les 30 monstres les plus joués.</span>
+      </div>
+      <div id="trBody"><div class="loading">Analyse des 30 monstres les plus joués…<br><span style="font-size:12px">(une trentaine de requêtes, ~2-5 s)</span></div></div>`;
+    document.getElementById("trSeason").onchange = e => { trState.season = +e.target.value; viewTrends(); };
+    loadTrends();
+  }catch(e){ fail(e); }
+}
+async function loadTrends(){
+  const $b = document.getElementById("trBody");
+  const season = trState.season;
+  try{
+    let rows = trCache.get(season);
+    if(!rows){
+      const top = await api(`/monsters?season=${season}&isG3=false&isSL=false&played=0&orderBy=played&orderDirection=DESC&limit=30&offset=0`);
+      if(!top.data?.length){ $b.innerHTML = '<div class="panel muted">Aucune donnée pour cette saison.</div>'; return; }
+      rows = (await Promise.all(top.data.map(async m=>{
+        const h = await api(`/monster/${m.monster_id}/history?season=${season}&isG3=false`).catch(()=>({data:[]}));
+        const pts = (h.data||[]).filter(x=>x.total_battles>0)
+          .map(x=>({pop:100*x.monster_battles/x.total_battles, wr:x.monster_battles?100*x.monster_wins/x.monster_battles:null}));
+        if(pts.length<6) return null;
+        const n = Math.min(7, Math.floor(pts.length/2));
+        const avg = (arr,k)=>arr.reduce((acc,x)=>acc+(x[k]??0),0)/arr.length;
+        const rec = pts.slice(-n), prev = pts.slice(-2*n, -n);
+        return { m, popNow:avg(rec,"pop"), dPop:avg(rec,"pop")-avg(prev,"pop"), dWr:avg(rec,"wr")-avg(prev,"wr"), spark:pts.map(p=>p.pop) };
+      }))).filter(Boolean);
+      if(season !== (await getSeasons())[0] || rows.length) trCache.set(season, rows);
+    }
+    if(!rows.length){ $b.innerHTML = '<div class="panel muted">Pas assez de jours de données pour calculer des tendances.</div>'; return; }
+    const up   = [...rows].sort((a,b)=>b.dPop-a.dPop).slice(0,10);
+    const down = [...rows].sort((a,b)=>a.dPop-b.dPop).slice(0,10);
+    const trendRow = r => `<div class="trend-row" onclick="location.hash='#/monster/${r.m.monster_id}'">
+      <img class="mon-ico" src="${monImg(r.m.image_filename)}" loading="lazy">
+      <div class="tname">${esc(r.m.name)}<div class="muted" style="font-size:11.5px;font-weight:400">popularité ${r.popNow.toFixed(1)} % · winrate ${r.dWr>=0?"+":""}${r.dWr.toFixed(1)} pts</div></div>
+      ${sparkline(r.spark)}
+      <span class="delta ${r.dPop>=0?"up":"down"}">${r.dPop>=0?"+":""}${r.dPop.toFixed(1)} pts</span></div>`;
+    $b.innerHTML = `<div class="two-col">
+      <div><h2>📈 En hausse</h2><div class="panel">${up.map(trendRow).join("")}</div></div>
+      <div><h2>📉 En baisse</h2><div class="panel">${down.map(trendRow).join("")}</div></div>
+    </div>
+    <div class="note" style="margin-top:14px">Δ = variation de la part des combats (points de %) entre les 7 derniers jours joués et les 7 précédents. Clique sur un monstre pour sa fiche complète.</div>`;
+  }catch(e){ $b.innerHTML = `<div class="error-box">${esc(e.message||e)}</div>`; }
+}
+/* ================= SIMULATEUR DE DRAFT ================= */
+const simState = { a:null, b:null, fp:"A", lds:true, picksA:[], picksB:[], boxA:null, boxB:null, season:null, history:[], showBoxA:false, showBoxB:false, editBoxA:false, editBoxB:false,
+  boxSort: (()=>{ try{ return localStorage.getItem("simBoxSort_v1") || "plays"; }catch(e){ return "plays"; } })() };
+
+/* ----- personnalisation de la box (suppressions/ajouts), persistée par compte ----- */
+const BOX_CUSTOM_KEY = "simBoxCustom_v1";
+function boxCustomAll(){ try{ return JSON.parse(localStorage.getItem(BOX_CUSTOM_KEY)) || {}; }catch(e){ return {}; } }
+function boxCustomFor(wid){ const c = boxCustomAll(); return c[wid] || {removed:[], added:[]}; }
+function saveBoxCustomFor(wid, f){ const c = boxCustomAll(); c[wid] = f; try{ localStorage.setItem(BOX_CUSTOM_KEY, JSON.stringify(c)); }catch(e){} }
+function applyBoxCustom(wid, raw){
+  const f = boxCustomFor(wid);
+  const rm = new Set(f.removed);
+  const list = raw.filter(x=>!rm.has(x.unit_master_id));
+  for(const a of f.added){
+    if(rm.has(a.id) || list.some(x=>x.unit_master_id===a.id)) continue;
+    const m = monCache.get(a.id) || {};
+    list.push({unit_master_id:a.id, name:m.name||("#"+a.id), image_filename:m.image_filename, element:m.element, plays:0, wins:0, custom:true});
+  }
+  return list;
+}
+function refreshBox(side){
+  const box = side==="A" ? simState.boxA : simState.boxB;
+  const wid = side==="A" ? simState.a : simState.b;
+  if(box && box.raw) box.list = applyBoxCustom(wid, box.raw);
+}
+function sortBoxList(list){
+  const wr = x => x.plays ? x.wins/x.plays : -1;
+  const l = list.slice();
+  switch(simState.boxSort){
+    case "wr":      l.sort((a,b)=> wr(b)-wr(a) || b.plays-a.plays); break;
+    case "name":    l.sort((a,b)=> (a.name||"").localeCompare(b.name||"")); break;
+    case "element": l.sort((a,b)=> (a.element||"").localeCompare(b.element||"") || b.plays-a.plays); break;
+    default:        l.sort((a,b)=> b.plays-a.plays);
+  }
+  return l;
+}
+function simBoxSortChange(v){
+  simState.boxSort = v;
+  try{ localStorage.setItem("simBoxSort_v1", v); }catch(e){}
+  renderSim();
+}
+function simToggleEdit(side){
+  if(side==="A") simState.editBoxA = !simState.editBoxA;
+  else simState.editBoxB = !simState.editBoxB;
+  renderSim();
+}
+function simBoxRemove(side, id){
+  const wid = side==="A" ? simState.a : simState.b;
+  const f = boxCustomFor(wid);
+  if(f.added.some(a=>a.id===id)) f.added = f.added.filter(a=>a.id!==id);
+  else if(!f.removed.includes(id)) f.removed.push(id);
+  saveBoxCustomFor(wid, f);
+  refreshBox(side); renderSim();
+}
+async function simBoxAdd(side, id){
+  const wid = side==="A" ? simState.a : simState.b;
+  await getMonster(id); // s'assure que nom/image/élément sont en cache
+  const f = boxCustomFor(wid);
+  f.removed = f.removed.filter(x=>x!==id);
+  if(!f.added.some(a=>a.id===id)) f.added.push({id});
+  saveBoxCustomFor(wid, f);
+  refreshBox(side); renderSim();
+}
+function simBoxReset(side){
+  const wid = side==="A" ? simState.a : simState.b;
+  saveBoxCustomFor(wid, {removed:[], added:[]});
+  refreshBox(side); renderSim();
+}
+const pairsCache = new Map();
+async function getPairsAt(id, orderBy, season){
+  const k = orderBy + ":" + id + ":" + season;
+  if(pairsCache.has(k)) return pairsCache.get(k);
+  const r = await api(`/monster/${id}/pairs?season=${season}&isG3=false&searchPairName=&orderBy=${orderBy}&orderDirection=DESC&minPlayedAgainst=0&minPlayedTogether=0&limit=150&offset=0`).catch(()=>({data:[]}));
+  const rows = r.data || [];
+  pairsCache.set(k, rows);
+  return rows;
+}
+async function getPairs(id, orderBy){
+  const rows = await getPairsAt(id, orderBy, simState.season);
+  return rows.length ? rows : getPairsAt(id, orderBy, simState.season-1);
+}
+// lecture cache : saison courante, sinon saison précédente
+const cachedPairs = (id, orderBy) => {
+  const now = pairsCache.get(orderBy+":"+id+":"+simState.season);
+  if(now && now.length) return now;
+  return pairsCache.get(orderBy+":"+id+":"+(simState.season-1)) || [];
+};
+const getPairsAgainst  = id => getPairs(id, "total_played_against");
+const getPairsTogether = id => getPairs(id, "total_played_together");
+const adaptTh = (rows, key) => Math.max(30, Math.round(Math.max(...rows.map(x=>x[key]), 0) * 0.15));
+// rétrécissement bayésien : tire un WR vers 50 % selon le volume (évite qu'un 71 % sur 30 parties batte un 60 % sur 700)
+const shrink = (wr, n, k=80) => 0.5 + (wr - 0.5) * (n / (n + k));
+/* stats méta globales de la saison (WR/pick rate du jeu, pas du joueur) */
+const metaCache = new Map();
+async function getMetaStats(){
+  const s = simState.season;
+  if(metaCache.has(s)) return metaCache.get(s);
+  const map = new Map();
+  for(const season of [s, s-1]){
+    const r = await api(`/monsters?season=${season}&isG3=false&isSL=false&played=0&orderBy=played&orderDirection=DESC&limit=500&offset=0`).catch(()=>({data:null}));
+    if(r.data?.length){
+      r.data.forEach(m=>map.set(m.monster_id, m));
+      if((r.count||0) > 500){
+        const r2 = await api(`/monsters?season=${season}&isG3=false&isSL=false&played=0&orderBy=played&orderDirection=DESC&limit=500&offset=500`).catch(()=>({data:null}));
+        (r2.data||[]).forEach(m=>map.set(m.monster_id, m));
+      }
+      break;
+    }
+  }
+  metaCache.set(s, map);
+  return map;
+}
+/* VRAIES stats de first pick, calculées depuis ~2000 replays d'un échantillon de joueurs
+   pris À TOUS LES NIVEAUX du ladder (offsets répartis du top au rang ~25 000) :
+   on regarde qui avait le first pick (is_first_pick), quel monstre il a ouvert
+   (pick_slot_id = 1), et s'il a gagné. */
+const fpStatsCache = new Map();
+async function getFirstPickStats(){
+  const season = simState.season;
+  if(fpStatsCache.has(season)) return fpStatsCache.get(season);
+  const LS_KEY = "fpStats_v4_" + season;
+  try{
+    const s = JSON.parse(localStorage.getItem(LS_KEY));
+    if(s && Date.now()-s.t < 86400e3){ const m = new Map(s.list); fpStatsCache.set(season, m); return m; }
+  }catch(e){}
+  const OFFSETS = [0, 500, 1500, 3000, 6000, 10000, 15000, 25000];
+  const pages = await Promise.all(OFFSETS.map(o =>
+    api(`/players?season=${season}&isSL=false&limit=10&offset=${o}`).catch(()=>({data:[]}))));
+  const players = pages.flatMap(p=>p.data||[]);
+  const results = await Promise.all(players.map(p =>
+    api(`/player/${p.wizard_id}/last-battles?season=${season}&limit=50`).catch(()=>({data:[]}))));
+  const seen = new Set(), agg = new Map();
+  for(const lb of results) for(const b of (lb.data||[])){
+    const key = b.replay_rid_ref;
+    if(!key || seen.has(key)) continue;
+    seen.add(key);
+    if(b.special_league) continue;
+    const fp = Object.values(b.user_list||{}).find(u=>u.is_first_pick===1);
+    const u1 = fp?.pick_info?.unit_list?.find(x=>x.pick_slot_id===1);
+    if(!u1) continue;
+    const e = agg.get(u1.unit_master_id) || {n:0, w:0};
+    e.n++; if(fp.win_lose===1) e.w++;
+    agg.set(u1.unit_master_id, e);
+  }
+  fpStatsCache.set(season, agg);
+  try{ localStorage.setItem(LS_KEY, JSON.stringify({t:Date.now(), list:[...agg.entries()]})); }catch(e){}
+  return agg;
+}
+const ELEM_FR = {Fire:"Feu", Water:"Eau", Wind:"Vent", Light:"Lumière", Dark:"Ténèbres"};
+const ELEM_COLOR = {Fire:"#ff6b5e", Water:"#4ea1ff", Wind:"#f2c14e", Light:"#e8ecf5", Dark:"#b06bf0"};
+const elemTag = el => el ? `<span style="color:${ELEM_COLOR[el]||"#8b95ab"}">● ${ELEM_FR[el]||el}</span>` : "";
+async function loadSimBox(id){
+  const probe = await probePlayer(id);
+  const merged = new Map();
+  let name = "", pic = "";
+  for(const se of probe.seasons){
+    const su = probe.sums[se];
+    if(!name){ name = su.wizard_name; pic = su.wizard_picture||""; }
+    for(const b of (su.monster_played||[])){
+      let e = merged.get(b.unit_master_id);
+      if(!e){ e = {...b, plays:0, wins:0}; merged.set(b.unit_master_id, e); }
+      e.plays += b.plays; e.wins += b.wins;
+    }
+  }
+  // pré-remplit le cache monstres avec la box (évite des requêtes au moment du pick)
+  for(const x of merged.values()) if(!monCache.has(x.unit_master_id)) monCache.set(x.unit_master_id, {name:x.name, image_filename:x.image_filename, element:x.element});
+  saveMonCache();
+  const raw = [...merged.values()];
+  return { raw, list:applyBoxCustom(id, raw), name, pic, ok:probe.seasons.length>0 };
+}
+/* ----- comptes favoris (joueur A), persistés dans localStorage ----- */
+const SIM_ACC_KEY = "simAccounts_v1";
+const SIM_SEEDS = [
+  {id:2091173, name:"Julien_bnrch", pic:"https://hiveprofile-fn.qpyou.cn/hubweb/hive_img/profile/U/2020/09/07/22/187018396_49b26985bfcfc7d1a341e7a9c9766759.jpg"},
+  {id:1117059, name:"Gpaletime",   pic:"https://hiveprofile-fn.qpyou.cn/hubweb/hive_img/profile/U/2026/07/06/09/185485658_04da767822d1bcb21d342118dd47a7f0.jpg"}
+];
+function simAccounts(){
+  let s = null;
+  try{
+    const p = JSON.parse(localStorage.getItem(SIM_ACC_KEY));
+    if(p && Array.isArray(p.list)) s = p;
+  }catch(e){}
+  if(!s) s = { list:[...SIM_SEEDS], lastId:SIM_SEEDS[0].id, seedV:2 };
+  // migration : injecte les comptes pré-enregistrés manquants (une seule fois)
+  if((s.seedV||1) < 2){
+    for(const seed of SIM_SEEDS) if(!s.list.some(x=>x.id===seed.id)) s.list.push({...seed});
+    s.seedV = 2;
+    saveSimAccounts(s);
+  }
+  return s;
+}
+function saveSimAccounts(a){ try{ localStorage.setItem(SIM_ACC_KEY, JSON.stringify(a)); }catch(e){} }
+function rememberAccountA(id, name, pic){
+  const a = simAccounts();
+  if(!a.list.some(x=>x.id===id)) a.list.unshift({id, name, pic:pic||""});
+  a.list = a.list.slice(0,6);
+  a.lastId = id;
+  saveSimAccounts(a);
+}
+function removeAccountA(id){
+  const a = simAccounts();
+  a.list = a.list.filter(x=>x.id!==id);
+  if(a.lastId===id) a.lastId = a.list[0]?.id ?? null;
+  saveSimAccounts(a);
+  renderFavChips();
+}
+function renderFavChips(){
+  const $c = document.getElementById("simFavChips");
+  if(!$c) return;
+  const a = simAccounts();
+  $c.innerHTML = a.list.length
+    ? '<span class="muted" style="font-size:12.5px">Mes comptes :</span> ' + a.list.map(x=>
+        `<span class="chip ${simState.a===x.id?"active":""}" onclick="setSimA(${x.id})" title="Utiliser ${esc(x.name)} comme joueur A">
+          ${x.pic?`<img src="${esc(x.pic)}" onerror="this.style.display='none'">`:""}${esc(x.name)}
+          <b class="chip-x" onclick="event.stopPropagation();removeAccountA(${x.id})" title="Retirer des favoris">✕</b></span>`).join(" ")
+    : "";
+}
+async function setSimA(id){
+  simState.a = id; simState.boxA = null;
+  renderFavChips(); renderSim();
+  simState.boxA = await loadSimBox(id);
+  if(simState.a !== id) return; // changé entre-temps
+  rememberAccountA(id, simState.boxA.name || ("Joueur " + id), simState.boxA.pic);
+  renderFavChips(); renderSim();
+}
+
+// ordre de draft RTA 1-2-2-2-2-1
+function simSeq(){ return simState.fp==="A" ? "ABBAABBAAB" : "BAABBAABBA"; }
+function simTurn(){
+  const total = simState.picksA.length + simState.picksB.length;
+  return total >= 10 ? null : simSeq()[total];
+}
+async function viewSimulator(){
+  $app.innerHTML = '<div class="loading">Chargement…</div>';
+  try{
+    const seasons = await getSeasons();
+    if(!simState.season){
+      let saved = null;
+      try{ saved = parseInt(localStorage.getItem("simStatsSeason_v2"), 10) || null; }catch(e){}
+      // par défaut : la saison précédente (S37), volumes de stats complets
+      simState.season = (saved && seasons.includes(saved)) ? saved : (seasons[1] ?? seasons[0]);
+    }
+    $app.innerHTML = `
+      <h1>Simulateur de draft</h1>
+      <div class="row" id="simFavChips" style="margin-bottom:12px"></div>
+      <div class="cmp-pickers">
+        <div class="cmp-pick"><input id="simInA" placeholder="🔍 Toi (joueur A)…" autocomplete="off"><div class="cmp-results" id="simResA" style="display:none"></div></div>
+        <div class="cmp-pick"><input id="simInB" placeholder="🔍 Adversaire (joueur B)…" autocomplete="off"><div class="cmp-results" id="simResB" style="display:none"></div></div>
+      </div>
+      <div class="row panel fp-radio" style="gap:20px">
+        <span class="muted">First pick :</span>
+        <label><input type="radio" name="simfp" value="A" ${simState.fp==="A"?"checked":""}> Joueur A</label>
+        <label><input type="radio" name="simfp" value="B" ${simState.fp==="B"?"checked":""}> Joueur B</label>
+        <label class="muted" style="margin-left:auto">Stats basées sur
+          <select id="simSeason">${seasons.map(x=>`<option value="${x}" ${x===simState.season?"selected":""}>Saison ${x}</option>`).join("")}</select>
+        </label>
+        <button class="btn" id="simUndo">↩ Annuler dernier pick</button>
+        <button class="btn" id="simReset">Réinitialiser</button>
+      </div>
+      <div id="simBoard"><div class="panel muted">Choisis les deux joueurs pour commencer. Les suggestions se basent sur la box RTA cumulée de chacun et les stats de matchups (Guardian+, saison ${simState.season}).</div></div>`;
+    attachCmpPicker("simInA","simResA", id=>setSimA(id));
+    attachCmpPicker("simInB","simResB", async id=>{ simState.b=id; simState.boxB=null; renderSim(); simState.boxB = await loadSimBox(id); renderSim(); });
+    document.querySelectorAll('[name="simfp"]').forEach(r => r.onchange = e => { simState.fp = e.target.value; renderSim(); });
+    document.getElementById("simSeason").onchange = e => {
+      simState.season = +e.target.value;
+      try{ localStorage.setItem("simStatsSeason_v2", String(simState.season)); }catch(err){}
+      renderSim();
+    };
+    document.getElementById("simUndo").onclick = () => {
+      const total = simState.picksA.length + simState.picksB.length;
+      if(!total) return;
+      const side = simState.history.pop() ?? simSeq()[total-1];
+      (side==="A" ? simState.picksA : simState.picksB).pop();
+      renderSim();
+    };
+    document.getElementById("simReset").onclick = () => { simState.picksA=[]; simState.picksB=[]; simState.history=[]; renderSim(); };
+    // drag & drop : glisser un monstre (box ou suggestion) sur une équipe pour le picker
+    const $board = document.getElementById("simBoard");
+    $board.addEventListener("dragstart", e => {
+      const t = e.target.closest("[data-drag-id]");
+      if(t){ e.dataTransfer.setData("text/plain", t.dataset.dragId); e.dataTransfer.effectAllowed = "copy"; }
+    });
+    $board.addEventListener("dragover", e => {
+      if(e.target.closest("[data-drop-side]")){ e.preventDefault(); e.dataTransfer.dropEffect = "copy"; }
+    });
+    $board.addEventListener("drop", e => {
+      const z = e.target.closest("[data-drop-side]");
+      if(!z) return;
+      e.preventDefault();
+      const id = parseInt(e.dataTransfer.getData("text/plain"), 10);
+      if(id) simPick(id, z.dataset.dropSide);
+    });
+    renderFavChips();
+    // auto-sélection du dernier compte utilisé pour le joueur A
+    if(!simState.a){
+      const fav = simAccounts();
+      if(fav.lastId) setSimA(fav.lastId);
+    }
+    if(simState.a && simState.b){
+      if(!simState.boxA) simState.boxA = await loadSimBox(simState.a);
+      if(!simState.boxB) simState.boxB = await loadSimBox(simState.b);
+      renderSim();
+    } else if(simState.a){
+      if(!simState.boxA) simState.boxA = await loadSimBox(simState.a);
+      renderSim();
+    }
+  }catch(e){ fail(e); }
+}
+// box du côté demandé ; si l'adversaire n'a pas de pseudo renseigné → box virtuelle vide (mode théorique)
+function getSimBox(side){
+  if(side==="A") return simState.boxA;
+  if(simState.boxB) return simState.boxB;
+  return simState.b ? null : {list:[], raw:[], name:"Adversaire", pic:"", ok:true, anon:true};
+}
+function simSideHTML(side, mirrored){
+  const box = getSimBox(side);
+  const picks = side==="A" ? simState.picksA : simState.picksB;
+  const ready = !!(simState.a && simState.boxA && (!simState.b || simState.boxB));
+  const turn = ready && simTurn()===side;
+  const label = box ? `${esc(box.name)}${box.anon?' <span class="muted" style="font-weight:400;font-size:12px">(pseudo non renseigné — reco théoriques)</span>':""}` : (side==="A"?simState.a:simState.b) ? "Chargement de la box…" : `Joueur ${side} (non choisi)`;
+  const slotFor = i => {
+    const p = picks[i];
+    return p
+      ? `<div class="slot" title="${esc(p.name)}"><img src="${monImg(p.img)}"><button class="rm" onclick="simRemove('${side}',${i})">✕</button></div>`
+      : `<div class="slot ${turn && i===picks.length ? "next":""}"></div>`;
+  };
+  // first pick : 1 (slot isolé) puis 2-2 (carré) · second pick : 2-2 (carré) puis 1 (slot isolé en dernier)
+  // chaque paire de picks remplit une COLONNE (1er en haut, 2e en dessous), ordre DOM = TL,TR,BL,BR
+  const isFP = simState.fp===side;
+  const loneIdx = isFP ? 0 : 4;
+  const gridIdx = isFP ? [1,3,2,4] : [0,2,1,3];
+  const showBox = side==="A" ? simState.showBoxA : simState.showBoxB;
+  const editBox = side==="A" ? simState.editBoxA : simState.editBoxB;
+  const wid = side==="A" ? simState.a : simState.b;
+  const nbRemoved = wid ? boxCustomFor(wid).removed.length : 0;
+  const boxGrid = showBox && box ? sortBoxList(box.list).map(x=>{
+    const already = simState.picksA.some(p=>p.id===x.unit_master_id) || simState.picksB.some(p=>p.id===x.unit_master_id);
+    const bwr = x.plays ? Math.round(100*x.wins/x.plays) : 0;
+    const info = x.custom ? "ajouté manuellement" : `${x.plays} parties · ${bwr}% WR`;
+    return editBox
+      ? `<div class="pick editable" onclick="simBoxRemove('${side}',${x.unit_master_id})" title="Retirer ${esc(x.name)} de la box">
+           <img src="${monImg(x.image_filename)}" loading="lazy">${x.custom?'<span class="custom-tag">+</span>':""}</div>`
+      : `<div class="pick mon-click" style="${already?"opacity:.25;pointer-events:none":""}" draggable="true" data-drag-id="${x.unit_master_id}" onclick="simPick(${x.unit_master_id},'${side}')" title="${esc(x.name)} · ${info} · clic ou glisser-déposer">
+           <img src="${monImg(x.image_filename)}" loading="lazy">${x.custom?'<span class="custom-tag">+</span>':""}</div>`;
+  }).join("") : "";
+  const footer = box ? `
+    <div class="row" style="margin-top:10px;gap:8px">
+      <div class="cmp-pick" style="flex:1;max-width:320px">
+        <input id="simAdd${side}" placeholder="🔍 Ajouter un pick à ${esc(box.name||("joueur "+side))}…" autocomplete="off">
+        <div class="cmp-results" id="simAddRes${side}" style="display:none"></div>
+      </div>
+      ${!box.anon ? `<button class="btn" onclick="simToggleBox('${side}')">${showBox?"Masquer la box":"📦 Choisir dans la box ("+box.list.length+")"}</button>` : ""}
+    </div>
+    ${showBox && !box.anon ? `
+    <div class="row" style="margin-top:8px;gap:8px">
+      <label class="muted" style="font-size:12.5px">Tri</label>
+      <select onchange="simBoxSortChange(this.value)">
+        <option value="plays" ${simState.boxSort==="plays"?"selected":""}>Parties jouées</option>
+        <option value="wr" ${simState.boxSort==="wr"?"selected":""}>Winrate</option>
+        <option value="name" ${simState.boxSort==="name"?"selected":""}>Nom (A→Z)</option>
+        <option value="element" ${simState.boxSort==="element"?"selected":""}>Élément</option>
+      </select>
+      <button class="btn" onclick="simToggleEdit('${side}')">${editBox?"✔ Terminer":"✏️ Modifier la box"}</button>
+      ${editBox ? `${nbRemoved?`<span class="muted" style="font-size:12px">${nbRemoved} masqué(s)</span>`:""}
+        <button class="btn" onclick="simBoxReset('${side}')" title="Annule toutes les suppressions et ajouts manuels">↺ Réinitialiser</button>` : ""}
+    </div>
+    ${editBox ? `
+    <div class="row" style="margin-top:8px">
+      <div class="cmp-pick" style="flex:1;max-width:320px">
+        <input id="simBoxAdd${side}" placeholder="🔍 Ajouter un monstre à la box…" autocomplete="off">
+        <div class="cmp-results" id="simBoxAddRes${side}" style="display:none"></div>
+      </div>
+      <span class="muted" style="font-size:12px">Clique un monstre de la grille pour le retirer.</span>
+    </div>` : ""}
+    <div class="picks" style="margin-top:10px">${boxGrid}</div>` : ""}` : "";
+  // disposition façon écran VS du jeu : le pick n°1 seul, excentré côté extérieur, + carré de 4
+  return `<div class="sim-side ${turn?"turn":""}" data-drop-side="${side}">
+    <div class="sim-name">${box?.pic?`<img class="avatar" src="${esc(box.pic)}" onerror="this.style.visibility='hidden'">`:""}
+      ${label} ${simState.fp===side?'<span class="fp-badge">First pick</span>':""} ${turn?'<span class="tier">À son tour</span>':""}
+      ${box && !box.ok ? '<span class="muted">(aucune donnée RTA)</span>':""}
+      ${box ? `<span class="muted" style="font-weight:400;font-size:12px">· box RTA : ${box.list.length} monstres</span>`:""}
+    </div>
+    <div class="team-slots ${mirrored?"right":""}">
+      ${slotFor(loneIdx)}
+      <div class="slot-grid">${gridIdx.map(slotFor).join("")}</div>
+    </div>
+    ${footer}
+  </div>`;
+}
+function simToggleBox(side){
+  if(side==="A") simState.showBoxA = !simState.showBoxA;
+  else simState.showBoxB = !simState.showBoxB;
+  renderSim();
+}
+function simRemove(side, i){
+  (side==="A"?simState.picksA:simState.picksB).splice(i,1);
+  const h = simState.history.lastIndexOf(side);
+  if(h > -1) simState.history.splice(h,1);
+  renderSim();
+}
+async function simPickDuo(id1, id2){
+  await simPick(id1, "A");
+  await simPick(id2, "A");
+}
+async function simPick(id, side){
+  side = side || simTurn();
+  if(!side) return;
+  const arr = side==="A" ? simState.picksA : simState.picksB;
+  const other = side==="A" ? simState.picksB : simState.picksA;
+  // règle RTA : impossible de picker un monstre déjà pris par l'un ou l'autre joueur
+  if(arr.length >= 5 || arr.some(p=>p.id===id) || other.some(p=>p.id===id)) return;
+  const m = await getMonster(id);
+  arr.push({id, name:m.name, img:m.image_filename});
+  simState.history.push(side);
+  renderSim();
+}
+let simRenderToken = 0;
+async function renderSim(){
+  const $b = document.getElementById("simBoard");
+  if(!$b) return;
+  // reflète le joueur sélectionné dans les champs de recherche
+  const $inA = document.getElementById("simInA"), $inB = document.getElementById("simInB");
+  if($inA && simState.boxA?.name) $inA.placeholder = `✔ ${simState.boxA.name} — changer…`;
+  if($inB && simState.boxB?.name) $inB.placeholder = `✔ ${simState.boxB.name} — changer…`;
+  if(!simState.a && !simState.b){
+    $b.innerHTML = '<div class="panel muted">Choisis les deux joueurs pour commencer.</div>';
+    return;
+  }
+  const token = ++simRenderToken;
+  const turn = simTurn();
+  // équipe first pick à gauche, second pick à droite, VS au milieu (comme en jeu)
+  const L = simState.fp, R = L==="A" ? "B" : "A";
+  let html = `<div class="vs-wrap">${simSideHTML(L,false)}<div class="vs-mid">VS</div>${simSideHTML(R,true)}</div>`;
+  if(!simState.b) html += '<div class="note" style="margin-bottom:12px">💡 Adversaire non renseigné : les recommandations sont théoriques (méta globale). Pose ses picks avec le champ 🔍 de son côté — ou renseigne son pseudo pour activer sa box et les badges « dans sa box ».</div>';
+  if(!simState.a){
+    $b.innerHTML = html + '<div class="panel muted">👉 Choisis ton compte (joueur A) ou clique une puce « Mes comptes ».</div>';
+    wireSimAdd(); return;
+  }
+  if(!simState.boxA || (simState.b && !simState.boxB)){ $b.innerHTML = html + '<div class="loading">Chargement des box…</div>'; wireSimAdd(); return; }
+  if(!turn){
+    html += `<div class="panel" style="border-color:var(--win)" id="draftDone"><b style="color:var(--win)">Draft complet !</b> <span class="muted">Calcul de l'indice de confiance…</span></div>`;
+    $b.innerHTML = html; wireSimAdd();
+    computeConfidence(token);
+    return;
+  }
+  // au tour de l'adversaire : pas de suggestions, on garde l'écran léger
+  if(turn !== "A"){
+    html += `<div class="panel muted" style="text-align:center">✋ Au tour de l'adversaire — pose son pick avec son champ 🔍, sa box 📦 ou un glisser-déposer. Tes conseils reviendront à ton tour.</div>`;
+    $b.innerHTML = html; wireSimAdd(); return;
+  }
+  html += `<div id="simSugg"><div class="loading">Calcul des suggestions…</div></div>`;
+  $b.innerHTML = html;
+  wireSimAdd();
+  // ----- suggestions TOUJOURS du point de vue du joueur A (celui qui veut gagner) -----
+  const my = getSimBox("A");
+  const myPicks = simState.picksA;
+  const enemyPicks = simState.picksB;
+  // règle RTA : un monstre déjà pické (par toi OU par l'adversaire) n'est plus disponible
+  const pickedIds = new Set([...myPicks, ...enemyPicks].map(p=>p.id));
+  const isLD = el => el==="Light" || el==="Dark";
+  const inBox = id => my.list.some(x=>x.unit_master_id===id);
+  // stats méta de la saison (ban rate, seuils)
+  const meta = await getMetaStats();
+  if(token !== simRenderToken) return;
+  // mode FIRST PICK (aucun pick adverse) : classement par les VRAIES stats FP1 du top ladder
+  const fpMode = !enemyPicks.length;
+  let fpGlobal = [];
+  if(fpMode){
+    const fps = await getFirstPickStats();
+    if(token !== simRenderToken) return;
+    // liste globale des first picks du top ladder (même hors box)
+    fpGlobal = [...fps.entries()].filter(([id,e])=>e.n>=100)
+      .map(([id,e])=>({id, n:e.n, wr:e.w/e.n}))
+      .sort((a,b)=> shrink(b.wr,b.n)-shrink(a.wr,a.n) || b.n-a.n).slice(0,20);
+    await preloadMonsters(fpGlobal.map(x=>x.id));
+    if(token !== simRenderToken) return;
+    if(!simState.lds) fpGlobal = fpGlobal.filter(x=>!isLD(monCache.get(x.id)?.element));
+    fpGlobal = fpGlobal.slice(0,15);
+  }
+  // 2) counters des picks adverses (via stats de matchups) — alimente le panneau box et les duos
+  let countersFull = [], boxVs = [];
+  if(enemyPicks.length){
+    const cand = new Map();
+    for(const e of enemyPicks){
+      const rows = await getPairsAgainst(e.id);
+      if(token !== simRenderToken) return; // état changé entre-temps
+      const th = adaptTh(rows, "total_played_against"); // seuil adaptatif au volume de la saison
+      for(const r of rows){
+        if(r.total_played_against < th) continue;
+        let c = cand.get(r.b_monster_id);
+        if(!c){ c = {id:r.b_monster_id, name:r.b_monster_name, img:r.b_monster_image_filename, sum:0, cover:0, det:[]}; cand.set(r.b_monster_id, c); }
+        const wrVs = 1 - r.win_against_rate;
+        c.sum += wrVs; c.cover++; c.det.push(`${Math.round(wrVs*100)}% vs ${e.name}`);
+      }
+    }
+    const countersAll = [...cand.values()].filter(c=>!pickedIds.has(c.id))
+      .map(c=>({...c, avg:c.sum/c.cover}))
+      .sort((a,b)=> b.cover-a.cover || b.avg-a.avg);
+    countersFull = countersAll.slice(0, 40);
+    await preloadMonsters(countersFull.map(c=>c.id));
+    if(token !== simRenderToken) return;
+    if(!simState.lds) countersFull = countersFull.filter(c=>!isLD(monCache.get(c.id)?.element));
+  }
+  // TA box classée par WR RÉEL contre les picks adverses — couverture COMPLÈTE :
+  // on interroge les matchups de CHAQUE monstre de ta box (même les moins joués comme Misty),
+  // au lieu de dépendre des listes d'adversaires des monstres ennemis.
+  if(enemyPicks.length){
+    const boxCandidates = my.list.filter(x=>!pickedIds.has(x.unit_master_id) && (simState.lds || !isLD(x.element)));
+    // saison courante + repli saison précédente, matchup par matchup (couverture maximale)
+    const [rowsNowAll, rowsPrevAll, togNowAll, togPrevAll] = await Promise.all([
+      Promise.all(boxCandidates.map(b=>getPairsAt(b.unit_master_id, "total_played_against", simState.season))),
+      Promise.all(boxCandidates.map(b=>getPairsAt(b.unit_master_id, "total_played_against", simState.season-1))),
+      myPicks.length ? Promise.all(boxCandidates.map(b=>getPairsAt(b.unit_master_id, "total_played_together", simState.season))) : Promise.resolve([]),
+      myPicks.length ? Promise.all(boxCandidates.map(b=>getPairsAt(b.unit_master_id, "total_played_together", simState.season-1))) : Promise.resolve([])
+    ]);
+    if(token !== simRenderToken) return;
+    for(let bi=0; bi<boxCandidates.length; bi++){
+      const bx = boxCandidates[bi];
+      const rowsNow = rowsNowAll[bi] || [], rowsPrev = rowsPrevAll[bi] || [];
+      const baseline = meta.get(bx.unit_master_id)?.win_rate ?? 0.5; // niveau de base du monstre dans la méta
+      let sum=0, cover=0; const det=[];
+      for(const e of enemyPicks){
+        let r = rowsNow.find(x=>x.b_monster_id===e.id), prev = false;
+        if(!(r && r.total_played_against>=20)){
+          const r2 = rowsPrev.find(x=>x.b_monster_id===e.id);
+          r = (r2 && r2.total_played_against>=20) ? (prev=true, r2) : null;
+        }
+        if(r){
+          sum += shrink(r.win_against_rate, r.total_played_against); // WR ajusté au volume
+          cover++;
+          det.push(`${Math.round(r.win_against_rate*100)}% vs ${e.name}${prev?" (S"+(simState.season-1)+")":""}`);
+        }
+      }
+      if(!cover) continue;
+      // matchups non mesurés = le monstre performe à son niveau de base (ni bonus ni malus)
+      const vsScore = (sum + baseline*(enemyPicks.length-cover)) / enemyPicks.length;
+      // synergie avec les picks déjà posés (25 % du score)
+      let myFit = null;
+      if(myPicks.length){
+        const tn = togNowAll[bi]||[], tp = togPrevAll[bi]||[];
+        let s=0, n2=0;
+        for(const p of myPicks){
+          let r = tn.find(x=>x.b_monster_id===p.id && x.total_played_together>=20)
+               || tp.find(x=>x.b_monster_id===p.id && x.total_played_together>=20);
+          if(r){ s += shrink(r.win_together_rate, r.total_played_together); n2++; }
+        }
+        if(n2) myFit = s/n2;
+      }
+      const banRate = meta.get(bx.unit_master_id)?.ban_rate ?? 0;
+      let score = myFit!=null ? 0.75*vsScore + 0.25*myFit : vsScore;
+      score -= 0.08*banRate; // pénalité : un monstre très banni risque de ne jamais combattre
+      boxVs.push({
+        id:bx.unit_master_id, name:bx.name, img:bx.image_filename, element:bx.element,
+        avg:score, vsScore, myFit, delta: vsScore - baseline, cover, det,
+        myPlays:bx.plays||0, myWr: bx.plays ? bx.wins/bx.plays : null, banRate
+      });
+    }
+    boxVs.sort((a,b)=> b.avg-a.avg || b.cover-a.cover);
+    boxVs = boxVs.slice(0,15);
+  }
+  // 3) duos conseillés : paires prises dans TA box qui counterent les picks adverses ET synergisent
+  // (inutile au dernier pick : il ne reste qu'un seul slot)
+  const lastPick = !fpMode && myPicks.length === 4;
+  let duos = [], duosFromBox = true;
+  if(countersFull.length >= 2 && !lastPick){
+    let base = boxVs;
+    if(base.length < 2){ duosFromBox = false; base = countersFull; }
+    base = base.slice(0, 12);
+    for(const c of base){ await getPairsTogether(c.id); if(token !== simRenderToken) return; }
+    for(let i=0;i<base.length;i++) for(let k=i+1;k<base.length;k++){
+      const c1 = base[i], c2 = base[k];
+      const rows = cachedPairs(c1.id, "total_played_together");
+      const row = rows.find(r=>r.b_monster_id===c2.id);
+      if(!row || row.total_played_together < 20) continue;
+      const togAdj = shrink(row.win_together_rate, row.total_played_together);
+      const vs = ((c1.vsScore ?? c1.avg) + (c2.vsScore ?? c2.avg)) / 2;
+      const fits = [c1.myFit, c2.myFit].filter(x=>x!=null);
+      const myFit = fits.length ? fits.reduce((a,x)=>a+x,0)/fits.length : null;
+      // 45 % counter + 35 % synergie du duo + 20 % cohérence avec tes picks posés
+      const score = myFit!=null ? 0.45*vs + 0.35*togAdj + 0.20*myFit : 0.55*vs + 0.45*togAdj;
+      duos.push({ c1, c2, tog:row.win_together_rate, vs, myFit, score, nTog:row.total_played_together });
+    }
+    duos.sort((a,b)=>b.score-a.score);
+    duos = duos.slice(0,15);
+  }
+  const $s = document.getElementById("simSugg");
+  if(!$s || token !== simRenderToken) return;
+  let boxPanelTitle = "", boxPanelRows = "";
+  if(!fpMode){
+    boxPanelTitle = lastPick
+      ? `🎯 Dernier pick — counter toute leur draft <span class="muted" style="font-size:12px;font-weight:400">(WR réel vs leurs picks · attention au ban adverse)</span>`
+      : `Ta box contre ses picks <span class="muted" style="font-size:12px;font-weight:400">(chaque monstre seul, WR moyen face à l'ensemble de sa draft — les duos sont à droite)</span>`;
+    boxPanelRows = boxVs.length ? boxVs.map((c,i)=>
+      `<div class="sugg${i>=5?" hid":""}" draggable="true" data-drag-id="${c.id}" onclick="simPick(${c.id},'A')"
+        title="Score = matchups ajustés au volume (les non-mesurés comptent au niveau de base du monstre)${c.myFit!=null?" + 25 % de synergie avec tes picks":""}${c.banRate>=0.15?" − pénalité de ban":""}">
+        <img src="${monImg(c.img)}" loading="lazy"><div class="sg-n">${esc(c.name)} ${c.delta>=0.03?`<span class="inbox-badge" title="Gagne ${(c.delta*100).toFixed(0)} pts de plus contre cette draft que son winrate habituel">🎯 counter +${(c.delta*100).toFixed(0)} pts</span>`:""} ${c.banRate!=null && c.banRate>=0.15 ? `<span class="ban-badge">🚫 souvent banni (${pct(c.banRate,0)})</span>` : ""}
+          <div class="sub">${elemTag(c.element)} · mesuré ${c.cover}/${enemyPicks.length} pick${enemyPicks.length>1?"s":""} · ${c.det.join(" · ")}${c.myFit!=null?` · synergie picks ${pct(c.myFit)}`:""} · perso : ${c.myWr!=null?pct(c.myWr):"—"} (${c.myPlays} parties)</div></div>
+        <span class="sg-wr" style="color:${c.avg>=0.5?'var(--win)':'var(--lose)'}">${pct(c.avg)}</span></div>`).join("") + moreBtn(boxVs.length)
+      : '<div class="muted">Pas assez de données de matchup pour les monstres de ta box contre ces picks.</div>';
+    if(lastPick && myPicks.length){
+      const myBans = myPicks.map(p=>({p, br: meta.get(p.id)?.ban_rate ?? 0})).sort((x,y)=>y.br-x.br);
+      const topBan = myBans[0];
+      boxPanelRows += topBan.br >= 0.15
+        ? `<div class="note">💡 Ton <b>${esc(topBan.p.name)}</b> (ban rate ${pct(topBan.br)}) attirera probablement le ban adverse — un dernier pick fort a de bonnes chances de passer.</div>`
+        : `<div class="note">⚠️ Aucun de tes picks actuels n'attire fortement le ban : un dernier pick très menaçant (🚫) risque d'être banni. Deux stratégies : un « ban bait » assumé pour protéger le reste, ou un counter plus discret.</div>`;
+      // ton ban conseillé, calculable dès maintenant (sa draft est complète)
+      if(enemyPicks.length === 5){
+        await Promise.all(myPicks.map(p=>getPairs(p.id, "total_played_against")));
+        if(token !== simRenderToken) return;
+        const agR = id => cachedPairs(id, "total_played_against");
+        const matchupOf = (As,Bs) => {
+          let w=0, v=0;
+          for(const a of As){ const rows=agR(a.id);
+            for(const b of Bs){ const r=rows.find(x=>x.b_monster_id===b.id);
+              if(r && r.total_played_against>=20){ const ww=Math.min(r.total_played_against,2000); w+=r.win_against_rate*ww; v+=ww; } } }
+          return v ? w/v : 0.5;
+        };
+        let bestBan = null;
+        for(const e of enemyPicks){
+          const c = matchupOf(myPicks, enemyPicks.filter(x=>x!==e));
+          if(!bestBan || c > bestBan.c) bestBan = {e, c};
+        }
+        if(bestBan) boxPanelRows += `<div class="note">🚫 <b>Ton ban conseillé : ${esc(bestBan.e.name)}</b> — sans lui, les matchups de tes 4 picks actuels montent à ${pct(bestBan.c)}. (L'analyse complète des bans, incluant ton 5e pick, s'affiche après la fin de la draft.)</div>`;
+      }
+    }
+  }
+  $s.innerHTML = (fpMode ? `
+    <h2>First picks — tous les joueurs <span class="muted" style="font-size:12px;font-weight:400">(min. 100 ouvertures)</span>
+      <span style="color:var(--accent2);cursor:help;font-size:15px" title="Comment c'est calculé ? L'app analyse les ~4 000 replays les plus récents de 80 joueurs pris à tous les niveaux du classement (du top mondial au rang ~25 000). Dans chaque combat, elle repère qui avait le first pick et quel monstre il a posé en premier, puis s'il a gagné. Le % = victoires / ouvertures. Seuls les monstres ouverts au moins 100 fois sont affichés. Recalculé une fois par jour.">*</span></h2>
+    <div class="panel">${fpGlobal.length ? fpGlobal.map((f,i)=>{
+        const fm = monCache.get(f.id)||{};
+        return `<div class="sugg${i>=5?" hid":""}" draggable="true" data-drag-id="${f.id}" onclick="simPick(${f.id},'A')">
+          <img src="${monImg(fm.image_filename)}" loading="lazy">
+          <div class="sg-n">${esc(fm.name||f.id)} ${inBox(f.id)?'<span class="inbox-badge">dans ta box</span>':""}<div class="sub">${elemTag(fm.element)} · ouvert ${f.n} fois en FP1</div></div>
+          <span class="sg-wr" style="color:${f.wr>=0.5?'var(--win)':'var(--lose)'}">${pct(f.wr)}</span></div>`;
+      }).join("") + moreBtn(fpGlobal.length) : '<div class="muted">Analyse des replays en cours ou pas assez de données pour cette saison.</div>'}</div>`
+  : lastPick ? `<div><h2>${boxPanelTitle}</h2>
+      <div class="panel">${boxPanelRows}</div>
+    </div>`
+  : `<div class="two-col">
+    <div><h2>${boxPanelTitle}</h2>
+      <div class="panel">${boxPanelRows}</div>
+    </div>
+    <div><h2>${(()=>{const t=simState.picksA.length+simState.picksB.length; const q=simSeq(); return q[t]==="A"&&q[t+1]==="A" ? "🎯 Tu dois picker 2 — duos conseillés" : "Duos conseillés";})()} <span class="muted" style="font-size:12px;font-weight:400">(meilleure chance de win : counter + synergie${duosFromBox?", pris dans ta box":" — box trop limitée, duos globaux"})</span></h2>
+      <div class="panel">${duos.length ? duos.map((d,i)=>
+        `<div class="sugg${i>=5?" hid":""}" onclick="simPickDuo(${d.c1.id},${d.c2.id})" title="Picker les deux monstres">
+          <img src="${monImg(d.c1.img)}" loading="lazy" class="mon-click" draggable="true" data-drag-id="${d.c1.id}" title="Picker uniquement ${esc(d.c1.name)}" onclick="event.stopPropagation();simPick(${d.c1.id},'A')">
+          <span style="color:var(--muted);font-weight:800">+</span>
+          <img src="${monImg(d.c2.img)}" loading="lazy" class="mon-click" draggable="true" data-drag-id="${d.c2.id}" title="Picker uniquement ${esc(d.c2.name)}" onclick="event.stopPropagation();simPick(${d.c2.id},'A')">
+          <div class="sg-n">${esc(d.c1.name)} + ${esc(d.c2.name)}
+            <div class="sub">${pct(d.vs)} vs picks adverses · ${pct(d.tog)} ensemble (${num(d.nTog)} parties)${d.myFit!=null?` · synergie avec tes picks ${pct(d.myFit)}`:""}</div></div>
+          <span class="sg-wr" style="color:${d.score>=0.5?'var(--win)':'var(--lose)'}">${pct(d.score)}</span></div>`).join("") + moreBtn(duos.length)
+        : '<div class="muted">Pas assez de données pour former des duos fiables contre ces picks.</div>'}</div>
+    </div>
+  </div>`)
+  + `<div class="note">Les conseils sont calculés pour <b>toi (joueur A)</b> uniquement — un clic sur une suggestion la picke dans ton équipe. Pose les picks adverses avec le champ 🔍 ou la box 📦 de son côté. Les scores sont <b>ajustés au volume</b> (un 70 % sur 30 parties pèse moins qu'un 60 % sur 700), intègrent la synergie avec tes picks déjà posés et une pénalité pour les monstres très bannis — survole une ligne pour le détail. Données Guardian+ S${simState.season}, ce n'est pas une prédiction exacte du combat.</div>`;
+  wireSimAdd();
+}
+/* indice de confiance de victoire après la draft complète (AVANT bans) :
+   matchups réels tes 5 vs ses 5 (pondérés par volume) + différentiel de synergie interne */
+async function computeConfidence(token){
+  try{
+    const A = simState.picksA, B = simState.picksB;
+    let mw = 0, mv = 0, nCross = 0;
+    for(const a of A){
+      const rows = await getPairsAgainst(a.id);
+      if(token !== simRenderToken) return;
+      for(const b of B){
+        const r = rows.find(x=>x.b_monster_id===b.id);
+        if(r && r.total_played_against>=20){
+          const w = Math.min(r.total_played_against, 2000);
+          mw += r.win_against_rate*w; mv += w; nCross++;
+        }
+      }
+    }
+    const matchup = mv ? mw/mv : 0.5;
+    const synOf = async picks => {
+      let s = 0, n = 0;
+      for(let i=0;i<picks.length;i++){
+        const rows = await getPairsTogether(picks[i].id);
+        if(token !== simRenderToken) return null;
+        for(let k=i+1;k<picks.length;k++){
+          const r = rows.find(x=>x.b_monster_id===picks[k].id);
+          if(r && r.total_played_together>=20){ s += r.win_together_rate; n++; }
+        }
+      }
+      return n ? s/n : 0.5;
+    };
+    const synA = await synOf(A); if(synA===null) return;
+    const synB = await synOf(B); if(synB===null) return;
+    let conf = matchup + (synA - synB)/2;
+    conf = Math.max(0.05, Math.min(0.95, conf));
+
+    // ---- analyse des bans : matrice 5x5 (mon ban x son ban), tout depuis le cache ----
+    const agRows  = id => cachedPairs(id, "total_played_against");
+    const togRows = id => cachedPairs(id, "total_played_together");
+    const matchupOf = (As,Bs) => {
+      let w=0, v=0;
+      for(const a of As){ const rows=agRows(a.id);
+        for(const b of Bs){ const r=rows.find(x=>x.b_monster_id===b.id);
+          if(r && r.total_played_against>=20){ const ww=Math.min(r.total_played_against,2000); w+=r.win_against_rate*ww; v+=ww; } } }
+      return v ? w/v : 0.5;
+    };
+    const synCache2 = new Map();
+    const synFor = picks => {
+      const key = picks.map(p=>p.id).sort().join(",");
+      if(synCache2.has(key)) return synCache2.get(key);
+      let s=0, n=0;
+      for(let i=0;i<picks.length;i++){ const rows=togRows(picks[i].id);
+        for(let k=i+1;k<picks.length;k++){ const r=rows.find(x=>x.b_monster_id===picks[k].id);
+          if(r && r.total_played_together>=20){ s+=r.win_together_rate; n++; } } }
+      const val = n ? s/n : 0.5;
+      synCache2.set(key, val);
+      return val;
+    };
+    const clamp01 = x => Math.max(0.05, Math.min(0.95, x));
+    const confOf = (As,Bs) => clamp01(matchupOf(As,Bs) + (synFor(As)-synFor(Bs))/2);
+    // pour chaque ban possible de MA part, l'adversaire répond par SON meilleur ban → indice garanti (pire cas)
+    const banEval = B.map((bj,j)=>{
+      const B4 = B.filter((_,k)=>k!==j);
+      let worst = 1, worstI = 0;
+      A.forEach((ai,i)=>{
+        const c = confOf(A.filter((_,k)=>k!==i), B4);
+        if(c < worst){ worst = c; worstI = i; }
+      });
+      return { ban:B[j], oppBan:A[worstI], worstConf:worst };
+    }).sort((x,y)=>y.worstConf-x.worstConf);
+    const best = banEval[0];
+
+    const el = document.getElementById("draftDone");
+    if(!el || token !== simRenderToken) return;
+    const col = conf>=0.5 ? "var(--win)" : "var(--lose)";
+    el.innerHTML = `<b style="color:var(--win)">Draft complet !</b>
+      <div class="row" style="margin-top:10px;gap:16px;align-items:center">
+        <div style="font-size:36px;font-weight:900;color:${col}">${Math.round(conf*100)} %</div>
+        <div>
+          <div style="font-weight:700">Indice de confiance de victoire <span class="tier" style="color:var(--gold)">AVANT les bans</span>
+            <span style="color:var(--accent2);cursor:help;font-size:15px" title="Comment c'est calculé ? Indice = matchups + (ta synergie − sa synergie) ÷ 2.
+• Matchups : winrate moyen de tes 5 monstres contre ses 5 (25 croisements possibles), pondéré par le volume de parties réelles de chaque paire (données Guardian+ de la saison). Les paires avec moins de 20 parties sont ignorées.
+• Synergie : winrate moyen des paires de monstres jouées ensemble, calculé pour ta team et la sienne — l'écart compte pour moitié car la synergie pèse moins qu'un matchup direct.
+• Le résultat est borné entre 5 % et 95 %. Leader, runes et ordre de vitesse ne sont pas mesurables de l'extérieur.">*</span></div>
+          <div class="muted" style="font-size:12.5px">Matchups : ${pct(matchup)} (${nCross}/25 croisements mesurés)
+            ${(synA-synB)!==0 ? `${(synA-synB)>0?"+":"−"} ${Math.abs((synA-synB)*50).toFixed(1)} pts de synergie (toi ${pct(synA)} vs lui ${pct(synB)})` : `· synergies égales (${pct(synA)})`}
+            = <b style="color:var(--text)">${Math.round(conf*100)} %</b></div>
+        </div>
+      </div>
+      <div class="rr-bar" style="margin-top:10px;height:10px"><div class="rr-fill" style="width:${Math.round(conf*100)}%"></div></div>
+      <h3 style="margin-top:16px">🚫 Conseil de ban</h3>
+      ${banEval.slice(0,3).map((bx,i)=>`<div class="sugg" style="cursor:default">
+        <img src="${monImg(bx.ban.img)}">
+        <div class="sg-n">${i===0?'<b style="color:var(--gold)">Ban conseillé : </b>':""}${esc(bx.ban.name)}
+          <div class="sub">sa meilleure réponse : bannir ton ${esc(bx.oppBan.name)} → 4v4 à ${pct(bx.worstConf)}</div></div>
+        <span class="sg-wr" style="color:${bx.worstConf>=0.5?'var(--win)':'var(--lose)'}">${pct(bx.worstConf)}</span></div>`).join("")}
+      <div class="note">Lecture : pour chacun de tes bans possibles, on suppose que l'adversaire réplique par <b>son</b> meilleur ban contre toi — le % affiché est donc ton indice <b>garanti dans le pire cas</b>. Scénario le plus cohérent : tu bans <b>${esc(best.ban.name)}</b>, il bannit ton <b>${esc(best.oppBan.name)}</b> → 4v4 estimé à <b>${pct(best.worstConf)}</b>. Reste hors modèle : leader, runes, ordre de vitesse.</div>`;
+  }catch(e){}
+}
+
+/* pagination des suggestions : 5 visibles, la flèche révèle les 5 suivants */
+function showMore(btn){
+  const panel = btn.closest(".panel");
+  const hid = panel.querySelectorAll(".sugg.hid");
+  for(let i=0;i<5 && i<hid.length;i++) hid[i].classList.remove("hid");
+  if(hid.length<=5) btn.style.display = "none";
+}
+const moreBtn = n => n>5 ? `<button class="btn more-btn" onclick="showMore(this)">▼ Voir les 5 suivants</button>` : "";
+function wireSimAdd(){
+  attachMonSearch("simAddA","simAddResA", id=>simPick(id,"A"));
+  attachMonSearch("simAddB","simAddResB", id=>simPick(id,"B"));
+  attachMonSearch("simBoxAddA","simBoxAddResA", id=>simBoxAdd("A",id));
+  attachMonSearch("simBoxAddB","simBoxAddResB", id=>simBoxAdd("B",id));
+}
+function attachMonSearch(inputId, listId, onPick){
+  const $in = document.getElementById(inputId), $list = document.getElementById(listId);
+  if(!$in || $in.dataset.wired) return;
+  $in.dataset.wired = "1";
+  let t = null;
+  $in.addEventListener("input", ()=>{
+    clearTimeout(t);
+    const q = $in.value.trim();
+    if(q.length<2){ $list.style.display="none"; return; }
+    t = setTimeout(async ()=>{
+      $list.style.display="block";
+      $list.innerHTML = '<div class="sr-item muted">Recherche…</div>';
+      try{
+        const r = await api("/monster/search/" + encodeURIComponent(q));
+        const rows = (r.data||[]).slice(0,7);
+        $list.innerHTML = rows.length ? rows.map((m,i)=>
+          `<div class="sr-item" data-slug="${esc(m.slug)}"><img src="${monImg(m.image_filename)}"><span>${esc(m.name)} <span class="muted">· ${esc(m.element||"")}</span></span></div>`).join("")
+          : '<div class="sr-item muted">Aucun résultat</div>';
+        $list.querySelectorAll("[data-slug]").forEach(el => el.onclick = async ()=>{
+          $list.innerHTML = '<div class="sr-item muted">Ajout…</div>';
+          try{
+            const d = await api(`/monster/${encodeURIComponent(el.dataset.slug)}/details`);
+            if(d.data?.id){
+              monCache.set(d.data.id, {name:d.data.name, image_filename:d.data.image_filename, element:d.data.element, slug:d.data.slug}); saveMonCache();
+              $list.style.display="none"; $in.value="";
+              onPick(d.data.id);
+            }
+          }catch(e){ $list.innerHTML = '<div class="sr-item muted">Erreur</div>'; }
+        });
+      }catch(e){ $list.innerHTML = '<div class="sr-item muted">Erreur</div>'; }
+    }, 300);
+  });
+}
+
+function sparkline(vals){
+  if(vals.length<2) return "";
+  const W=110, H=28;
+  const mn = Math.min(...vals), mx = Math.max(...vals), sp = (mx-mn)||1;
+  const pts = vals.map((v,i)=>`${(2+i*(W-4)/(vals.length-1)).toFixed(1)},${(H-3-(v-mn)*(H-6)/sp).toFixed(1)}`).join(" ");
+  return `<svg width="${W}" height="${H}" style="flex-shrink:0"><polyline points="${pts}" fill="none" stroke="var(--accent2)" stroke-width="1.8"/></svg>`;
+}
+
+/* go */
+route();
+</script>
+</body>
+</html>
