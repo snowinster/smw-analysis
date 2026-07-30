@@ -1727,20 +1727,41 @@ function completeSlots(f){
 function scanBoxRow(f){
   const {d, W, H} = f;
   const yMin = Math.floor(H*0.60);
-  // 1) icônes colorées de la box
-  const mask = new Uint8Array(W*H);
-  for(let y=yMin;y<H;y++) for(let x=Math.floor(W*0.05);x<W*0.98;x++){
-    const i = (y*W+x)*4, R=d[i], G=d[i+1], B=d[i+2];
-    const mx = Math.max(R,G,B), mn = Math.min(R,G,B);
-    if(mx-mn > 50 && mx > 70) mask[y*W+x] = 1;
-  }
-  for(const c of maskComponents(mask, W, H)){
-    if(c.w < W*0.045 || c.w > W*0.11) continue;
-    const ratio = c.w/c.h;
-    if(ratio < 0.75 || ratio > 1.3) continue;
-    if(c.cnt < c.w*c.h*0.35) continue;
-    if(!cam.boxMap.some(e=>Math.abs(e.box[0]-c.x) < c.w*0.5 && Math.abs(e.box[1]-c.y) < c.h*0.5))
-      cam.boxMap.push({box:[c.x, c.y, c.w, c.h], id:null, checked:false, offN:0});
+  // 1) segmentation de la GRILLE d'icônes par profils de colonnes/rangées (les icônes se touchent
+  //    presque : les composantes connexes fusionnent, les vallées du profil non)
+  if(!cam.boxMap.length){
+    const y0 = Math.floor(H*0.62), y1 = Math.floor(H*0.99);
+    const colorful = i => { const R=d[i], G=d[i+1], B=d[i+2]; const mx=Math.max(R,G,B), mn=Math.min(R,G,B); return mx-mn>50 && mx>70; };
+    const prof = new Float32Array(W);
+    for(let x=Math.floor(W*0.05); x<W*0.98; x++){
+      let c=0; for(let y=y0; y<y1; y+=2) if(colorful((y*W+x)*4)) c++;
+      prof[x]=c;
+    }
+    const nz = [...prof].filter(v=>v>0).sort((a,b)=>a-b);
+    const med = nz[nz.length>>1] || 1;
+    const cols = []; let s0=null;
+    for(let x=0;x<W;x++){
+      if(prof[x] > med*0.35){ if(!s0) s0={a:x}; s0.b=x; }
+      else if(s0){ if(s0.b-s0.a > W*0.05) cols.push(s0); s0=null; }
+    }
+    if(s0 && s0.b-s0.a > W*0.05) cols.push(s0);
+    const rprof = new Float32Array(H);
+    for(let y=y0;y<y1;y++){
+      let c=0; for(const g of cols) for(let x=g.a; x<g.b; x+=4) if(colorful((y*W+x)*4)) c++;
+      rprof[y]=c;
+    }
+    const rnz = [...rprof].filter(v=>v>0).sort((a,b)=>a-b);
+    const rmed = rnz[rnz.length>>1] || 1;
+    const rows = []; let r0=null;
+    for(let y=y0;y<y1;y++){
+      if(rprof[y] > rmed*0.35){ if(!r0) r0={a:y}; r0.b=y; }
+      else if(r0){ if(r0.b-r0.a > H*0.05) rows.push(r0); r0=null; }
+    }
+    if(r0 && r0.b-r0.a > H*0.05) rows.push(r0);
+    if(cols.length >= 4 && rows.length >= 1){
+      for(const rr of rows) for(const cc of cols)
+        cam.boxMap.push({box:[cc.a, rr.a, cc.b-cc.a, rr.b-rr.a], id:null, checked:false, offN:0});
+    }
   }
   // 2) coches jaunes
   const ymask = new Uint8Array(W*H);
