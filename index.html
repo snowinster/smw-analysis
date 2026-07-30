@@ -1083,7 +1083,7 @@ function viewAddCalc(){
 }
 
 /* ================= SIMULATEUR DE DRAFT ================= */
-const simState = { a:null, b:null, fp:"A", lds:true, picksA:[], picksB:[], boxA:null, boxB:null, season:null, history:[], showBoxA:false, showBoxB:false, editBoxA:false, editBoxB:false, anonBox:null, anonFilter:"",
+const simState = { a:null, b:null, fp:"A", lds:true, picksA:[], picksB:[], boxA:null, boxB:null, season:null, history:[], editBoxA:false, editBoxB:false, anonBox:null, anonFilter:"",
   anonSort:"played", live:false,
   boxSort: (()=>{ try{ return localStorage.getItem("simBoxSort_v2") || "element"; }catch(e){ return "element"; } })() };
 const ELEM_ORDER = {Fire:0, Water:1, Wind:2, Light:3, Dark:4};
@@ -1460,11 +1460,10 @@ function simSideHTML(side, mirrored){
   const isFP = simState.fp===side;
   const loneIdx = isFP ? 0 : 4;
   const gridIdx = isFP ? [1,3,2,4] : [0,2,1,3];
-  const showBox = side==="A" ? simState.showBoxA : simState.showBoxB;
   const editBox = side==="A" ? simState.editBoxA : simState.editBoxB;
   const wid = side==="A" ? simState.a : simState.b;
   const nbRemoved = wid ? boxCustomFor(wid).removed.length : 0;
-  const boxGrid = showBox && box ? sortBoxList(box.list).map(x=>{
+  const boxGrid = box ? sortBoxList(box.list).map(x=>{
     const already = simState.picksA.some(p=>p.id===x.unit_master_id) || simState.picksB.some(p=>p.id===x.unit_master_id);
     const bwr = x.plays ? Math.round(100*x.wins/x.plays) : 0;
     const info = x.custom ? "ajouté manuellement" : `${x.plays} parties · ${bwr}% WR`;
@@ -1494,17 +1493,16 @@ function simSideHTML(side, mirrored){
         <input id="simAdd${side}" placeholder="🔍 Ajouter un pick à ${esc(box.name||("joueur "+side))}…" autocomplete="off">
         <div class="cmp-results" id="simAddRes${side}" style="display:none"></div>
       </div>
-      <button class="btn" onclick="simToggleBox('${side}')">${showBox?"Masquer la box":"📦 Choisir dans la box ("+box.list.length+")"}</button>
+      <label class="muted" style="font-size:12.5px">Tri
+        <select onchange="simBoxSortChange(this.value)">
+          <option value="element" ${simState.boxSort==="element"?"selected":""}>Élément</option>
+          <option value="plays" ${simState.boxSort==="plays"?"selected":""}>Parties jouées</option>
+          <option value="wr" ${simState.boxSort==="wr"?"selected":""}>Winrate</option>
+          <option value="name" ${simState.boxSort==="name"?"selected":""}>Nom (A→Z)</option>
+        </select>
+      </label>
     </div>
-    ${showBox ? `
     <div class="row" style="margin-top:8px;gap:8px">
-      <label class="muted" style="font-size:12.5px">Tri</label>
-      <select onchange="simBoxSortChange(this.value)">
-        <option value="element" ${simState.boxSort==="element"?"selected":""}>Élément</option>
-        <option value="plays" ${simState.boxSort==="plays"?"selected":""}>Parties jouées</option>
-        <option value="wr" ${simState.boxSort==="wr"?"selected":""}>Winrate</option>
-        <option value="name" ${simState.boxSort==="name"?"selected":""}>Nom (A→Z)</option>
-      </select>
       <button class="btn" onclick="simToggleEdit('${side}')">${editBox?"✔ Terminer":"✏️ Modifier la box"}</button>
       ${editBox ? `${nbRemoved?`<span class="muted" style="font-size:12px">${nbRemoved} masqué(s)</span>`:""}
         <button class="btn" onclick="simBoxReset('${side}')" title="Annule toutes les suppressions et ajouts manuels">↺ Réinitialiser</button>` : ""}
@@ -1517,7 +1515,7 @@ function simSideHTML(side, mirrored){
       </div>
       <span class="muted" style="font-size:12px">Clique un monstre de la grille pour le retirer.</span>
     </div>` : ""}
-    <div class="picks" style="margin-top:10px">${boxGrid}</div>` : ""}`;
+    <div class="picks" style="margin-top:10px">${boxGrid}</div>`;
   // disposition façon écran VS du jeu : le pick n°1 seul, excentré côté extérieur, + carré de 4
   return `<div class="sim-side ${turn?"turn":""}" data-drop-side="${side}">
     <div class="sim-name">${box?.pic?`<img class="avatar" src="${esc(box.pic)}" onerror="this.style.visibility='hidden'">`:""}
@@ -1790,11 +1788,6 @@ function simAnonSortChange(v){
   simState.anonSort = v;
   const g = document.getElementById("anonGrid");
   if(g) g.innerHTML = anonGridHTML();
-}
-function simToggleBox(side){
-  if(side==="A") simState.showBoxA = !simState.showBoxA;
-  else simState.showBoxB = !simState.showBoxB;
-  renderSim();
 }
 function simRemove(side, i){
   (side==="A"?simState.picksA:simState.picksB).splice(i,1);
