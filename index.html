@@ -1791,8 +1791,11 @@ async function camTick(){
     const nB = cam.slots.filter(s=>s.side==="B" && s.content).length;
     if(cam.lastHl && nA+nB === 0 && simState.picksA.length + simState.picksB.length === 0){
       camSetFP((cam.lastHl[0]+cam.lastHl[2]/2) < mid ? "A" : "B");
-    }else if(nA+nB >= 5 && (nA+nB) % 2 === 1){
-      camSetFP(nA > nB ? "A" : "B");
+    }else if(nA+nB >= 5 && (nA+nB) % 2 === 1 && nA !== nB){
+      // séquence 1-2-2-2-2-1 : à t picks posés (t impair), le côté majoritaire est
+      // le FIRST pick si t ≡ 1 (mod 4) [t=1,5,9], le SECOND pick si t ≡ 3 (mod 4) [t=3,7]
+      const majority = nA > nB ? "A" : "B";
+      camSetFP((nA+nB) % 4 === 1 ? majority : (majority === "A" ? "B" : "A"));
     }
   }
   // lecture du pseudo adverse (une fois, si aucun adversaire renseigné)
