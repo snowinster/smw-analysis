@@ -135,6 +135,28 @@ h3{font-size:13px;color:var(--muted);margin:4px 0 10px;text-transform:uppercase;
 .sk-mult{font-size:12px;margin-top:3px}
 .basestats{display:flex;gap:16px;flex-wrap:wrap;font-size:13px;color:var(--muted);margin-top:6px}
 .basestats b{color:var(--text)}
+/* anneaux de stats (fiche monstre) */
+.stat-rings{display:flex;flex-direction:column;align-items:center;gap:20px;margin:10px 0 26px}
+.ring{border-radius:50%;padding:8px;background:conic-gradient(var(--c) calc(var(--v)*1%), var(--card2) 0);box-shadow:0 6px 24px rgba(0,0,0,.35)}
+.ring-in{border-radius:50%;background:var(--card);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;border:1px solid var(--border);text-align:center}
+.ring.big .ring-in{width:172px;height:172px}
+.ring.small .ring-in{width:122px;height:122px}
+.ring-row{display:flex;gap:30px;flex-wrap:wrap;justify-content:center}
+.ric{font-size:22px;line-height:1}
+.small .ric{font-size:17px}
+.rlbl{font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);font-weight:700;margin-top:4px}
+.rval{font-size:31px;font-weight:900;color:var(--c);line-height:1.15}
+.small .rval{font-size:21px}
+.rsub{font-size:11px;color:var(--muted)}
+@media (max-width:700px){
+  .ring.big .ring-in{width:140px;height:140px}
+  .ring.small .ring-in{width:96px;height:96px}
+  .ring{padding:6px}
+  .ring-row{gap:14px}
+  .rval{font-size:25px}
+  .small .rval{font-size:16px}
+  .small .rlbl{font-size:9px}
+}
 .cmp-pickers{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:16px}
 .cmp-pick{position:relative}
 .cmp-pick input{width:100%;padding:10px 14px;border-radius:10px;border:1px solid var(--border);background:var(--card);color:var(--text);font-size:14px;outline:none}
@@ -847,18 +869,22 @@ async function viewMonster(id){
         <label class="switch"><input type="checkbox" onchange="monState.isG3=this.checked;viewMonster(${id})" ${g3?"checked":""}><span class="tk"></span><span>Guardian 3+ uniquement</span></label>
       </div>
       ${sumR.data ? (()=>{
-        const statCard = (icon,label,val,color,sub) => `
-          <div class="card">
-            <div class="lbl">${icon} ${label}</div>
-            <div class="big" style="color:${color}">${pct(val)}</div>
-            <div class="rr-bar" style="margin:9px 0 7px;height:6px"><div class="rr-fill" style="width:${Math.min(100,Math.round((val||0)*100))}%;background:${color}"></div></div>
-            <div class="muted" style="font-size:12px">${sub||"&nbsp;"}</div>
+        const ring = (size,icon,label,val,color,sub) => `
+          <div class="ring ${size}" style="--v:${Math.min(100,((val||0)*100)).toFixed(1)};--c:${color}">
+            <div class="ring-in">
+              <span class="ric">${icon}</span>
+              <span class="rlbl">${label}</span>
+              <span class="rval">${pct(val)}</span>
+              ${sub?`<span class="rsub">${sub}</span>`:""}
+            </div>
           </div>`;
-        return `<div class="cards" style="margin-bottom:18px">
-          ${statCard("🎯","Pick rate", s.pick_rate, "var(--accent2)", num(s.picks)+" picks")}
-          ${statCard("🏆","Winrate", s.win_rate, s.win_rate>=0.5?"var(--win)":"var(--lose)", num(s.wins)+" victoires")}
-          ${statCard("🚫","Ban rate", s.ban_rate, "var(--lose)", num(s.bans)+" bans")}
-          ${statCard("👑","Lead rate", s.lead_rate, "var(--gold)", "")}
+        return `<div class="stat-rings">
+          ${ring("big","⚔️","Win rate", s.win_rate, s.win_rate>=0.5?"var(--win)":"var(--lose)", num(s.wins)+" victoires")}
+          <div class="ring-row">
+            ${ring("small","🎮","Pick rate", s.pick_rate, "var(--accent2)", num(s.picks)+" picks")}
+            ${ring("small","👑","Lead rate", s.lead_rate, "var(--gold)", "")}
+            ${ring("small","🚫","Ban rate", s.ban_rate, "var(--lose)", num(s.bans)+" bans")}
+          </div>
         </div>`;
       })() : `<div class="panel muted">Pas de statistiques pour la saison ${monState.season}.</div>`}
       ${hist.length>2 ? `<h2>Tendance - Saison ${monState.season}</h2><div class="panel chart-wrap" id="chartPanel">
