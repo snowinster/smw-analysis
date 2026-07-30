@@ -1834,9 +1834,22 @@ function cropSig(b, cv){
   return sigFromCanvas();
 }
 const baseName = n => (n||"").split(" (")[0];
-function camMatchSig(v){
+/* base restreinte aux monstres de la box du joueur (discrimination bien meilleure, surtout côté sombre) */
+function dbForSide(side){
+  const box = side==="A" ? simState.boxA : simState.boxB;
+  if(!cam.db || !box || !box.list?.length) return cam.db;
+  const key = side + ":" + box.list.length;
+  cam.dbSub = cam.dbSub || {};
+  if(cam.dbSub[side]?.key !== key){
+    const ids = new Set(box.list.map(x=>x.unit_master_id));
+    cam.dbSub[side] = { key, arr: cam.db.filter(e=>ids.has(e.id)) };
+  }
+  return cam.dbSub[side].arr.length ? cam.dbSub[side].arr : cam.db;
+}
+function camMatchSig(v, db){
+  db = db || cam.db;
   let d1 = 1e9, d2 = 1e9, e1 = null, e2 = null;
-  for(const e of cam.db){
+  for(const e of db){
     let s = 0;
     const ev = e.v;
     for(let i=0;i<v.length;i++){ const dd = v[i] - ev[i]; s += dd*dd; }
@@ -1845,7 +1858,10 @@ function camMatchSig(v){
     else if(s < d2 && (!e1 || baseName(e.name) !== baseName(e1.name))){ d2 = s; e2 = e; }
   }
   const rel = (d2 - d1) / (d1 + 1e-6);
-  return { id: (d1 <= 1.0 && rel >= 0.25) ? e1.id : null, best: e1, d1, rel };
+  const restricted = db !== cam.db;
+  // base restreinte à la box → seuils adaptés (on peut accepter des cases plus sombres)
+  const ok = restricted ? (d1 <= 1.25 && rel >= 0.30) : (d1 <= 1.0 && rel >= 0.25);
+  return { id: ok ? e1.id : null, best: e1, d1, rel, restricted };
 }
 async function camTick(){
   if(!cam.video || !simState.live || !cam.db) return;
