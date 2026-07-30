@@ -376,34 +376,42 @@ function fail(e){
 }
 
 /* ================= HOME ================= */
+const homeState = { season:null };
 async function viewHome(){
   $app.innerHTML = '<div class="loading">Chargement…</div>';
   try{
     const [stats, seasons] = await Promise.all([api("/general/stats"), getSeasons()]);
-    const latest = seasons[0];
-    let played = latest;
-    let topPlayers = [], topMons = [];
-    // la saison en cours peut être vide → on recule jusqu'à trouver des données
-    for(const s of seasons){
-      const [p, m] = await Promise.all([
-        api(`/players?season=${s}&isSL=false&limit=5&offset=0`).catch(()=>({data:null})),
-        api(`/monsters?season=${s}&isG3=false&isSL=false&played=0&orderBy=played&orderDirection=DESC&limit=6&offset=0`).catch(()=>({data:null}))
-      ]);
-      if(p.data && p.data.length){ topPlayers = p.data; topMons = m.data||[]; played = s; break; }
-    }
+    if(!homeState.season || !seasons.includes(homeState.season)) homeState.season = seasons[0]; // défaut : saison en cours
     $app.innerHTML = `
       <h1>Statistiques RTA — Summoners War</h1>
       <div class="cards">
         <div class="card"><div class="lbl">Joueurs suivis</div><div class="big">${num(stats.wizards_count)}</div></div>
         <div class="card"><div class="lbl">Combats analysés</div><div class="big">${num(stats.battles_count)}</div></div>
-        <div class="card"><div class="lbl">Saisons couvertes</div><div class="big">${seasons.length} <span class="muted" style="font-size:14px">(S${seasons[seasons.length-1]}–S${latest})</span></div></div>
+        <div class="card"><div class="lbl">Saisons couvertes</div><div class="big">${seasons.length} <span class="muted" style="font-size:14px">(S${seasons[seasons.length-1]}–S${seasons[0]})</span></div></div>
       </div>
-      <h2>Top joueurs — Saison ${played} <a class="btn" style="margin-left:10px;font-size:12px" href="#/players">Voir le classement complet →</a></h2>
-      <div class="panel tbl-wrap">${playersTable(topPlayers, 0)}</div>
-      <h2>Monstres les plus joués — Saison ${played} <a class="btn" style="margin-left:10px;font-size:12px" href="#/monsters">Voir tous les monstres →</a></h2>
-      <div class="panel tbl-wrap">${monstersTable(topMons)}</div>
+      <h2>Top joueurs —
+        <select id="homeSeason" style="font-size:14px">${seasons.map(s=>`<option value="${s}" ${s===homeState.season?"selected":""}>Saison ${s}</option>`).join("")}</select>
+        <a class="btn" style="margin-left:10px;font-size:12px" href="#/players">Voir le classement complet →</a></h2>
+      <div class="panel tbl-wrap" id="homeTopPlayers"><div class="loading">Chargement…</div></div>
+      <h2>Monstres les plus joués <a class="btn" style="margin-left:10px;font-size:12px" href="#/monsters">Voir tous les monstres →</a></h2>
+      <div class="panel tbl-wrap" id="homeTopMons"><div class="loading">Chargement…</div></div>
       <div class="foot-note">Données : api.swarena.gg · Reconstruction locale non affiliée à Swarena ni Com2uS.</div>`;
+    document.getElementById("homeSeason").onchange = e => { homeState.season = +e.target.value; loadHomeTops(); };
+    loadHomeTops();
   }catch(e){ fail(e); }
+}
+async function loadHomeTops(){
+  const s = homeState.season;
+  const $p = document.getElementById("homeTopPlayers"), $m = document.getElementById("homeTopMons");
+  if($p) $p.innerHTML = '<div class="loading">Chargement…</div>';
+  if($m) $m.innerHTML = '<div class="loading">Chargement…</div>';
+  const [p, m] = await Promise.all([
+    api(`/players?season=${s}&isSL=false&limit=5&offset=0`).catch(()=>({data:null})),
+    api(`/monsters?season=${s}&isG3=false&isSL=false&played=0&orderBy=played&orderDirection=DESC&limit=6&offset=0`).catch(()=>({data:null}))
+  ]);
+  if(s !== homeState.season) return; // l'utilisateur a rechangé entre-temps
+  if($p) $p.innerHTML = p.data?.length ? playersTable(p.data, 0) : '<div class="muted" style="padding:8px">Aucune donnée pour cette saison.</div>';
+  if($m) $m.innerHTML = m.data?.length ? monstersTable(m.data) : '<div class="muted" style="padding:8px">Aucune donnée pour cette saison.</div>';
 }
 
 /* ================= LEADERBOARD ================= */
