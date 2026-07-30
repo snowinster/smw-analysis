@@ -849,32 +849,66 @@ async function viewMonster(id){
   }catch(e){ fail(e); }
 }
 
-/* graphe double : popularité + winrate quotidiens */
+/* graphe double : popularité + winrate quotidiens — pleine largeur, courbes lissées, repères par semaine */
 function dualChart(hist){
   const pts = hist.filter(h=>h.total_battles>0).map(h=>({
     d:h.battle_date, pop:100*h.monster_battles/h.total_battles,
     wr:h.monster_battles ? 100*h.monster_wins/h.monster_battles : null, n:h.monster_battles }));
   if(pts.length<2) return '<div class="muted">Pas assez de données.</div>';
-  const W = Math.max(700, pts.length*16), H = 260, P = 40;
-  const maxPop = Math.max(...pts.map(p=>p.pop), 1);
-  const X = i => P + i*(W-2*P)/(pts.length-1);
-  const Yp = v => H-P - (v/maxPop)*(H-2*P);
-  const Yw = v => H-P - (v/100)*(H-2*P);
+  const W = 1000, H = 320, P = {l:48, r:48, t:14, b:36};
+  const maxPop = Math.max(...pts.map(p=>p.pop), 1) * 1.08;
+  const X  = i => P.l + i*(W-P.l-P.r)/(pts.length-1);
+  const Yp = v => H-P.b - (v/maxPop)*(H-P.t-P.b);
+  const Yw = v => H-P.b - (v/100)*(H-P.t-P.b);
+  const weekOf = ds => {
+    const d = new Date(ds+"T00:00:00"), t = new Date(d);
+    t.setDate(d.getDate() + 4 - (d.getDay()||7));
+    return Math.ceil((((t - new Date(t.getFullYear(),0,1))/864e5) + 1) / 7);
+  };
   const grid = [0,.25,.5,.75,1].map(f=>{
-    const y = H-P - f*(H-2*P);
-    return `<line x1="${P}" y1="${y}" x2="${W-P}" y2="${y}" stroke="#2b3550" stroke-dasharray="3 4"/>
-      <text x="4" y="${y+4}" fill="#4ea1ff" font-size="10">${(f*maxPop).toFixed(1)}%</text>
-      <text x="${W-P+6}" y="${y+4}" fill="#3fca7c" font-size="10">${Math.round(f*100)}%</text>`;
+    const y = H-P.b - f*(H-P.t-P.b);
+    return `<line x1="${P.l}" y1="${y}" x2="${W-P.r}" y2="${y}" stroke="#2b3550" stroke-dasharray="3 4"/>
+      <text x="${P.l-8}" y="${y+4}" fill="#4ea1ff" font-size="11" text-anchor="end">${(f*maxPop).toFixed(0)}%</text>
+      <text x="${W-P.r+8}" y="${y+4}" fill="#3fca7c" font-size="11">${Math.round(f*100)}%</text>`;
   }).join("");
-  const l1 = pts.map((p,i)=>`${X(i).toFixed(1)},${Yp(p.pop).toFixed(1)}`).join(" ");
-  const l2 = pts.filter(p=>p.wr!=null).map((p)=>`${X(pts.indexOf(p)).toFixed(1)},${Yw(p.wr).toFixed(1)}`).join(" ");
+  // repères verticaux au début de chaque semaine
+  let weekMarks = "", lastWk = null, lastLblX = -100;
+  pts.forEach((p,i)=>{
+    const wk = weekOf(p.d);
+    if(wk !== lastWk){
+      lastWk = wk;
+      const x = X(i);
+      weekMarks += `<line x1="${x.toFixed(1)}" y1="${P.t}" x2="${x.toFixed(1)}" y2="${H-P.b}" stroke="#2b3550" stroke-width="1"/>`;
+      if(x - lastLblX > 62){
+        weekMarks += `<text x="${(x+4).toFixed(1)}" y="${H-P.b+20}" fill="#8b95ab" font-size="11.5">Sem. ${wk}</text>`;
+        lastLblX = x;
+      }
+    }
+  });
+  // courbe lissée (Catmull-Rom → Bézier)
+  const smooth = arr => {
+    if(arr.length < 3) return "M" + arr.map(p=>p[0].toFixed(1)+","+p[1].toFixed(1)).join(" L");
+    let path = `M${arr[0][0].toFixed(1)},${arr[0][1].toFixed(1)}`;
+    for(let i=0;i<arr.length-1;i++){
+      const p0=arr[Math.max(0,i-1)], p1=arr[i], p2=arr[i+1], p3=arr[Math.min(arr.length-1,i+2)];
+      path += `C${(p1[0]+(p2[0]-p0[0])/6).toFixed(1)},${(p1[1]+(p2[1]-p0[1])/6).toFixed(1)} ${(p2[0]-(p3[0]-p1[0])/6).toFixed(1)},${(p2[1]-(p3[1]-p1[1])/6).toFixed(1)} ${p2[0].toFixed(1)},${p2[1].toFixed(1)}`;
+    }
+    return path;
+  };
+  const popXY = pts.map((p,i)=>[X(i), Yp(p.pop)]);
+  const wrXY  = pts.map((p,i)=>p.wr==null?null:[X(i), Yw(p.wr)]).filter(Boolean);
+  const area = smooth(popXY) + ` L${popXY[popXY.length-1][0].toFixed(1)},${H-P.b} L${popXY[0][0].toFixed(1)},${H-P.b} Z`;
   const dots = pts.map((p,i)=>
-    `<circle cx="${X(i).toFixed(1)}" cy="${Yp(p.pop).toFixed(1)}" r="4" fill="#4ea1ff" stroke="#0d1117" stroke-width="1.2"
-      data-tip="${esc(p.d)} — popularité ${p.pop.toFixed(1)} % · winrate ${p.wr==null?"—":p.wr.toFixed(1)+" %"} · ${num(p.n)} combats"/>`).join("");
-  return `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">
-    ${grid}
-    <polyline points="${l1}" fill="none" stroke="#4ea1ff" stroke-width="2.4" stroke-linejoin="round"/>
-    <polyline points="${l2}" fill="none" stroke="#3fca7c" stroke-width="2" stroke-linejoin="round" opacity=".85"/>
+    `<circle cx="${X(i).toFixed(1)}" cy="${Yp(p.pop).toFixed(1)}" r="3.5" fill="#4ea1ff" stroke="#0d1117" stroke-width="1.2"
+      data-tip="Sem. ${weekOf(p.d)} · ${esc(p.d)} — popularité ${p.pop.toFixed(1)} % · winrate ${p.wr==null?"—":p.wr.toFixed(1)+" %"} · ${num(p.n)} combats"/>`).join("");
+  return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;display:block">
+    <defs><linearGradient id="gpop" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#4ea1ff" stop-opacity=".22"/><stop offset="1" stop-color="#4ea1ff" stop-opacity="0"/>
+    </linearGradient></defs>
+    ${weekMarks}${grid}
+    <path d="${area}" fill="url(#gpop)"/>
+    <path d="${smooth(popXY)}" fill="none" stroke="#4ea1ff" stroke-width="2.6" stroke-linejoin="round"/>
+    <path d="${smooth(wrXY)}" fill="none" stroke="#3fca7c" stroke-width="2.2" stroke-linejoin="round" opacity=".9"/>
     ${dots}</svg>`;
 }
 
