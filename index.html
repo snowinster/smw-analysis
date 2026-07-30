@@ -1545,7 +1545,7 @@ function liveOff(){
   if(c) c.checked = false;
   camStop();
 }
-function liveToggle(){ if(simState.live) camStart(); else camStop(); }
+function liveToggle(){ if(simState.live) camStart(); else { camStop(); liveStatus(""); } }
 async function camStart(){
   if(!navigator.mediaDevices?.getDisplayMedia){
     liveStatus("✖ capture non supportée ici (utilise la version en ligne du site)", false);
@@ -1586,7 +1586,7 @@ function camStop(){
   cam.stream = null; cam.video = null; cam.boxes = null; cam.manualBoxes = false;
   document.getElementById("camOverlay")?.remove();
   document.getElementById("camPreview")?.remove();
-  liveStatus("");
+  // (le statut n'est PAS effacé ici : les messages d'erreur doivent rester lisibles)
 }
 function camRun(boxes){
   // boxes fournies = calibration manuelle (5 cases à toi puis 5 adverses) ; sinon détection AUTO
