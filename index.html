@@ -1076,7 +1076,7 @@ function viewAddCalc(){
 }
 
 /* ================= SIMULATEUR DE DRAFT ================= */
-const simState = { a:null, b:null, fp:"A", lds:true, picksA:[], picksB:[], boxA:null, boxB:null, season:null, history:[], showBoxA:false, showBoxB:false, editBoxA:false, editBoxB:false,
+const simState = { a:null, b:null, fp:"A", lds:true, picksA:[], picksB:[], boxA:null, boxB:null, season:null, history:[], showBoxA:false, showBoxB:false, editBoxA:false, editBoxB:false, anonBox:null, anonFilter:"",
   boxSort: (()=>{ try{ return localStorage.getItem("simBoxSort_v1") || "plays"; }catch(e){ return "plays"; } })() };
 
 /* ----- personnalisation de la box (suppressions/ajouts), persistée par compte ----- */
@@ -1457,15 +1457,22 @@ function simSideHTML(side, mirrored){
       : `<div class="pick mon-click" style="${already?"opacity:.25;pointer-events:none":""}" draggable="true" data-drag-id="${x.unit_master_id}" onclick="simPick(${x.unit_master_id},'${side}')" title="${esc(x.name)} · ${info} · clic ou glisser-déposer">
            <img src="${monImg(x.image_filename)}" loading="lazy">${x.custom?'<span class="custom-tag">+</span>':""}</div>`;
   }).join("") : "";
-  const footer = box ? `
+  const footer = !box ? "" : box.anon ? `
+    <div class="row" style="margin-top:10px;gap:10px">
+      <input id="simAnonFilter" placeholder="🔍 Filtrer les monstres…" autocomplete="off" value="${esc(simState.anonFilter||"")}"
+        style="flex:1;max-width:300px;background:var(--card);border:1px solid var(--border);border-radius:10px;color:var(--text);padding:9px 13px;font-size:14px;outline:none"
+        oninput="simAnonFilter(this.value)">
+      <span class="muted" style="font-size:12px">clic ou glisser-déposer pour poser son pick</span>
+    </div>
+    <div class="picks" style="margin-top:10px;max-height:260px;overflow-y:auto" id="anonGrid">${anonGridHTML()}</div>` : `
     <div class="row" style="margin-top:10px;gap:8px">
       <div class="cmp-pick" style="flex:1;max-width:320px">
         <input id="simAdd${side}" placeholder="🔍 Ajouter un pick à ${esc(box.name||("joueur "+side))}…" autocomplete="off">
         <div class="cmp-results" id="simAddRes${side}" style="display:none"></div>
       </div>
-      ${!box.anon ? `<button class="btn" onclick="simToggleBox('${side}')">${showBox?"Masquer la box":"📦 Choisir dans la box ("+box.list.length+")"}</button>` : ""}
+      <button class="btn" onclick="simToggleBox('${side}')">${showBox?"Masquer la box":"📦 Choisir dans la box ("+box.list.length+")"}</button>
     </div>
-    ${showBox && !box.anon ? `
+    ${showBox ? `
     <div class="row" style="margin-top:8px;gap:8px">
       <label class="muted" style="font-size:12.5px">Tri</label>
       <select onchange="simBoxSortChange(this.value)">
@@ -1486,7 +1493,7 @@ function simSideHTML(side, mirrored){
       </div>
       <span class="muted" style="font-size:12px">Clique un monstre de la grille pour le retirer.</span>
     </div>` : ""}
-    <div class="picks" style="margin-top:10px">${boxGrid}</div>` : ""}` : "";
+    <div class="picks" style="margin-top:10px">${boxGrid}</div>` : ""}`;
   // disposition façon écran VS du jeu : le pick n°1 seul, excentré côté extérieur, + carré de 4
   return `<div class="sim-side ${turn?"turn":""}" data-drop-side="${side}">
     <div class="sim-name">${box?.pic?`<img class="avatar" src="${esc(box.pic)}" onerror="this.style.visibility='hidden'">`:""}
@@ -1500,6 +1507,26 @@ function simSideHTML(side, mirrored){
     </div>
     ${footer}
   </div>`;
+}
+/* grille "tous les monstres" pour l'adversaire sans pseudo : filtre en direct, clic/drag pour poser son pick */
+function anonGridHTML(){
+  const box = simState.anonBox;
+  if(!box) return '<span class="muted">Chargement de la liste des monstres…</span>';
+  const norm = s => (s||"").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g,"");
+  const q = norm(simState.anonFilter||"");
+  let list = q ? box.filter(m=>norm(m.name).includes(q)) : box;
+  list = list.slice(0, 60);
+  if(!list.length) return '<span class="muted">Aucun monstre trouvé.</span>';
+  return list.map(m=>{
+    const taken = simState.picksA.some(p=>p.id===m.id) || simState.picksB.some(p=>p.id===m.id);
+    return `<div class="pick mon-click" style="${taken?"opacity:.25;pointer-events:none":""}" draggable="true" data-drag-id="${m.id}" onclick="simPick(${m.id},'B')" title="${esc(m.name)} · ${num(m.played)} picks dans la méta">
+      <img src="${monImg(m.img)}" loading="lazy"></div>`;
+  }).join("");
+}
+function simAnonFilter(v){
+  simState.anonFilter = v;
+  const g = document.getElementById("anonGrid");
+  if(g) g.innerHTML = anonGridHTML(); // re-rend uniquement la grille : le champ garde le focus
 }
 function simToggleBox(side){
   if(side==="A") simState.showBoxA = !simState.showBoxA;
@@ -1532,6 +1559,17 @@ let simRenderToken = 0;
 async function renderSim(){
   const $b = document.getElementById("simBoard");
   if(!$b) return;
+  // adversaire sans pseudo : charge la liste de tous les monstres de la méta (une fois)
+  if(!simState.b && !simState.anonBox){
+    getMetaStats().then(meta=>{
+      if(simState.anonBox || simState.b) return;
+      simState.anonBox = [...meta.values()]
+        .sort((a,b)=>(b.played||0)-(a.played||0))
+        .map(m=>({id:m.monster_id, name:m.name, img:m.image_filename, played:m.played||0}));
+      for(const m of simState.anonBox) if(!monCache.has(m.id)) monCache.set(m.id, {name:m.name, image_filename:m.img});
+      renderSim();
+    }).catch(()=>{});
+  }
   // reflète le joueur sélectionné dans les champs de recherche
   const $inA = document.getElementById("simInA"), $inB = document.getElementById("simInB");
   if($inA && simState.boxA?.name) $inA.placeholder = `✔ ${simState.boxA.name} - changer…`;
