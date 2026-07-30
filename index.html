@@ -1697,6 +1697,29 @@ function addSlot(box, vw){
   const mid = cam.midX || vw/2;
   cam.slots.push({box, side: (box[0]+box[2]/2) < mid ? "A" : "B", id:null, diag:null, pend:null, pendN:0, emptyN:0});
 }
+/* reconstruit les cases non détectées : miroir autour du VS + complétion des carrés 2x2 */
+function completeSlots(f){
+  if(cam.slots.length < 1 || cam.slots.length >= 10) return;
+  const mid = cam.midX || f.W/2;
+  // 1) miroir gauche/droite (les deux plateaux sont symétriques)
+  for(const s of [...cam.slots]){
+    const mx = Math.round(2*mid - (s.box[0]+s.box[2]));
+    addSlot([mx, s.box[1], s.box[2], s.box[3]], f.W);
+  }
+  // 2) coin manquant d'un carré : (x1,y1),(x1,y2),(x2,y1) → (x2,y2)
+  for(const side of ["A","B"]){
+    const ss = cam.slots.filter(s=>s.side===side);
+    if(ss.length < 3) continue;
+    const tol = ss[0].box[2]*0.4;
+    for(const a of ss) for(const b of ss) for(const c of ss){
+      if(a===b || a===c || b===c) continue;
+      if(Math.abs(a.box[0]-b.box[0]) < tol && Math.abs(a.box[1]-c.box[1]) < tol
+         && Math.abs(a.box[1]-b.box[1]) > tol && Math.abs(a.box[0]-c.box[0]) > tol){
+        addSlot([c.box[0], b.box[1], a.box[2], a.box[3]], f.W);
+      }
+    }
+  }
+}
 function camSetFP(side){
   cam.fpSet = true;
   if(simState.fp !== side){
@@ -1781,6 +1804,7 @@ async function camTick(){
     cam.lastHl = hl;
     if(hl) addSlot(hl, f.W);
     for(const b of detectPortraits(f)) addSlot(b, f.W);
+    completeSlots(f); // reconstruit les cases manquantes par symétrie (utile si la capture démarre en cours de draft)
   }
   // détection du first pick :
   // règle 1 : surbrillance vue alors que le plateau est entièrement vide → ce côté ouvre la draft
