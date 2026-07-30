@@ -1380,6 +1380,7 @@ async function viewSimulator(){
     document.querySelectorAll('[name="simfp"]').forEach(r => r.onchange = e => { simState.fp = e.target.value; renderSim(); });
     document.getElementById("simSeason").onchange = e => {
       simState.season = +e.target.value;
+      simState.anonBox = null; // la grille "tous les monstres" dépend de la saison de stats → on la reconstruit
       try{ localStorage.setItem("simStatsSeason_v2", String(simState.season)); }catch(err){}
       renderSim();
     };
