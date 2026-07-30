@@ -1593,7 +1593,7 @@ function camRun(boxes){
   // boxes fournies = calibration manuelle (5 cases à toi puis 5 adverses) ; sinon détection AUTO
   cam.slots = boxes ? boxes.map((b,i)=>({box:b, side:i<5?"A":"B", id:null, diag:null})) : [];
   cam.manualBoxes = !!boxes;
-  cam.fpSet = false; cam.oppTried = false; cam.offDraft = 0;
+  cam.fpSet = false; cam.oppTried = false; cam.offDraft = 0; cam.boxMap = [];
   liveStatus(boxes ? "🎥 capture active (calibration manuelle)" : "🔎 en attente d'une draft…", boxes?true:undefined);
   clearInterval(cam.timer);
   cam.timer = setInterval(camTick, 600);
@@ -1720,6 +1720,71 @@ function completeSlots(f){
     }
   }
 }
+/* ----- carte de la BOX en bas d'écran : icônes reconnues quand elles sont propres,
+   puis une coche jaune qui apparaît dessus = pick du joueur identifié par sa position ----- */
+function scanBoxRow(f){
+  const {d, W, H} = f;
+  const yMin = Math.floor(H*0.60);
+  // 1) icônes colorées de la box
+  const mask = new Uint8Array(W*H);
+  for(let y=yMin;y<H;y++) for(let x=Math.floor(W*0.05);x<W*0.98;x++){
+    const i = (y*W+x)*4, R=d[i], G=d[i+1], B=d[i+2];
+    const mx = Math.max(R,G,B), mn = Math.min(R,G,B);
+    if(mx-mn > 50 && mx > 70) mask[y*W+x] = 1;
+  }
+  for(const c of maskComponents(mask, W, H)){
+    if(c.w < W*0.045 || c.w > W*0.11) continue;
+    const ratio = c.w/c.h;
+    if(ratio < 0.75 || ratio > 1.3) continue;
+    if(c.cnt < c.w*c.h*0.35) continue;
+    if(!cam.boxMap.some(e=>Math.abs(e.box[0]-c.x) < c.w*0.5 && Math.abs(e.box[1]-c.y) < c.h*0.5))
+      cam.boxMap.push({box:[c.x, c.y, c.w, c.h], id:null, checked:false, offN:0});
+  }
+  // 2) coches jaunes
+  const ymask = new Uint8Array(W*H);
+  for(let y=yMin;y<H;y++) for(let x=0;x<W;x++){
+    const i = (y*W+x)*4, R=d[i], G=d[i+1], B=d[i+2];
+    if(R>195 && G>180 && B<120 && Math.abs(R-G) < 60) ymask[y*W+x] = 1;
+  }
+  const checks = [];
+  for(const c of maskComponents(ymask, W, H)){
+    if(c.w > W*0.03 && c.cnt > c.w*c.h*0.25) checks.push(c);
+  }
+  return checks;
+}
+async function processBoxRow(f){
+  const checks = scanBoxRow(f);
+  for(const e of cam.boxMap){
+    const isChecked = checks.some(c=>Math.abs(c.x-e.box[0]) < e.box[2]*0.8 && Math.abs(c.y-e.box[1]) < e.box[3]*0.8);
+    // reconnaît l'icône quand elle est PROPRE (pas de coche dessus)
+    if(!e.id && !isChecked){
+      let best = null;
+      for(const cv of SIG_CROPS){
+        const {v, lum} = cropSig(e.box, cv);
+        if(lum < 60) continue;
+        const m = camMatchSig(v);
+        if(!best || m.rel > best.rel) best = m;
+      }
+      if(best && best.id && best.rel >= 0.30) e.id = best.id;
+    }
+    // coche apparue sur une icône identifiée → c'est un pick du joueur A
+    if(isChecked && !e.checked){
+      e.checked = true; e.offN = 0;
+      if(e.id && !simState.picksA.some(p=>p.id===e.id) && !simState.picksB.some(p=>p.id===e.id)
+         && simState.picksA.length < 5) await simPick(e.id, "A");
+    }else if(!isChecked && e.checked){
+      // coche disparue (pick annulé) : confirmé sur 2 analyses
+      e.offN = (e.offN||0) + 1;
+      if(e.offN >= 2){
+        e.checked = false; e.offN = 0;
+        if(e.id){
+          const ix = simState.picksA.findIndex(p=>p.id===e.id);
+          if(ix > -1){ simState.picksA.splice(ix,1); const h = simState.history.lastIndexOf("A"); if(h>-1) simState.history.splice(h,1); renderSim(); }
+        }
+      }
+    }else if(isChecked){ e.offN = 0; }
+  }
+}
 function camSetFP(side){
   cam.fpSet = true;
   if(simState.fp !== side){
@@ -1793,7 +1858,7 @@ async function camTick(){
   // porte : uniquement pendant l'écran de draft ; reset des cases quand la draft se termine
   if(!onDraftScreen(f)){
     cam.offDraft = (cam.offDraft||0) + 1;
-    if(cam.offDraft > 5 && cam.slots.length && !cam.manualBoxes){ cam.slots = []; cam.fpSet = false; cam.oppTried = false; }
+    if(cam.offDraft > 5 && (cam.slots.length || cam.boxMap?.length) && !cam.manualBoxes){ cam.slots = []; cam.boxMap = []; cam.fpSet = false; cam.oppTried = false; }
     liveStatus("⏸ pas d'écran de draft détecté — la capture reprendra automatiquement");
     camPreview();
     return;
@@ -1865,6 +1930,7 @@ async function camTick(){
       s.diag = {std:best.lum, txt:`? ${m.best?.name||"—"} (d=${m.d1.toFixed(2)}, marge ${Math.round(m.rel*100)}%)`};
     }
   }
+  await processBoxRow(f); // TES picks via les coches de la box (fiable même si ton plateau est sombre)
   liveStatus(`🎥 draft en cours — ${cam.slots.length}/10 cases, ${cam.slots.filter(s=>s.id).length} picks reconnus`, true);
   camPreview();
 }
