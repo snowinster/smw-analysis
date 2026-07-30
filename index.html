@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>SMW Analysis — Stats RTA Summoners War</title>
+<title>SMW Analysis - Stats RTA Summoners War</title>
 <style>
 :root{
   --bg:#0d1117; --bg2:#161b27; --card:#1a2130; --card2:#212a3d;
@@ -266,8 +266,8 @@ async function api(path){
   if(j && j.error !== undefined) return { data: null };
   return j;
 }
-const pct = (x, d=1) => x==null||isNaN(x) ? "—" : (x*100).toFixed(d) + " %";
-const num = x => x==null ? "—" : Number(x).toLocaleString("fr-FR");
+const pct = (x, d=1) => x==null||isNaN(x) ? "-" : (x*100).toFixed(d) + " %";
+const num = x => x==null ? "-" : Number(x).toLocaleString("fr-FR");
 const esc = s => String(s??"").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 function flag(cc){
   if(!cc || cc.length!==2) return "";
@@ -280,10 +280,10 @@ function fmtDate(iso){
 }
 // mapping officiel extrait du code de swarena : 1xxx=Challenger, 2xxx=Fighter, 3xxx=Conquérant, 4xxx=Guardian (G4=Légende), 5xxx=Légende
 function tierName(rid){
-  if(!rid) return "—";
+  if(!rid) return "-";
   const t = String(rid);
   const base = {1:"Challenger",2:"Fighter",3:"Conquérant",4:"Guardian",5:"Légende"}[t[0]];
-  if(!base) return "—";
+  if(!base) return "-";
   const sub = t[3];
   if(base==="Guardian" && sub==="4") return "Légende";
   return base==="Légende" ? base : base + " " + sub;
@@ -398,13 +398,13 @@ async function viewHome(){
     const [stats, seasons] = await Promise.all([api("/general/stats"), getSeasons()]);
     if(!homeState.season || !seasons.includes(homeState.season)) homeState.season = seasons[0]; // défaut : saison en cours
     $app.innerHTML = `
-      <h1>Statistiques RTA — Summoners War</h1>
+      <h1>Statistiques RTA - Summoners War</h1>
       <div class="cards">
         <div class="card"><div class="lbl">Joueurs suivis</div><div class="big">${num(stats.wizards_count)}</div></div>
         <div class="card"><div class="lbl">Combats analysés</div><div class="big">${num(stats.battles_count)}</div></div>
         <div class="card"><div class="lbl">Saisons couvertes</div><div class="big">${seasons.length} <span class="muted" style="font-size:14px">(S${seasons[seasons.length-1]}–S${seasons[0]})</span></div></div>
       </div>
-      <h2>Top joueurs —
+      <h2>Top joueurs -
         <select id="homeSeason" style="font-size:14px">${seasons.map(s=>`<option value="${s}" ${s===homeState.season?"selected":""}>Saison ${s}</option>`).join("")}</select>
         <a class="btn" style="margin-left:10px;font-size:12px" href="#/players">Voir le classement complet →</a></h2>
       <div class="panel tbl-wrap" id="homeTopPlayers"><div class="loading">Chargement…</div></div>
@@ -593,11 +593,11 @@ async function viewPlayer(id){
         <div class="card"><div class="lbl">First pick</div><div class="big">${pct(fwr)}</div><div class="muted" style="font-size:12px">${num(s.first_pick_wins)} / ${num(s.first_pick_battles)}</div></div>
         <div class="card"><div class="lbl">Second pick</div><div class="big">${pct(swr)}</div><div class="muted" style="font-size:12px">${num(s.second_pick_wins)} / ${num(s.second_pick_battles)}</div></div>
       </div>
-      ${hist.length ? `<h2>Évolution du score — Saison ${season}</h2><div class="panel chart-wrap" id="chartPanel">${scoreChart(hist)}</div>` : ""}
+      ${hist.length ? `<h2>Évolution du score - Saison ${season}</h2><div class="panel chart-wrap" id="chartPanel">${scoreChart(hist)}</div>` : ""}
       ${bestiary.length ? `<h2>Bestiaire (${bestiary.length} monstres)</h2><div class="panel bestiary">${
         bestiary.map(b=>{
           const bwr = b.plays ? Math.round(100*b.wins/b.plays) : 0;
-          return `<div class="beast mon-click" onclick="location.hash='#/monster/${b.unit_master_id}'" title="${esc(b.name)} — ${b.plays} parties, ${b.wins} victoires · cliquer pour la fiche">
+          return `<div class="beast mon-click" onclick="location.hash='#/monster/${b.unit_master_id}'" title="${esc(b.name)} - ${b.plays} parties, ${b.wins} victoires · cliquer pour la fiche">
             <img src="${monImg(b.image_filename)}" loading="lazy">
             <div><div class="bn">${esc(b.name)}</div><div class="bs">${b.plays} parties · <b style="color:${bwr>=50?'var(--win)':'var(--lose)'}">${bwr} %</b></div></div></div>`;
         }).join("")}</div>` : ""}
@@ -633,12 +633,12 @@ function mergedBestiaryHTML(seasons){
   const list = [...merged.values()].sort((a,b)=>b.plays-a.plays);
   return `<details style="margin-top:22px">
     <summary style="cursor:pointer;font-size:18px;font-weight:700;margin-bottom:12px">
-      Box RTA cumulée — ${list.length} monstres vus sur ${seasons.length} saisons (S${Math.min(...seasons)}–S${Math.max(...seasons)})
+      Box RTA cumulée - ${list.length} monstres vus sur ${seasons.length} saisons (S${Math.min(...seasons)}–S${Math.max(...seasons)})
       <span class="muted" style="font-size:12.5px;font-weight:400">· cliquer pour ouvrir</span>
     </summary>
     <div class="panel bestiary" style="margin-top:10px">${list.map(b=>{
       const bwr = b.plays ? Math.round(100*b.wins/b.plays) : 0;
-      return `<div class="beast mon-click" onclick="location.hash='#/monster/${b.unit_master_id}'" title="${esc(b.name)} — ${b.plays} parties sur ${b.nbSeasons} saison(s)">
+      return `<div class="beast mon-click" onclick="location.hash='#/monster/${b.unit_master_id}'" title="${esc(b.name)} - ${b.plays} parties sur ${b.nbSeasons} saison(s)">
         <img src="${monImg(b.image_filename)}" loading="lazy">
         <div><div class="bn">${esc(b.name)}</div><div class="bs">${b.plays} parties · <b style="color:${bwr>=50?'var(--win)':'var(--lose)'}">${bwr} %</b></div></div></div>`;
     }).join("")}</div>
@@ -662,7 +662,7 @@ function scoreChart(hist){
   }).join("");
   const dots = pts.map((p,i)=>
     `<circle cx="${X(i).toFixed(1)}" cy="${Y(p.score).toFixed(1)}" r="4.5" fill="#7c6cf0" stroke="#0d1117" stroke-width="1.5"
-       data-tip="${esc(p.date_add)} — score ${p.score} · ${p.battles} combats, ${p.wins} V"/>`).join("");
+       data-tip="${esc(p.date_add)} - score ${p.score} · ${p.battles} combats, ${p.wins} V"/>`).join("");
   return `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">
     ${grid}
     <polyline points="${line}" fill="none" stroke="url(#gline)" stroke-width="2.5" stroke-linejoin="round"/>
@@ -752,7 +752,7 @@ function runesSectionHTML(r){
   if(!r || (!r.data.rune_sets?.length && !r.data.rune_usage?.length)) return "";
   const setName  = ids => ids.map(i=>SET_NAMES[i]||("Set "+i)).join(" + ");
   const statName = ids => ids.slice().sort((a,b)=>(STAT_PRIO[a]||9)-(STAT_PRIO[b]||9)).map(i=>STAT_NAMES[i]||("Stat "+i)).join(" / ");
-  return `<h2>Runes historiques <span class="muted" style="font-size:13px;font-weight:400">(saison ${r.season} — dernières données de runes publiées)</span></h2>
+  return `<h2>Runes historiques <span class="muted" style="font-size:13px;font-weight:400">(saison ${r.season} - dernières données de runes publiées)</span></h2>
     <div class="panel">
       <div class="two-col">
         <div>${r.data.rune_sets?.length ? `<h3>Sets</h3>${runeBars(r.data.rune_sets, setName)}` : ""}</div>
@@ -805,9 +805,9 @@ async function viewMonster(id){
         ${det.natural_stars ? `<span style="color:var(--gold)">${"★".repeat(det.natural_stars)}</span>` : ""}
         ${det.archetype ? `<span>${esc(det.archetype)}</span>` : ""}
         <span>PV <b>${num(det.max_lvl_hp)}</b></span><span>ATK <b>${num(det.max_lvl_attack)}</b></span>
-        <span>DEF <b>${num(det.max_lvl_defense)}</b></span><span>VIT <b>${det.speed??"—"}</b></span>
-        <span>Crit <b>${det.crit_rate??"—"}%</b></span><span>Dég. crit <b>${det.crit_damage??"—"}%</b></span>
-        <span>RES <b>${det.resistance??"—"}%</b></span><span>ACC <b>${det.accuracy??"—"}%</b></span>
+        <span>DEF <b>${num(det.max_lvl_defense)}</b></span><span>VIT <b>${det.speed??"-"}</b></span>
+        <span>Crit <b>${det.crit_rate??"-"}%</b></span><span>Dég. crit <b>${det.crit_damage??"-"}%</b></span>
+        <span>RES <b>${det.resistance??"-"}%</b></span><span>ACC <b>${det.accuracy??"-"}%</b></span>
       </div>` : "";
 
     const pairTable = (rows, playedKey, rateKey, asc, rateLabel) => {
@@ -832,7 +832,7 @@ async function viewMonster(id){
           <div class="sk-desc">${esc(sk.description)}</div>
           ${sk.multiplier_formula?`<div class="sk-mult muted">Multiplicateur : ${esc(sk.multiplier_formula)}</div>`:""}
         </div></div>`).join("") +
-      (det.leader_skill ? `<div class="note">👑 Compétence de leader : ${esc(det.leader_skill.attribute||"")} +${det.leader_skill.amount||"?"}%${det.leader_skill.area?` (${esc(det.leader_skill.area)})`:""}${det.leader_skill.element?` — monstres ${esc(det.leader_skill.element)}`:""}</div>` : "") +
+      (det.leader_skill ? `<div class="note">👑 Compétence de leader : ${esc(det.leader_skill.attribute||"")} +${det.leader_skill.amount||"?"}%${det.leader_skill.area?` (${esc(det.leader_skill.area)})`:""}${det.leader_skill.element?` - monstres ${esc(det.leader_skill.element)}`:""}</div>` : "") +
       `</div>` : "";
 
     $app.innerHTML = `
@@ -855,7 +855,7 @@ async function viewMonster(id){
         <div class="card"><div class="lbl">Ban rate</div><div class="big">${pct(s.ban_rate)}</div><div class="muted" style="font-size:12px">${num(s.bans)} bans</div></div>
         <div class="card"><div class="lbl">Lead rate</div><div class="big">${pct(s.lead_rate)}</div></div>
       </div>` : `<div class="panel muted">Pas de statistiques pour la saison ${monState.season}.</div>`}
-      ${hist.length>2 ? `<h2>Tendance — Saison ${monState.season}</h2><div class="panel chart-wrap" id="chartPanel">
+      ${hist.length>2 ? `<h2>Tendance - Saison ${monState.season}</h2><div class="panel chart-wrap" id="chartPanel">
         <div class="legend"><span><span class="dot" style="background:var(--accent2)"></span>Popularité (% des combats)</span><span><span class="dot" style="background:var(--win)"></span>Winrate (%)</span></div>
         ${dualChart(hist)}</div>` : ""}
       <div class="two-col">
@@ -869,7 +869,7 @@ async function viewMonster(id){
   }catch(e){ fail(e); }
 }
 
-/* graphe double : popularité + winrate quotidiens — pleine largeur, courbes lissées, repères par semaine */
+/* graphe double : popularité + winrate quotidiens - pleine largeur, courbes lissées, repères par semaine */
 function dualChart(hist){
   const pts = hist.filter(h=>h.total_battles>0).map(h=>({
     d:h.battle_date, pop:100*h.monster_battles/h.total_battles,
@@ -920,7 +920,7 @@ function dualChart(hist){
   const area = smooth(popXY) + ` L${popXY[popXY.length-1][0].toFixed(1)},${H-P.b} L${popXY[0][0].toFixed(1)},${H-P.b} Z`;
   const dots = pts.map((p,i)=>
     `<circle cx="${X(i).toFixed(1)}" cy="${Yp(p.pop).toFixed(1)}" r="3.5" fill="#4ea1ff" stroke="#0d1117" stroke-width="1.2"
-      data-tip="Sem. ${weekOf(p.d)} · ${esc(p.d)} — popularité ${p.pop.toFixed(1)} % · winrate ${p.wr==null?"—":p.wr.toFixed(1)+" %"} · ${num(p.n)} combats"/>`).join("");
+      data-tip="Sem. ${weekOf(p.d)} · ${esc(p.d)} - popularité ${p.pop.toFixed(1)} % · winrate ${p.wr==null?"-":p.wr.toFixed(1)+" %"} · ${num(p.n)} combats"/>`).join("");
   return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;display:block">
     <defs><linearGradient id="gpop" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0" stop-color="#4ea1ff" stop-opacity=".22"/><stop offset="1" stop-color="#4ea1ff" stop-opacity="0"/>
@@ -1050,7 +1050,7 @@ function saveAddCalc(s){ try{ localStorage.setItem("addCalc_v1", JSON.stringify(
 function viewAddCalc(){
   const s = addCalcState();
   $app.innerHTML = `
-    <h1>Artifact ADD Calculator <span class="muted" style="font-size:13px;font-weight:400">— dégâts additionnels des artefacts</span></h1>
+    <h1>Artifact ADD Calculator <span class="muted" style="font-size:13px;font-weight:400">- dégâts additionnels des artefacts</span></h1>
     <div class="panel">
       <h3>1 · Stats finales de ton monstre (runes incluses)</h3>
       <div class="cards">
@@ -1438,7 +1438,7 @@ function simSideHTML(side, mirrored){
   const picks = side==="A" ? simState.picksA : simState.picksB;
   const ready = !!(simState.a && simState.boxA && (!simState.b || simState.boxB));
   const turn = ready && simTurn()===side;
-  const label = box ? `${esc(box.name)}${box.anon?' <span class="muted" style="font-weight:400;font-size:12px">(pseudo non renseigné — reco théoriques)</span>':""}` : (side==="A"?simState.a:simState.b) ? "Chargement de la box…" : `Joueur ${side} (non choisi)`;
+  const label = box ? `${esc(box.name)}${box.anon?' <span class="muted" style="font-weight:400;font-size:12px">(pseudo non renseigné - reco théoriques)</span>':""}` : (side==="A"?simState.a:simState.b) ? "Chargement de la box…" : `Joueur ${side} (non choisi)`;
   const slotFor = i => {
     const p = picks[i];
     return p
@@ -1541,8 +1541,8 @@ async function renderSim(){
   if(!$b) return;
   // reflète le joueur sélectionné dans les champs de recherche
   const $inA = document.getElementById("simInA"), $inB = document.getElementById("simInB");
-  if($inA && simState.boxA?.name) $inA.placeholder = `✔ ${simState.boxA.name} — changer…`;
-  if($inB && simState.boxB?.name) $inB.placeholder = `✔ ${simState.boxB.name} — changer…`;
+  if($inA && simState.boxA?.name) $inA.placeholder = `✔ ${simState.boxA.name} - changer…`;
+  if($inB && simState.boxB?.name) $inB.placeholder = `✔ ${simState.boxB.name} - changer…`;
   if(!simState.a && !simState.b){
     $b.innerHTML = '<div class="panel muted">Choisis les deux joueurs pour commencer.</div>';
     return;
@@ -1552,7 +1552,7 @@ async function renderSim(){
   // équipe first pick à gauche, second pick à droite, VS au milieu (comme en jeu)
   const L = simState.fp, R = L==="A" ? "B" : "A";
   let html = `<div class="vs-wrap">${simSideHTML(L,false)}<div class="vs-mid">VS</div>${simSideHTML(R,true)}</div>`;
-  if(!simState.b) html += '<div class="note" style="margin-bottom:12px">💡 Adversaire non renseigné : les recommandations sont théoriques (méta globale). Pose ses picks avec le champ 🔍 de son côté — ou renseigne son pseudo pour activer sa box et les badges « dans sa box ».</div>';
+  if(!simState.b) html += '<div class="note" style="margin-bottom:12px">💡 Adversaire non renseigné : les recommandations sont théoriques (méta globale). Pose ses picks avec le champ 🔍 de son côté - ou renseigne son pseudo pour activer sa box et les badges « dans sa box ».</div>';
   if(!simState.a){
     $b.innerHTML = html + '<div class="panel muted">👉 Choisis ton compte (joueur A) ou clique une puce « Mes comptes ».</div>';
     wireSimAdd(); return;
@@ -1566,7 +1566,7 @@ async function renderSim(){
   }
   // au tour de l'adversaire : pas de suggestions, on garde l'écran léger
   if(turn !== "A"){
-    html += `<div class="panel muted" style="text-align:center">✋ Au tour de l'adversaire — pose son pick avec son champ 🔍, sa box 📦 ou un glisser-déposer. Tes conseils reviendront à ton tour.</div>`;
+    html += `<div class="panel muted" style="text-align:center">✋ Au tour de l'adversaire - pose son pick avec son champ 🔍, sa box 📦 ou un glisser-déposer. Tes conseils reviendront à ton tour.</div>`;
     $b.innerHTML = html; wireSimAdd(); return;
   }
   html += `<div id="simSugg"><div class="loading">Calcul des suggestions…</div></div>`;
@@ -1598,7 +1598,7 @@ async function renderSim(){
     if(!simState.lds) fpGlobal = fpGlobal.filter(x=>!isLD(monCache.get(x.id)?.element));
     fpGlobal = fpGlobal.slice(0,15);
   }
-  // 2) counters des picks adverses (via stats de matchups) — alimente le panneau box et les duos
+  // 2) counters des picks adverses (via stats de matchups) - alimente le panneau box et les duos
   let countersFull = [], boxVs = [];
   if(enemyPicks.length){
     const cand = new Map();
@@ -1622,7 +1622,7 @@ async function renderSim(){
     if(token !== simRenderToken) return;
     if(!simState.lds) countersFull = countersFull.filter(c=>!isLD(monCache.get(c.id)?.element));
   }
-  // TA box classée par WR RÉEL contre les picks adverses — couverture COMPLÈTE :
+  // TA box classée par WR RÉEL contre les picks adverses - couverture COMPLÈTE :
   // on interroge les matchups de CHAQUE monstre de ta box (même les moins joués comme Misty),
   // au lieu de dépendre des listes d'adversaires des monstres ennemis.
   if(enemyPicks.length){
@@ -1709,20 +1709,20 @@ async function renderSim(){
   let boxPanelTitle = "", boxPanelRows = "";
   if(!fpMode){
     boxPanelTitle = lastPick
-      ? `🎯 Dernier pick — counter toute leur draft <span class="muted" style="font-size:12px;font-weight:400">(WR réel vs leurs picks · attention au ban adverse)</span>`
-      : `Ta box contre ses picks <span class="muted" style="font-size:12px;font-weight:400">(chaque monstre seul, WR moyen face à l'ensemble de sa draft — les duos sont à droite)</span>`;
+      ? `🎯 Dernier pick - counter toute leur draft <span class="muted" style="font-size:12px;font-weight:400">(WR réel vs leurs picks · attention au ban adverse)</span>`
+      : `Ta box contre ses picks <span class="muted" style="font-size:12px;font-weight:400">(chaque monstre seul, WR moyen face à l'ensemble de sa draft - les duos sont à droite)</span>`;
     boxPanelRows = boxVs.length ? boxVs.map((c,i)=>
       `<div class="sugg${i>=5?" hid":""}" draggable="true" data-drag-id="${c.id}" onclick="simPick(${c.id},'A')"
         title="Score = matchups ajustés au volume (les non-mesurés comptent au niveau de base du monstre)${c.myFit!=null?" + 25 % de synergie avec tes picks":""}${c.banRate>=0.15?" − pénalité de ban":""}">
         <img src="${monImg(c.img)}" loading="lazy"><div class="sg-n">${esc(c.name)} ${c.delta>=0.03?`<span class="inbox-badge" title="Gagne ${(c.delta*100).toFixed(0)} pts de plus contre cette draft que son winrate habituel">🎯 counter +${(c.delta*100).toFixed(0)} pts</span>`:""} ${c.banRate!=null && c.banRate>=0.15 ? `<span class="ban-badge">🚫 souvent banni (${pct(c.banRate,0)})</span>` : ""}
-          <div class="sub">${elemTag(c.element)} · mesuré ${c.cover}/${enemyPicks.length} pick${enemyPicks.length>1?"s":""} · ${c.det.join(" · ")}${c.myFit!=null?` · synergie picks ${pct(c.myFit)}`:""} · perso : ${c.myWr!=null?pct(c.myWr):"—"} (${c.myPlays} parties)</div></div>
+          <div class="sub">${elemTag(c.element)} · mesuré ${c.cover}/${enemyPicks.length} pick${enemyPicks.length>1?"s":""} · ${c.det.join(" · ")}${c.myFit!=null?` · synergie picks ${pct(c.myFit)}`:""} · perso : ${c.myWr!=null?pct(c.myWr):"-"} (${c.myPlays} parties)</div></div>
         <span class="sg-wr" style="color:${c.avg>=0.5?'var(--win)':'var(--lose)'}">${pct(c.avg)}</span></div>`).join("") + moreBtn(boxVs.length)
       : '<div class="muted">Pas assez de données de matchup pour les monstres de ta box contre ces picks.</div>';
     if(lastPick && myPicks.length){
       const myBans = myPicks.map(p=>({p, br: meta.get(p.id)?.ban_rate ?? 0})).sort((x,y)=>y.br-x.br);
       const topBan = myBans[0];
       boxPanelRows += topBan.br >= 0.15
-        ? `<div class="note">💡 Ton <b>${esc(topBan.p.name)}</b> (ban rate ${pct(topBan.br)}) attirera probablement le ban adverse — un dernier pick fort a de bonnes chances de passer.</div>`
+        ? `<div class="note">💡 Ton <b>${esc(topBan.p.name)}</b> (ban rate ${pct(topBan.br)}) attirera probablement le ban adverse - un dernier pick fort a de bonnes chances de passer.</div>`
         : `<div class="note">⚠️ Aucun de tes picks actuels n'attire fortement le ban : un dernier pick très menaçant (🚫) risque d'être banni. Deux stratégies : un « ban bait » assumé pour protéger le reste, ou un counter plus discret.</div>`;
       // ton ban conseillé, calculable dès maintenant (sa draft est complète)
       if(enemyPicks.length === 5){
@@ -1741,12 +1741,12 @@ async function renderSim(){
           const c = matchupOf(myPicks, enemyPicks.filter(x=>x!==e));
           if(!bestBan || c > bestBan.c) bestBan = {e, c};
         }
-        if(bestBan) boxPanelRows += `<div class="note">🚫 <b>Ton ban conseillé : ${esc(bestBan.e.name)}</b> — sans lui, les matchups de tes 4 picks actuels montent à ${pct(bestBan.c)}. (L'analyse complète des bans, incluant ton 5e pick, s'affiche après la fin de la draft.)</div>`;
+        if(bestBan) boxPanelRows += `<div class="note">🚫 <b>Ton ban conseillé : ${esc(bestBan.e.name)}</b> - sans lui, les matchups de tes 4 picks actuels montent à ${pct(bestBan.c)}. (L'analyse complète des bans, incluant ton 5e pick, s'affiche après la fin de la draft.)</div>`;
       }
     }
   }
   $s.innerHTML = (fpMode ? `
-    <h2>First picks — tous les joueurs <span class="muted" style="font-size:12px;font-weight:400">(min. 100 ouvertures)</span>
+    <h2>First picks - tous les joueurs <span class="muted" style="font-size:12px;font-weight:400">(min. 100 ouvertures)</span>
       <span style="color:var(--accent2);cursor:help;font-size:15px" title="Comment c'est calculé ? L'app analyse les ~4 000 replays les plus récents de 80 joueurs pris à tous les niveaux du classement (du top mondial au rang ~25 000). Dans chaque combat, elle repère qui avait le first pick et quel monstre il a posé en premier, puis s'il a gagné. Le % = victoires / ouvertures. Seuls les monstres ouverts au moins 100 fois sont affichés. Recalculé une fois par jour.">*</span></h2>
     <div class="panel">${fpGlobal.length ? fpGlobal.map((f,i)=>{
         const fm = monCache.get(f.id)||{};
@@ -1762,7 +1762,7 @@ async function renderSim(){
     <div><h2>${boxPanelTitle}</h2>
       <div class="panel">${boxPanelRows}</div>
     </div>
-    <div><h2>${(()=>{const t=simState.picksA.length+simState.picksB.length; const q=simSeq(); return q[t]==="A"&&q[t+1]==="A" ? "🎯 Tu dois picker 2 — duos conseillés" : "Duos conseillés";})()} <span class="muted" style="font-size:12px;font-weight:400">(meilleure chance de win : counter + synergie${duosFromBox?", pris dans ta box":" — box trop limitée, duos globaux"})</span></h2>
+    <div><h2>${(()=>{const t=simState.picksA.length+simState.picksB.length; const q=simSeq(); return q[t]==="A"&&q[t+1]==="A" ? "🎯 Tu dois picker 2 - duos conseillés" : "Duos conseillés";})()} <span class="muted" style="font-size:12px;font-weight:400">(meilleure chance de win : counter + synergie${duosFromBox?", pris dans ta box":" - box trop limitée, duos globaux"})</span></h2>
       <div class="panel">${duos.length ? duos.map((d,i)=>
         `<div class="sugg${i>=5?" hid":""}" onclick="simPickDuo(${d.c1.id},${d.c2.id})" title="Picker les deux monstres">
           <img src="${monImg(d.c1.img)}" loading="lazy" class="mon-click" draggable="true" data-drag-id="${d.c1.id}" title="Picker uniquement ${esc(d.c1.name)}" onclick="event.stopPropagation();simPick(${d.c1.id},'A')">
@@ -1774,7 +1774,7 @@ async function renderSim(){
         : '<div class="muted">Pas assez de données pour former des duos fiables contre ces picks.</div>'}</div>
     </div>
   </div>`)
-  + `<div class="note">Les conseils sont calculés pour <b>toi (joueur A)</b> uniquement — un clic sur une suggestion la picke dans ton équipe. Pose les picks adverses avec le champ 🔍 ou la box 📦 de son côté. Les scores sont <b>ajustés au volume</b> (un 70 % sur 30 parties pèse moins qu'un 60 % sur 700), intègrent la synergie avec tes picks déjà posés et une pénalité pour les monstres très bannis — survole une ligne pour le détail. Données Guardian+ S${simState.season}, ce n'est pas une prédiction exacte du combat.</div>`;
+  + `<div class="note">Les conseils sont calculés pour <b>toi (joueur A)</b> uniquement - un clic sur une suggestion la picke dans ton équipe. Pose les picks adverses avec le champ 🔍 ou la box 📦 de son côté. Les scores sont <b>ajustés au volume</b> (un 70 % sur 30 parties pèse moins qu'un 60 % sur 700), intègrent la synergie avec tes picks déjà posés et une pénalité pour les monstres très bannis - survole une ligne pour le détail. Données Guardian+ S${simState.season}, ce n'est pas une prédiction exacte du combat.</div>`;
   wireSimAdd();
 }
 /* indice de confiance de victoire après la draft complète (AVANT bans) :
@@ -1858,7 +1858,7 @@ async function computeConfidence(token){
           <div style="font-weight:700">Indice de confiance de victoire <span class="tier" style="color:var(--gold)">AVANT les bans</span>
             <span style="color:var(--accent2);cursor:help;font-size:15px" title="Comment c'est calculé ? Indice = matchups + (ta synergie − sa synergie) ÷ 2.
 • Matchups : winrate moyen de tes 5 monstres contre ses 5 (25 croisements possibles), pondéré par le volume de parties réelles de chaque paire (données Guardian+ de la saison). Les paires avec moins de 20 parties sont ignorées.
-• Synergie : winrate moyen des paires de monstres jouées ensemble, calculé pour ta team et la sienne — l'écart compte pour moitié car la synergie pèse moins qu'un matchup direct.
+• Synergie : winrate moyen des paires de monstres jouées ensemble, calculé pour ta team et la sienne - l'écart compte pour moitié car la synergie pèse moins qu'un matchup direct.
 • Le résultat est borné entre 5 % et 95 %. Leader, runes et ordre de vitesse ne sont pas mesurables de l'extérieur.">*</span></div>
           <div class="muted" style="font-size:12.5px">Matchups : ${pct(matchup)} (${nCross}/25 croisements mesurés)
             ${(synA-synB)!==0 ? `${(synA-synB)>0?"+":"−"} ${Math.abs((synA-synB)*50).toFixed(1)} pts de synergie (toi ${pct(synA)} vs lui ${pct(synB)})` : `· synergies égales (${pct(synA)})`}
@@ -1872,7 +1872,7 @@ async function computeConfidence(token){
         <div class="sg-n">${i===0?'<b style="color:var(--gold)">Ban conseillé : </b>':""}${esc(bx.ban.name)}
           <div class="sub">sa meilleure réponse : bannir ton ${esc(bx.oppBan.name)} → 4v4 à ${pct(bx.worstConf)}</div></div>
         <span class="sg-wr" style="color:${bx.worstConf>=0.5?'var(--win)':'var(--lose)'}">${pct(bx.worstConf)}</span></div>`).join("")}
-      <div class="note">Lecture : pour chacun de tes bans possibles, on suppose que l'adversaire réplique par <b>son</b> meilleur ban contre toi — le % affiché est donc ton indice <b>garanti dans le pire cas</b>. Scénario le plus cohérent : tu bans <b>${esc(best.ban.name)}</b>, il bannit ton <b>${esc(best.oppBan.name)}</b> → 4v4 estimé à <b>${pct(best.worstConf)}</b>. Reste hors modèle : leader, runes, ordre de vitesse.</div>`;
+      <div class="note">Lecture : pour chacun de tes bans possibles, on suppose que l'adversaire réplique par <b>son</b> meilleur ban contre toi - le % affiché est donc ton indice <b>garanti dans le pire cas</b>. Scénario le plus cohérent : tu bans <b>${esc(best.ban.name)}</b>, il bannit ton <b>${esc(best.oppBan.name)}</b> → 4v4 estimé à <b>${pct(best.worstConf)}</b>. Reste hors modèle : leader, runes, ordre de vitesse.</div>`;
   }catch(e){}
 }
 
