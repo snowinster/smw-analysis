@@ -276,7 +276,7 @@ td.best{color:var(--win);font-weight:800}
 
 <main id="app"><div class="loading">Chargement…</div></main>
 <footer class="site-footer">
-  <p><b>SWAnalysis</b> est un projet communautaire personnel. Il n'est pas approuvé par Com2uS Corp. et ne reflète ni les vues ni les opinions de Com2uS Corp. ou de quiconque participant officiellement à la production ou à la gestion de Summoners War. Summoners War et Com2uS sont des marques ou marques déposées de Com2uS Corp. Summoners War © Com2uS Corp.</p>
+  <p><b>SWAnalysis</b> est un projet communautaire personnel. Il n'est pas approuvé par Com2uS Corp. et ne reflète ni les vues ni les opinions de Com2uS Corp. ou de quiconque participant officiellement à la production ou à la gestion de Summoners War.</p>
   <p>Données : <a href="https://swarena.gg" target="_blank" rel="noopener">swarena.gg</a> · <a href="https://swarfarm.com" target="_blank" rel="noopener">SWARFARM</a></p>
 </footer>
 <div class="chart-tip" id="chartTip"></div>
@@ -437,7 +437,7 @@ async function viewHome(){
       <div class="panel tbl-wrap" id="homeTopPlayers"><div class="loading">Chargement…</div></div>
       <h2>Monstres les plus joués <a class="btn" style="margin-left:10px;font-size:12px" href="#/monsters">Voir tous les monstres →</a></h2>
       <div class="panel tbl-wrap" id="homeTopMons"><div class="loading">Chargement…</div></div>
-      <div class="foot-note">Données : api.swarena.gg · Reconstruction locale non affiliée à Swarena ni Com2uS.</div>`;
+`;
     document.getElementById("homeSeason").onchange = e => { homeState.season = +e.target.value; loadHomeTops(); };
     loadHomeTops();
   }catch(e){ fail(e); }
@@ -631,7 +631,7 @@ async function viewPlayer(id){
       ${mergedBestiaryHTML(seasons)}
       <h2>Derniers combats ${battles.length?`(${battles.length})`:""}</h2>
       <div id="battleList">${battles.length ? '<div class="loading">Chargement des drafts…</div>' : '<div class="panel muted">Aucun replay disponible pour cette saison.</div>'}</div>
-      <div class="foot-note">Données : api.swarena.gg</div>`;
+`;
 
     attachChartTips();
     if(battles.length) renderBattles(battles, id);
@@ -902,7 +902,7 @@ async function viewMonster(id){
       </div>
       ${skillsHTML}
       ${runesSectionHTML(runes)}
-      <div class="foot-note">Données : api.swarena.gg · Compétences via SWARFARM</div>`;
+`;
     attachChartTips();
   }catch(e){ fail(e); }
 }
