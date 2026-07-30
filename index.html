@@ -51,6 +51,14 @@ h2{font-size:18px;margin:26px 0 12px;color:var(--text)}
 .row{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
 .spacer{flex:1}
 select,.btn{background:var(--card2);color:var(--text);border:1px solid var(--border);border-radius:9px;padding:7px 12px;font-size:14px;cursor:pointer}
+/* toggle switch */
+.switch{display:inline-flex;align-items:center;gap:9px;cursor:pointer;user-select:none;color:var(--muted);font-size:14px}
+.switch input{position:absolute;opacity:0;width:0;height:0}
+.switch .tk{width:40px;height:22px;border-radius:12px;background:var(--card2);border:1px solid var(--border);position:relative;transition:background .15s,border-color .15s;flex-shrink:0}
+.switch .tk::after{content:"";position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:8px;background:var(--muted);transition:transform .15s,background .15s}
+.switch input:checked + .tk{background:var(--accent);border-color:var(--accent)}
+.switch input:checked + .tk::after{transform:translateX(18px);background:#fff}
+.switch input:checked ~ span:last-child{color:var(--text)}
 .btn:hover{border-color:var(--accent)}
 .btn.primary{background:var(--accent);border-color:var(--accent);font-weight:700}
 .loading{text-align:center;padding:50px;color:var(--muted);font-size:15px}
@@ -461,7 +469,7 @@ async function viewMonsters(){
       <div class="row" style="margin-bottom:14px">
         <label class="muted">Saison</label>
         <select id="moSeason">${seasons.map(s=>`<option value="${s}" ${s===moState.season?"selected":""}>Saison ${s}</option>`).join("")}</select>
-        <label class="muted"><input type="checkbox" id="moG3" ${moState.isG3?"checked":""}> Guardian 3+ uniquement</label>
+        <label class="switch"><input type="checkbox" id="moG3" ${moState.isG3?"checked":""}><span class="tk"></span><span>Guardian 3+ uniquement</span></label>
       </div>
       <div class="panel tbl-wrap" id="moTable"><div class="loading">Chargement…</div></div>
       <div class="pager">
@@ -811,7 +819,7 @@ async function viewMonster(id){
       <div class="row" style="margin:12px 0 16px">
         <label class="muted">Saison</label>
         <select onchange="monState.season=+this.value;monState.userChose=true;viewMonster(${id})">${seasons.map(x=>`<option value="${x}" ${x===monState.season?"selected":""}>Saison ${x}</option>`).join("")}</select>
-        <label class="muted"><input type="checkbox" onchange="monState.isG3=this.checked;viewMonster(${id})" ${g3?"checked":""}> Guardian 3+ uniquement</label>
+        <label class="switch"><input type="checkbox" onchange="monState.isG3=this.checked;viewMonster(${id})" ${g3?"checked":""}><span class="tk"></span><span>Guardian 3+ uniquement</span></label>
       </div>
       ${sumR.data ? `<div class="cards" style="margin-bottom:18px">
         <div class="card"><div class="lbl">Pick rate</div><div class="big">${pct(s.pick_rate)}</div><div class="muted" style="font-size:12px">${num(s.picks)} picks</div></div>
