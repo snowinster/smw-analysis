@@ -11,13 +11,21 @@
   --accent:#7c6cf0; --accent2:#4ea1ff;
   --win:#3fca7c; --lose:#f05c5c; --gold:#f2c14e;
 }
-*{box-sizing:border-box;margin:0;padding:0}
-body{background:var(--bg);color:var(--text);font-family:'Segoe UI',system-ui,sans-serif;min-height:100vh}
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+html{scroll-behavior:smooth}
+body{background:radial-gradient(1100px 500px at 85% -5%, rgba(124,108,240,.09), transparent 60%),
+     radial-gradient(900px 500px at -10% 20%, rgba(78,161,255,.05), transparent 60%), var(--bg);
+     color:var(--text);font-family:'Segoe UI',system-ui,sans-serif;min-height:100vh}
 a{color:inherit;text-decoration:none}
 button{font-family:inherit}
+::-webkit-scrollbar{width:10px;height:8px}
+::-webkit-scrollbar-thumb{background:var(--border);border-radius:5px}
+::-webkit-scrollbar-track{background:transparent}
+.btn,.chip,.sugg,.beast,.card,tr.clickable,.sr-item{transition:background .12s,border-color .12s,color .12s}
+.btn:active,.chip:active{transform:scale(.97)}
 
 /* ---------- Nav ---------- */
-nav{display:flex;align-items:center;gap:24px;padding:14px 28px;background:var(--bg2);border-bottom:1px solid var(--border);position:sticky;top:0;z-index:50;flex-wrap:wrap}
+nav{display:flex;align-items:center;gap:24px;padding:14px 28px;background:rgba(22,27,39,.88);backdrop-filter:blur(10px);border-bottom:1px solid var(--border);position:sticky;top:0;z-index:50;flex-wrap:wrap}
 nav .logo{font-weight:800;font-size:20px;background:linear-gradient(90deg,var(--accent),var(--accent2));-webkit-background-clip:text;background-clip:text;color:transparent;cursor:pointer}
 nav a.navlink{color:var(--muted);font-weight:600;font-size:14px;padding:6px 10px;border-radius:8px}
 nav a.navlink:hover,nav a.navlink.active{color:var(--text);background:var(--card2)}
@@ -123,12 +131,6 @@ h3{font-size:13px;color:var(--muted);margin:4px 0 10px;text-transform:uppercase;
 .cmp-pick input:focus{border-color:var(--accent)}
 .cmp-results{position:absolute;top:105%;left:0;right:0;background:var(--card);border:1px solid var(--border);border-radius:10px;z-index:60;max-height:300px;overflow-y:auto;box-shadow:0 12px 30px rgba(0,0,0,.5)}
 td.best{color:var(--win);font-weight:800}
-.trend-row{display:flex;align-items:center;gap:12px;padding:8px 6px;border-bottom:1px solid rgba(43,53,80,.5);cursor:pointer}
-.trend-row:hover{background:var(--card2)}
-.trend-row:last-child{border-bottom:none}
-.trend-row .tname{flex:1;font-weight:600;font-size:14px}
-.delta{font-weight:800;font-size:13px;min-width:72px;text-align:right}
-.delta.up{color:var(--win)} .delta.down{color:var(--lose)}
 .legend{display:flex;gap:18px;font-size:12.5px;color:var(--muted);margin-bottom:8px}
 .legend .dot{display:inline-block;width:10px;height:10px;border-radius:5px;margin-right:5px;vertical-align:middle}
 
@@ -175,7 +177,45 @@ td.best{color:var(--win);font-weight:800}
 .mon-click{cursor:pointer}
 .mon-click:hover{outline:2px solid var(--accent);outline-offset:1px;border-radius:8px}
 .foot-note{margin-top:40px;font-size:12.5px;color:var(--muted);text-align:center}
-@media (max-width:640px){ .b-who{width:100%} nav{gap:10px} }
+@media (max-width:640px){ .b-who{width:100%} }
+
+/* ---------- mobile ---------- */
+@media (max-width:700px){
+  nav{padding:10px 12px;gap:6px}
+  nav .logo{font-size:16px;margin-right:2px}
+  nav a.navlink{padding:6px 8px;font-size:12.5px}
+  .searchwrap{flex:1 1 100%;min-width:0;order:10}
+  main{padding:14px 10px 60px}
+  h1{font-size:21px;margin-bottom:14px}
+  h2{font-size:16px}
+  .cards{grid-template-columns:repeat(auto-fit,minmax(125px,1fr));gap:10px}
+  .card{padding:12px}
+  .card .big{font-size:19px}
+  .panel{padding:12px;border-radius:12px}
+  th,td{padding:7px 8px;font-size:13px}
+  .player-head img.pfp{width:60px;height:60px}
+  .player-head .pname{font-size:21px}
+  .season-tabs button{padding:6px 12px;font-size:12px}
+  .bestiary{grid-template-columns:repeat(auto-fill,minmax(125px,1fr));gap:8px}
+  .beast img{width:36px;height:36px}
+  .picks{gap:5px}
+  .pick,.pick img{width:40px;height:40px;border-radius:8px}
+  .slot{width:62px;height:62px;border-radius:11px}
+  .slot img{border-radius:9px}
+  .slot-grid{grid-template-columns:repeat(2,62px);gap:8px}
+  .team-slots{gap:10px}
+  .vs-mid{font-size:24px}
+  .cmp-pickers{grid-template-columns:1fr;gap:8px}
+  .sim-side{padding:10px}
+  .sugg{padding:8px 6px;gap:8px}
+  .sugg img{width:34px;height:34px}
+  .sugg .sg-n{font-size:12.5px}
+  .sugg .sg-n .sub{font-size:10.5px}
+  .sugg .sg-wr{font-size:13px;min-width:52px;text-align:right}
+  .b-side{padding:8px 10px;gap:8px}
+  .chip{font-size:12px;padding:4px 9px}
+  .foot-note{font-size:11px}
+}
 </style>
 </head>
 <body>
@@ -184,7 +224,6 @@ td.best{color:var(--win);font-weight:800}
   <span class="logo" onclick="location.hash='#/'">SMW Analysis</span>
   <a class="navlink" href="#/players" data-nav="players">Classement</a>
   <a class="navlink" href="#/monsters" data-nav="monsters">Monstres</a>
-  <a class="navlink" href="#/trends" data-nav="trends">Tendances</a>
   <a class="navlink" href="#/compare" data-nav="compare">Comparateur</a>
   <a class="navlink" href="#/simulator" data-nav="sim">Simulateur</a>
   <div class="searchwrap">
@@ -287,17 +326,18 @@ async function doSearch(q){
     let html = "";
     const players = (pl.data||[]).slice(0,8);
     const monsters = (mo.data||[]).slice(0,6);
-    if(players.length){
-      html += '<div class="sr-head">Joueurs</div>' + players.map(p =>
-        `<div class="sr-item" onclick="goPlayer(${p.id})">
-           <img src="${esc(p.wizard_picture_url||'')}" onerror="this.style.visibility='hidden'">
-           <span>${esc(p.wizard_name)}</span></div>`).join("");
-    }
+    // monstres AVANT joueurs : "leo" doit montrer Leo le monstre en premier
     if(monsters.length){
       html += '<div class="sr-head">Monstres</div>' + monsters.map(m =>
         `<div class="sr-item" onclick="goMonsterBySlug('${esc(m.slug)}')">
            <img src="${monImg(m.image_filename)}">
            <span>${esc(m.name)} <span class="muted">· ${esc(m.element||"")}</span></span></div>`).join("");
+    }
+    if(players.length){
+      html += '<div class="sr-head">Joueurs</div>' + players.map(p =>
+        `<div class="sr-item" onclick="goPlayer(${p.id})">
+           <img src="${esc(p.wizard_picture_url||'')}" onerror="this.style.visibility='hidden'">
+           <span>${esc(p.wizard_name)}</span></div>`).join("");
     }
     $sr.innerHTML = html || '<div class="sr-item muted">Aucun résultat</div>';
   }catch(e){ $sr.innerHTML = '<div class="sr-item muted">Erreur de recherche</div>'; }
@@ -317,7 +357,6 @@ function route(){
   if(mMon){ setNav("monsters"); return viewMonster(+mMon[1]); }
   if(h.startsWith("#/players")){ setNav("players"); return viewLeaderboard(); }
   if(h.startsWith("#/monsters")){ setNav("monsters"); return viewMonsters(); }
-  if(h.startsWith("#/trends")){ setNav("trends"); return viewTrends(); }
   if(h.startsWith("#/simulator")){ setNav("sim"); return viewSimulator(); }
   const mCmp = h.match(/^#\/compare(?:\/(\d+))?(?:\/(\d+))?/);
   if(mCmp){ setNav("compare"); return viewCompare(+mCmp[1]||null, +mCmp[2]||null); }
@@ -923,61 +962,6 @@ async function loadCompare(){
   }catch(e){ $b.innerHTML = `<div class="error-box">${esc(e.message||e)}</div>`; }
 }
 
-/* ================= TENDANCES ================= */
-const trState = { season:null };
-const trCache = new Map();
-async function viewTrends(){
-  $app.innerHTML = '<div class="loading">Chargement…</div>';
-  try{
-    const seasons = await getSeasons();
-    if(!trState.season) trState.season = seasons[0];
-    $app.innerHTML = `
-      <h1>Tendances méta</h1>
-      <div class="row" style="margin-bottom:14px">
-        <label class="muted">Saison</label>
-        <select id="trSeason">${seasons.map(x=>`<option value="${x}" ${x===trState.season?"selected":""}>Saison ${x}</option>`).join("")}</select>
-        <span class="muted" style="font-size:12.5px">Comparaison des 7 derniers jours vs les 7 précédents, sur les 30 monstres les plus joués.</span>
-      </div>
-      <div id="trBody"><div class="loading">Analyse des 30 monstres les plus joués…<br><span style="font-size:12px">(une trentaine de requêtes, ~2-5 s)</span></div></div>`;
-    document.getElementById("trSeason").onchange = e => { trState.season = +e.target.value; viewTrends(); };
-    loadTrends();
-  }catch(e){ fail(e); }
-}
-async function loadTrends(){
-  const $b = document.getElementById("trBody");
-  const season = trState.season;
-  try{
-    let rows = trCache.get(season);
-    if(!rows){
-      const top = await api(`/monsters?season=${season}&isG3=false&isSL=false&played=0&orderBy=played&orderDirection=DESC&limit=30&offset=0`);
-      if(!top.data?.length){ $b.innerHTML = '<div class="panel muted">Aucune donnée pour cette saison.</div>'; return; }
-      rows = (await Promise.all(top.data.map(async m=>{
-        const h = await api(`/monster/${m.monster_id}/history?season=${season}&isG3=false`).catch(()=>({data:[]}));
-        const pts = (h.data||[]).filter(x=>x.total_battles>0)
-          .map(x=>({pop:100*x.monster_battles/x.total_battles, wr:x.monster_battles?100*x.monster_wins/x.monster_battles:null}));
-        if(pts.length<6) return null;
-        const n = Math.min(7, Math.floor(pts.length/2));
-        const avg = (arr,k)=>arr.reduce((acc,x)=>acc+(x[k]??0),0)/arr.length;
-        const rec = pts.slice(-n), prev = pts.slice(-2*n, -n);
-        return { m, popNow:avg(rec,"pop"), dPop:avg(rec,"pop")-avg(prev,"pop"), dWr:avg(rec,"wr")-avg(prev,"wr"), spark:pts.map(p=>p.pop) };
-      }))).filter(Boolean);
-      if(season !== (await getSeasons())[0] || rows.length) trCache.set(season, rows);
-    }
-    if(!rows.length){ $b.innerHTML = '<div class="panel muted">Pas assez de jours de données pour calculer des tendances.</div>'; return; }
-    const up   = [...rows].sort((a,b)=>b.dPop-a.dPop).slice(0,10);
-    const down = [...rows].sort((a,b)=>a.dPop-b.dPop).slice(0,10);
-    const trendRow = r => `<div class="trend-row" onclick="location.hash='#/monster/${r.m.monster_id}'">
-      <img class="mon-ico" src="${monImg(r.m.image_filename)}" loading="lazy">
-      <div class="tname">${esc(r.m.name)}<div class="muted" style="font-size:11.5px;font-weight:400">popularité ${r.popNow.toFixed(1)} % · winrate ${r.dWr>=0?"+":""}${r.dWr.toFixed(1)} pts</div></div>
-      ${sparkline(r.spark)}
-      <span class="delta ${r.dPop>=0?"up":"down"}">${r.dPop>=0?"+":""}${r.dPop.toFixed(1)} pts</span></div>`;
-    $b.innerHTML = `<div class="two-col">
-      <div><h2>📈 En hausse</h2><div class="panel">${up.map(trendRow).join("")}</div></div>
-      <div><h2>📉 En baisse</h2><div class="panel">${down.map(trendRow).join("")}</div></div>
-    </div>
-    <div class="note" style="margin-top:14px">Δ = variation de la part des combats (points de %) entre les 7 derniers jours joués et les 7 précédents. Clique sur un monstre pour sa fiche complète.</div>`;
-  }catch(e){ $b.innerHTML = `<div class="error-box">${esc(e.message||e)}</div>`; }
-}
 /* ================= SIMULATEUR DE DRAFT ================= */
 const simState = { a:null, b:null, fp:"A", lds:true, picksA:[], picksB:[], boxA:null, boxB:null, season:null, history:[], showBoxA:false, showBoxB:false, editBoxA:false, editBoxB:false,
   boxSort: (()=>{ try{ return localStorage.getItem("simBoxSort_v1") || "plays"; }catch(e){ return "plays"; } })() };
@@ -1783,13 +1767,6 @@ function attachMonSearch(inputId, listId, onPick){
   });
 }
 
-function sparkline(vals){
-  if(vals.length<2) return "";
-  const W=110, H=28;
-  const mn = Math.min(...vals), mx = Math.max(...vals), sp = (mx-mn)||1;
-  const pts = vals.map((v,i)=>`${(2+i*(W-4)/(vals.length-1)).toFixed(1)},${(H-3-(v-mn)*(H-6)/sp).toFixed(1)}`).join(" ");
-  return `<svg width="${W}" height="${H}" style="flex-shrink:0"><polyline points="${pts}" fill="none" stroke="var(--accent2)" stroke-width="1.8"/></svg>`;
-}
 
 /* go */
 route();
