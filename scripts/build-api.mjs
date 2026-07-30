@@ -89,10 +89,46 @@ async function buildLeaderboard(season){
   return r.data || [];
 }
 
+const metaBySeason = {};
 for(const s of [latest, latest - 1]){
-  await write(`meta-s${s}.json`, { season: s, monsters: await buildMeta(s) });
+  metaBySeason[s] = await buildMeta(s);
+  await write(`meta-s${s}.json`, { season: s, monsters: metaBySeason[s] });
   await write(`firstpicks-s${s}.json`, { season: s, ...(await buildFirstPicks(s)) });
   await write(`leaderboard-s${s}.json`, { season: s, players: await buildLeaderboard(s) });
+}
+
+// ---- empreintes visuelles des icônes (dHash 64 bits) pour la reconnaissance dans le navigateur ----
+// (le navigateur ne peut pas lire les pixels des icônes swarena : pas de CORS sur assets.swarena.gg)
+try{
+  const { default: Jimp } = await import("jimp");
+  const icons = new Map();
+  for(const s of Object.keys(metaBySeason))
+    for(const m of metaBySeason[s])
+      if(m.image_filename && !icons.has(m.monster_id)) icons.set(m.monster_id, m.image_filename);
+  console.log("calcul des empreintes de", icons.size, "icônes…");
+  const hashes = {};
+  const entries = [...icons.entries()];
+  for(let i = 0; i < entries.length; i += 25){
+    await Promise.all(entries.slice(i, i + 25).map(async ([id, fname]) => {
+      try{
+        const img = await Jimp.read("https://assets.swarena.gg/monster-pictures/" + fname);
+        const w = img.bitmap.width, h = img.bitmap.height;
+        const mx = Math.round(w * 0.12), my = Math.round(h * 0.12);
+        img.crop(mx, my, w - 2 * mx, h - 2 * my).resize(9, 8, Jimp.RESIZE_BILINEAR).grayscale();
+        const px = (x, y) => img.bitmap.data[(y * 9 + x) * 4];
+        let bits = 0n;
+        for(let r = 0; r < 8; r++) for(let c = 0; c < 8; c++){
+          bits <<= 1n;
+          if(px(c + 1, r) > px(c, r)) bits |= 1n;
+        }
+        hashes[id] = bits.toString(16).padStart(16, "0");
+      }catch(e){ /* icône illisible : ignorée */ }
+    }));
+    if((i + 25) % 200 < 25) console.log(`  ${Math.min(i + 25, entries.length)}/${entries.length}`);
+  }
+  await write("icon-hashes.json", { algo: "dhash64-center76", count: Object.keys(hashes).length, hashes });
+}catch(e){
+  console.log("icon-hashes.json ignoré (jimp non installé ?) :", e.message);
 }
 
 // index de l'API : saisons archivées = tous les fichiers meta-s*.json présents (jamais supprimés)

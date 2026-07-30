@@ -4,17 +4,10 @@ Outil personnel d'analyse RTA pour Summoners War : profils de joueurs, historiqu
 
 **Utilisation** : ouvrir `index.html` dans un navigateur — aucune installation, aucune clé. Les données proviennent en direct de l'API publique de [swarena.gg](https://swarena.gg).
 
-## Capture en direct (compagnon Python)
+## Capture en direct (dans le navigateur)
 
-Le simulateur peut lire l'écran du jeu en temps réel pour poser automatiquement les picks des deux joueurs :
+Dans le simulateur, active « 🎥 Capture en direct » et partage la fenêtre du jeu : les cases de la draft sont détectées automatiquement à l'écran et les picks reconnus se posent tout seuls (empreintes visuelles des icônes officielles, calculées chaque nuit dans `api/icon-hashes.json`). Un aperçu en bas à droite montre ce que la capture voit ; un mode calibration manuelle (⚙) est disponible en secours. Lecture d'écran uniquement — aucune interaction avec le jeu ni ses serveurs.
 
-```
-cd companion
-pip install -r requirements.txt
-python watch.py --calibrate   # une seule fois : dessine les 4 zones (ton 1er/dernier slot, son 1er/dernier slot)
-python watch.py               # pendant que tu joues
-```
-
-Puis active le toggle « 🎥 Capture en direct » dans le simulateur. Le compagnon reconnaît les monstres par empreinte visuelle (icônes officielles) et sert le résultat sur `http://localhost:8123/picks`. Il ne fait que lire l'écran : aucune interaction avec le jeu ni ses serveurs.
+Alternative hors navigateur : le compagnon Python `companion/watch.py` fait la même chose en local (voir l'en-tête du fichier).
 
 Projet personnel, non affilié à Swarena ni à Com2uS. Summoners War © Com2uS Corp.

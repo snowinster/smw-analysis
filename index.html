@@ -201,6 +201,13 @@ td.best{color:var(--win);font-weight:800}
 .chip-x:hover{color:var(--lose)}
 .pick.editable:hover::after{content:"✕";position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:900;font-size:20px;background:rgba(240,92,92,.45);border-radius:9px}
 .pick .custom-tag{position:absolute;bottom:-5px;right:-5px;background:var(--accent);color:#fff;font-size:9px;font-weight:800;border-radius:6px;padding:1px 4px;z-index:2}
+/* capture en direct */
+.cam-overlay{position:fixed;inset:0;background:rgba(5,8,15,.88);z-index:300;display:flex;align-items:center;justify-content:center;padding:16px}
+.cam-panel{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:16px;max-width:96vw;max-height:94vh;overflow:auto}
+#camCanvas{border:1px solid var(--border);border-radius:8px;cursor:crosshair;display:block}
+.cam-preview{position:fixed;right:14px;bottom:14px;z-index:120;border:1px solid var(--border);border-radius:10px;background:var(--card);padding:6px;box-shadow:0 10px 30px rgba(0,0,0,.5)}
+.cam-preview canvas{display:block;border-radius:6px;max-width:300px}
+.cam-preview .row{margin-top:5px;gap:6px;font-size:11px}
 .rune-row{margin-bottom:8px}
 .rune-row .rr-label{display:flex;justify-content:space-between;font-size:13.5px;margin-bottom:3px}
 .rune-row .rr-bar{height:8px;border-radius:5px;background:var(--bg2);overflow:hidden}
@@ -1368,7 +1375,7 @@ async function viewSimulator(){
         <span class="muted">First pick :</span>
         <label><input type="radio" name="simfp" value="A" ${simState.fp==="A"?"checked":""}> Joueur A</label>
         <label><input type="radio" name="simfp" value="B" ${simState.fp==="B"?"checked":""}> Joueur B</label>
-        <label class="switch" title="Nécessite le compagnon Python : python companion/watch.py (voir le README du projet)">
+        <label class="switch" title="Partage la fenêtre du jeu : les picks sont reconnus à l'écran et posés automatiquement. Lecture d'écran uniquement, comme un partage Discord.">
           <input type="checkbox" id="simLive" ${simState.live?"checked":""}><span class="tk"></span><span>🎥 Capture en direct</span>
         </label>
         <span id="liveStatus" class="muted" style="font-size:12px"></span>
@@ -1383,7 +1390,7 @@ async function viewSimulator(){
     attachCmpPicker("simInB","simResB", async id=>{ simState.b=id; simState.boxB=null; renderSim(); simState.boxB = await loadSimBox(id); renderSim(); });
     document.querySelectorAll('[name="simfp"]').forEach(r => r.onchange = e => { simState.fp = e.target.value; renderSim(); });
     document.getElementById("simLive").onchange = e => { simState.live = e.target.checked; liveToggle(); };
-    if(simState.live) liveToggle();
+    if(simState.live){ if(cam.stream) liveStatus("🎥 capture active — les picks détectés se posent automatiquement", true); else camStart(); }
     document.getElementById("simSeason").onchange = e => {
       simState.season = +e.target.value;
       simState.anonBox = null; // la grille "tous les monstres" dépend de la saison de stats → on la reconstruit
@@ -1525,39 +1532,273 @@ function simSideHTML(side, mirrored){
     ${footer}
   </div>`;
 }
-/* ----- capture en direct : le compagnon Python (companion/watch.py) lit l'écran du jeu
-   et expose les picks détectés sur http://localhost:8123/picks ; on les applique ici ----- */
-let liveTimer = null;
-function liveToggle(){
-  clearInterval(liveTimer);
+/* ----- capture en direct DANS LE NAVIGATEUR : partage de la fenêtre du jeu + reconnaissance d'icônes.
+   Les empreintes visuelles des ~900 icônes viennent de notre API (api/icon-hashes.json, générées chaque nuit).
+   Lecture d'écran uniquement : aucune interaction avec le jeu ni ses serveurs. ----- */
+const cam = { stream:null, video:null, timer:null, db:null, tctx:null, boxes:null };
+function liveStatus(msg, ok){
   const st = document.getElementById("liveStatus");
-  if(!simState.live){ if(st) st.textContent = ""; return; }
-  if(st) st.textContent = "recherche du compagnon…";
-  liveTimer = setInterval(livePoll, 2000);
-  livePoll();
+  if(st){ st.textContent = msg; st.style.color = ok===true ? "var(--win)" : ok===false ? "var(--lose)" : "var(--muted)"; }
 }
-async function livePoll(){
-  const st = document.getElementById("liveStatus");
-  if(!simState.live) return;
-  try{
-    const r = await fetch("http://localhost:8123/picks", {cache:"no-store"});
-    const p = await r.json();
-    if(st){ st.textContent = "✔ compagnon connecté"; st.style.color = "var(--win)"; }
-    let added = false;
-    const apply = async (ids, side) => {
-      const mine = side==="A" ? simState.picksA : simState.picksB;
-      for(const id of (ids||[])){
-        if(mine.length >= 5) break;
-        if(simState.picksA.some(x=>x.id===id) || simState.picksB.some(x=>x.id===id)) continue;
-        await simPick(id, side);
-        added = true;
-      }
-    };
-    await apply(p.a, "A");
-    await apply(p.b, "B");
-  }catch(e){
-    if(st){ st.textContent = "✖ compagnon non détecté (lance python companion/watch.py)"; st.style.color = "var(--lose)"; }
+function liveOff(){
+  simState.live = false;
+  const c = document.getElementById("simLive");
+  if(c) c.checked = false;
+  camStop();
+}
+function liveToggle(){ if(simState.live) camStart(); else camStop(); }
+async function camStart(){
+  if(!navigator.mediaDevices?.getDisplayMedia){
+    liveStatus("✖ capture non supportée ici (utilise la version en ligne du site)", false);
+    simState.live = false; const c = document.getElementById("simLive"); if(c) c.checked = false;
+    return;
   }
+  try{
+    if(!cam.db){
+      const r = await fetch("api/icon-hashes.json", {cache:"no-cache"});
+      const j = await r.json();
+      cam.db = Object.entries(j.hashes).map(([id,h])=>({id:+id, h:BigInt("0x"+h)}));
+    }
+  }catch(e){ liveStatus("✖ empreintes d'icônes indisponibles (api/icon-hashes.json)", false); liveOff(); return; }
+  try{
+    cam.stream = await navigator.mediaDevices.getDisplayMedia({video:{frameRate:5}, audio:false});
+  }catch(e){ liveStatus("✖ partage d'écran refusé", false); liveOff(); return; }
+  cam.video = document.createElement("video");
+  cam.video.srcObject = cam.stream;
+  cam.video.muted = true;
+  await cam.video.play();
+  const t = document.createElement("canvas"); t.width = 9; t.height = 8;
+  cam.tctx = t.getContext("2d", {willReadFrequently:true});
+  cam.stream.getVideoTracks()[0].addEventListener("ended", liveOff);
+  const key = cam.video.videoWidth + "x" + cam.video.videoHeight;
+  let saved = {};
+  try{ saved = JSON.parse(localStorage.getItem("camCalib_v1")) || {}; }catch(e){}
+  // calibration manuelle enregistrée pour cette résolution → on l'utilise ; sinon détection AUTO des cases
+  camRun(saved[key] || null);
+}
+function camStop(){
+  clearInterval(cam.timer); cam.timer = null;
+  if(cam.stream) cam.stream.getTracks().forEach(t=>t.stop());
+  cam.stream = null; cam.video = null; cam.boxes = null; cam.manualBoxes = false;
+  document.getElementById("camOverlay")?.remove();
+  document.getElementById("camPreview")?.remove();
+  liveStatus("");
+}
+function camRun(boxes){
+  cam.boxes = boxes; // null = détection automatique des cases en cours
+  liveStatus(boxes ? "🎥 capture active — les picks détectés se posent automatiquement"
+                   : "🔎 en attente de l'écran de draft…", boxes ? true : undefined);
+  clearInterval(cam.timer);
+  cam.timer = setInterval(camTick, 1200);
+  camTick();
+}
+/* ----- détection AUTOMATIQUE des 10 cases de picks : on cherche les emplacements vides
+   (carrés brun sombre caractéristiques), on complète par symétrie gauche/droite ----- */
+function detectSlots(){
+  const vw = cam.video.videoWidth, vh = cam.video.videoHeight;
+  if(!vw || !vh) return null;
+  const W = 400, H = Math.round(vh*W/vw);
+  if(!cam.det || cam.det.c.height !== H){
+    const c = document.createElement("canvas"); c.width = W; c.height = H;
+    cam.det = { c, ctx: c.getContext("2d", {willReadFrequently:true}) };
+  }
+  const ctx = cam.det.ctx;
+  ctx.drawImage(cam.video, 0, 0, W, H);
+  const d = ctx.getImageData(0, 0, W, H).data;
+  const mask = new Uint8Array(W*H);
+  for(let i=0;i<W*H;i++){
+    const r = d[i*4], g = d[i*4+1], b = d[i*4+2];
+    // brun sombre des cases vides : sombre, r>g>=b, faiblement saturé
+    if(r>22 && r<115 && g>14 && g<90 && b<75 && r>g && g>=b-4 && (r-b)>6 && (r-b)<80) mask[i]=1;
+  }
+  const seen = new Uint8Array(W*H), comps = [];
+  const qx = new Int32Array(W*H), qy = new Int32Array(W*H);
+  for(let y=0;y<H;y++) for(let x=0;x<W;x++){
+    const idx = y*W+x;
+    if(!mask[idx] || seen[idx]) continue;
+    let head=0, tail=0; qx[tail]=x; qy[tail]=y; tail++; seen[idx]=1;
+    let minx=x, maxx=x, miny=y, maxy=y, count=0;
+    while(head<tail){
+      const cx=qx[head], cy=qy[head]; head++; count++;
+      if(cx<minx)minx=cx; if(cx>maxx)maxx=cx; if(cy<miny)miny=cy; if(cy>maxy)maxy=cy;
+      if(cx+1<W){const n=cy*W+cx+1; if(mask[n]&&!seen[n]){seen[n]=1;qx[tail]=cx+1;qy[tail]=cy;tail++;}}
+      if(cx>0){const n=cy*W+cx-1; if(mask[n]&&!seen[n]){seen[n]=1;qx[tail]=cx-1;qy[tail]=cy;tail++;}}
+      if(cy+1<H){const n=(cy+1)*W+cx; if(mask[n]&&!seen[n]){seen[n]=1;qx[tail]=cx;qy[tail]=cy+1;tail++;}}
+      if(cy>0){const n=(cy-1)*W+cx; if(mask[n]&&!seen[n]){seen[n]=1;qx[tail]=cx;qy[tail]=cy-1;tail++;}}
+    }
+    const w = maxx-minx+1, h = maxy-miny+1;
+    if(w < W*0.045 || w > W*0.14) continue;      // taille plausible d'une case
+    if(h < w*0.72 || h > w*1.35) continue;        // ~carrée
+    if(count < w*h*0.45) continue;                // bien remplie
+    comps.push({x:minx, y:miny, w, h});
+  }
+  if(comps.length < 4) return null;
+  const med = a => a.slice().sort((p,q)=>p-q)[a.length>>1];
+  const ms = med(comps.map(c=>c.w));
+  let slots = comps.filter(c=>Math.abs(c.w-ms) < ms*0.28);
+  // complète les cases déjà remplies (portraits colorés) par symétrie miroir gauche/droite
+  const mirrorMissing = [];
+  for(const s of slots){
+    const mx = W - (s.x + s.w);
+    if(!slots.some(o=>Math.abs(o.x-mx)<ms*0.45 && Math.abs(o.y-s.y)<ms*0.45))
+      mirrorMissing.push({x:Math.round(mx), y:s.y, w:s.w, h:s.h});
+  }
+  slots = slots.concat(mirrorMissing);
+  // dédoublonnage
+  const uniq = [];
+  for(const s of slots) if(!uniq.some(o=>Math.abs(o.x-s.x)<ms*0.4 && Math.abs(o.y-s.y)<ms*0.4)) uniq.push(s);
+  slots = uniq;
+  if(slots.length !== 10){
+    cam.lastDetCount = slots.length;
+    return null;
+  }
+  const left  = slots.filter(s=>s.x+s.w/2 <  W/2).sort((a,b)=>a.x-b.x || a.y-b.y);
+  const right = slots.filter(s=>s.x+s.w/2 >= W/2).sort((a,b)=>a.x-b.x || a.y-b.y);
+  if(left.length !== 5 || right.length !== 5) return null;
+  const sc = vw / W;
+  const box = s => [Math.round(s.x*sc), Math.round(s.y*sc), Math.round(s.w*sc), Math.round(s.h*sc)];
+  return left.map(box).concat(right.map(box));
+}
+/* aperçu en direct : ce que la capture voit + les cases détectées */
+function camPreview(){
+  let p = document.getElementById("camPreview");
+  if(!simState.live || !cam.video){ p?.remove(); return; }
+  if(!p){
+    p = document.createElement("div");
+    p.id = "camPreview"; p.className = "cam-preview";
+    p.innerHTML = `<canvas width="300" height="170"></canvas>
+      <div class="row"><span class="muted" id="camPrevTxt"></span><span class="spacer"></span>
+      <button class="btn" style="font-size:10px;padding:2px 7px" onclick="camManual()">⚙ manuel</button></div>`;
+    document.body.appendChild(p);
+  }
+  const cv = p.querySelector("canvas"), ctx = cv.getContext("2d");
+  const vw = cam.video.videoWidth, vh = cam.video.videoHeight;
+  cv.height = Math.round(300*vh/vw);
+  ctx.drawImage(cam.video, 0, 0, cv.width, cv.height);
+  const sc = cv.width / vw;
+  if(cam.boxes){
+    ctx.lineWidth = 1.5;
+    cam.boxes.forEach((b,i)=>{
+      ctx.strokeStyle = i<5 ? "#3fca7c" : "#f05c5c";
+      ctx.strokeRect(b[0]*sc, b[1]*sc, b[2]*sc, b[3]*sc);
+    });
+  }
+  const txt = document.getElementById("camPrevTxt");
+  if(txt) txt.textContent = cam.boxes ? "cases détectées ✔" : `recherche… (${cam.lastDetCount||0} cases vues)`;
+}
+function camManual(){
+  if(!cam.video) return;
+  camCalib(cam.video.videoWidth + "x" + cam.video.videoHeight);
+}
+function cropHash(b){
+  const mx = b[2]*0.12, my = b[3]*0.12;
+  cam.tctx.drawImage(cam.video, b[0]+mx, b[1]+my, b[2]-2*mx, b[3]-2*my, 0, 0, 9, 8);
+  const d = cam.tctx.getImageData(0, 0, 9, 8).data;
+  const lum = new Array(72);
+  let s = 0, s2 = 0;
+  for(let i=0;i<72;i++){ const l = 0.299*d[i*4] + 0.587*d[i*4+1] + 0.114*d[i*4+2]; lum[i]=l; s+=l; s2+=l*l; }
+  const std = Math.sqrt(Math.max(0, s2/72 - (s/72)**2));
+  let h = 0n;
+  for(let r=0;r<8;r++) for(let c=0;c<8;c++){ h <<= 1n; if(lum[r*9+c+1] > lum[r*9+c]) h |= 1n; }
+  return {h, std};
+}
+function camMatch(h){
+  let b1 = 99, b2 = 99, best = null;
+  for(const e of cam.db){
+    let x = h ^ e.h, d = 0;
+    while(x){ x &= x - 1n; d++; }
+    if(d < b1){ b2 = b1; b1 = d; best = e.id; } else if(d < b2) b2 = d;
+  }
+  return (b1 <= 14 && b2 - b1 >= 3) ? best : null;
+}
+async function camTick(){
+  if(!cam.video || !simState.live) return;
+  if(cam.video.videoWidth !== cam.frameW){ cam.frameW = cam.video.videoWidth; if(!cam.manualBoxes) cam.boxes = null; }
+  if(!cam.boxes){
+    const det = detectSlots();
+    if(det){
+      cam.boxes = det;
+      liveStatus("🎥 écran de draft détecté — capture active", true);
+    }else{
+      liveStatus("🔎 en attente de l'écran de draft… (les cases vides doivent être visibles)");
+    }
+    camPreview();
+    return;
+  }
+  camPreview();
+  for(let i=0;i<10;i++){
+    const side = i < 5 ? "A" : "B";
+    if((side==="A"?simState.picksA:simState.picksB).length >= 5) continue;
+    const {h, std} = cropHash(cam.boxes[i]);
+    if(std < 7) continue; // case encore vide
+    const id = camMatch(h);
+    if(!id) continue;
+    if(simState.picksA.some(p=>p.id===id) || simState.picksB.some(p=>p.id===id)) continue;
+    await simPick(id, side);
+  }
+}
+/* calibration : dessiner les 10 cases de picks sur l'image capturée (mémorisé par résolution) */
+function camCalib(key){
+  liveStatus("🎯 calibration en cours…");
+  const vw = cam.video.videoWidth, vh = cam.video.videoHeight;
+  const ov = document.createElement("div");
+  ov.id = "camOverlay"; ov.className = "cam-overlay";
+  ov.innerHTML = `<div class="cam-panel">
+    <b>Calibration (une seule fois par résolution de jeu)</b>
+    <p class="muted" style="font-size:12.5px;margin:6px 0;max-width:700px">Mets l'écran de <b>draft</b> du jeu visible, clique « 📷 Reprendre l'image » si besoin, puis dessine à la souris les <b>10 cases de picks</b> :
+    d'abord <b>tes 5</b> (slot isolé, puis le carré : haut-gauche, bas-gauche, haut-droite, bas-droite), puis les <b>5 adverses</b> dans le même ordre.
+    Cadre l'intérieur du portrait, pas la bordure dorée.</p>
+    <div class="row" style="margin-bottom:8px;gap:8px">
+      <span id="camCount"><b>0</b>/10 cases</span>
+      <button class="btn" id="camRefresh">📷 Reprendre l'image</button>
+      <button class="btn" id="camUndo">↩ Annuler la dernière</button>
+      <button class="btn primary" id="camOk" disabled>✔ Valider</button>
+      <button class="btn" id="camCancel">✕ Abandonner</button>
+    </div>
+    <canvas id="camCanvas"></canvas>
+  </div>`;
+  document.body.appendChild(ov);
+  const cv = document.getElementById("camCanvas"), ctx = cv.getContext("2d");
+  const scale = Math.min(1, (window.innerWidth-90)/vw, (window.innerHeight-240)/vh);
+  cv.width = Math.round(vw*scale); cv.height = Math.round(vh*scale);
+  const boxes = [];
+  let start = null, cur = null;
+  const redraw = () => {
+    ctx.drawImage(cam.video, 0, 0, cv.width, cv.height);
+    ctx.lineWidth = 2; ctx.font = "bold 13px sans-serif";
+    boxes.forEach((b,i)=>{
+      ctx.strokeStyle = i<5 ? "#3fca7c" : "#f05c5c";
+      ctx.strokeRect(b[0]*scale, b[1]*scale, b[2]*scale, b[3]*scale);
+      ctx.fillStyle = ctx.strokeStyle;
+      ctx.fillText(i<5 ? "Toi "+(i+1) : "Adv "+(i-4), b[0]*scale+3, b[1]*scale+15);
+    });
+    if(cur){ ctx.strokeStyle = "#f2c14e"; ctx.strokeRect(cur[0]*scale, cur[1]*scale, cur[2]*scale, cur[3]*scale); }
+    document.getElementById("camCount").innerHTML = `<b>${boxes.length}</b>/10 cases`;
+    document.getElementById("camOk").disabled = boxes.length !== 10;
+  };
+  cv.onmousedown = e => { const r = cv.getBoundingClientRect(); start = [(e.clientX-r.left)/scale, (e.clientY-r.top)/scale]; };
+  cv.onmousemove = e => {
+    if(!start) return;
+    const r = cv.getBoundingClientRect(), x = (e.clientX-r.left)/scale, y = (e.clientY-r.top)/scale;
+    cur = [Math.min(start[0],x), Math.min(start[1],y), Math.abs(x-start[0]), Math.abs(y-start[1])];
+    redraw();
+  };
+  cv.onmouseup = () => {
+    if(cur && cur[2] > 8 && cur[3] > 8 && boxes.length < 10) boxes.push(cur.map(Math.round));
+    start = null; cur = null; redraw();
+  };
+  document.getElementById("camRefresh").onclick = redraw;
+  document.getElementById("camUndo").onclick = () => { boxes.pop(); redraw(); };
+  document.getElementById("camCancel").onclick = liveOff;
+  document.getElementById("camOk").onclick = () => {
+    let saved = {}; try{ saved = JSON.parse(localStorage.getItem("camCalib_v1")) || {}; }catch(e){}
+    saved[key] = boxes;
+    try{ localStorage.setItem("camCalib_v1", JSON.stringify(saved)); }catch(e){}
+    ov.remove();
+    cam.manualBoxes = true;
+    camRun(boxes);
+  };
+  redraw();
 }
 
 /* grille "tous les monstres" pour l'adversaire sans pseudo : filtre en direct, clic/drag pour poser son pick */

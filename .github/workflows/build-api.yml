@@ -16,6 +16,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
+      - name: Dépendances (empreintes d'icônes)
+        run: npm install jimp@0.22.12 --no-save --no-audit --no-fund
       - name: Collecte des données
         run: node scripts/build-api.mjs
       - name: Commit si changements

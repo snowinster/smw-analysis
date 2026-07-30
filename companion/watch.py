@@ -10,13 +10,12 @@ Utilisation :
   3. python watch.py                 (pendant que tu joues)
   4. Dans le simulateur SWAnalysis, active "Capture en direct".
 
-Calibration : sur l'écran de draft du jeu, dessine 4 rectangles DANS CET ORDRE
+Calibration : ouvre l'écran de draft du jeu, puis dessine 10 rectangles DANS CET ORDRE
 (Entrée après chaque rectangle, Échap pour terminer) :
-  1. TON premier slot de pick   (colonne de gauche, en haut)
-  2. TON dernier slot de pick   (colonne de gauche, en bas)
-  3. SON premier slot de pick   (colonne de droite, en haut)
-  4. SON dernier slot de pick   (colonne de droite, en bas)
-Les 3 slots intermédiaires de chaque colonne sont interpolés automatiquement.
+  1 à 5  : TES slots de pick, dans l'ordre où ils se remplissent
+           (slot isolé, puis carré : haut-gauche, bas-gauche, haut-droite, bas-droite)
+  6 à 10 : les slots ADVERSES, dans le même ordre.
+Cadre bien l'intérieur de chaque case (le portrait), pas la bordure dorée.
 """
 import argparse
 import json
@@ -125,32 +124,18 @@ def grab(sct, monitor_idx):
     return cv2.cvtColor(raw, cv2.COLOR_BGRA2BGR)
 
 
-def interpolate_column(r1, r5):
-    """5 boîtes régulièrement espacées entre le 1er et le dernier slot."""
-    boxes = []
-    for i in range(5):
-        t = i / 4
-        x = int(r1[0] + (r5[0] - r1[0]) * t)
-        y = int(r1[1] + (r5[1] - r1[1]) * t)
-        w = int((r1[2] + r5[2]) / 2)
-        h = int((r1[3] + r5[3]) / 2)
-        boxes.append([x, y, w, h])
-    return boxes
-
-
 def calibrate(monitor_idx):
     with mss() as sct:
         img = grab(sct, monitor_idx)
-    print(__doc__.split("Calibration :")[1])
+    print("Calibration :" + __doc__.split("Calibration :")[1])
     rois = cv2.selectROIs("SWAnalysis - calibration (Entree apres chaque zone, Echap pour finir)",
                           img, showCrosshair=True)
     cv2.destroyAllWindows()
-    if len(rois) != 4:
-        print(f"Il faut exactement 4 rectangles (reçu : {len(rois)}). Recommence.")
+    if len(rois) != 10:
+        print(f"Il faut exactement 10 rectangles - tes 5 slots puis les 5 adverses (reçu : {len(rois)}). Recommence.")
         return
-    cfg = {"monitor": monitor_idx,
-           "a": interpolate_column(rois[0], rois[1]),
-           "b": interpolate_column(rois[2], rois[3])}
+    boxes = [[int(v) for v in r] for r in rois]
+    cfg = {"monitor": monitor_idx, "a": boxes[:5], "b": boxes[5:]}
     with open(CFG_PATH, "w") as f:
         json.dump(cfg, f, indent=2)
     print(f"Calibration enregistrée dans {CFG_PATH}.")
@@ -190,14 +175,26 @@ def watch_loop(cfg, db, interval, debug):
 
 # ---------- serveur local pour le simulateur ----------
 class Handler(BaseHTTPRequestHandler):
+    def _cors(self):
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Methods", "GET, OPTIONS")
+        self.send_header("Access-Control-Allow-Headers", "*")
+        # requis par Chrome pour qu'un site https (GitHub Pages) parle à localhost
+        self.send_header("Access-Control-Allow-Private-Network", "true")
+
     def _send(self, code, payload):
         body = json.dumps(payload).encode()
         self.send_response(code)
         self.send_header("Content-Type", "application/json")
-        self.send_header("Access-Control-Allow-Origin", "*")
+        self._cors()
         self.send_header("Cache-Control", "no-store")
         self.end_headers()
         self.wfile.write(body)
+
+    def do_OPTIONS(self):
+        self.send_response(204)
+        self._cors()
+        self.end_headers()
 
     def do_GET(self):
         if self.path.startswith("/picks"):
