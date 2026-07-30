@@ -481,7 +481,7 @@ function playersTable(rows, offset){
 }
 
 /* ================= MONSTRES ================= */
-const moState = { season:null, page:1, limit:50, orderBy:"played", dir:"DESC", isG3:false };
+const moState = { season:null, page:1, limit:20, orderBy:"played", dir:"DESC", isG3:false };
 async function viewMonsters(){
   $app.innerHTML = '<div class="loading">Chargement…</div>';
   try{
