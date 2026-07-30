@@ -1077,7 +1077,7 @@ function viewAddCalc(){
 
 /* ================= SIMULATEUR DE DRAFT ================= */
 const simState = { a:null, b:null, fp:"A", lds:true, picksA:[], picksB:[], boxA:null, boxB:null, season:null, history:[], showBoxA:false, showBoxB:false, editBoxA:false, editBoxB:false, anonBox:null, anonFilter:"",
-  anonSort:"played",
+  anonSort:"played", live:false,
   boxSort: (()=>{ try{ return localStorage.getItem("simBoxSort_v2") || "element"; }catch(e){ return "element"; } })() };
 const ELEM_ORDER = {Fire:0, Water:1, Wind:2, Light:3, Dark:4};
 
@@ -1368,6 +1368,10 @@ async function viewSimulator(){
         <span class="muted">First pick :</span>
         <label><input type="radio" name="simfp" value="A" ${simState.fp==="A"?"checked":""}> Joueur A</label>
         <label><input type="radio" name="simfp" value="B" ${simState.fp==="B"?"checked":""}> Joueur B</label>
+        <label class="switch" title="Nécessite le compagnon Python : python companion/watch.py (voir le README du projet)">
+          <input type="checkbox" id="simLive" ${simState.live?"checked":""}><span class="tk"></span><span>🎥 Capture en direct</span>
+        </label>
+        <span id="liveStatus" class="muted" style="font-size:12px"></span>
         <label class="muted" style="margin-left:auto">Stats basées sur
           <select id="simSeason">${seasons.map(x=>`<option value="${x}" ${x===simState.season?"selected":""}>Saison ${x}</option>`).join("")}</select>
         </label>
@@ -1378,6 +1382,8 @@ async function viewSimulator(){
     attachCmpPicker("simInA","simResA", id=>setSimA(id));
     attachCmpPicker("simInB","simResB", async id=>{ simState.b=id; simState.boxB=null; renderSim(); simState.boxB = await loadSimBox(id); renderSim(); });
     document.querySelectorAll('[name="simfp"]').forEach(r => r.onchange = e => { simState.fp = e.target.value; renderSim(); });
+    document.getElementById("simLive").onchange = e => { simState.live = e.target.checked; liveToggle(); };
+    if(simState.live) liveToggle();
     document.getElementById("simSeason").onchange = e => {
       simState.season = +e.target.value;
       simState.anonBox = null; // la grille "tous les monstres" dépend de la saison de stats → on la reconstruit
@@ -1519,6 +1525,41 @@ function simSideHTML(side, mirrored){
     ${footer}
   </div>`;
 }
+/* ----- capture en direct : le compagnon Python (companion/watch.py) lit l'écran du jeu
+   et expose les picks détectés sur http://localhost:8123/picks ; on les applique ici ----- */
+let liveTimer = null;
+function liveToggle(){
+  clearInterval(liveTimer);
+  const st = document.getElementById("liveStatus");
+  if(!simState.live){ if(st) st.textContent = ""; return; }
+  if(st) st.textContent = "recherche du compagnon…";
+  liveTimer = setInterval(livePoll, 2000);
+  livePoll();
+}
+async function livePoll(){
+  const st = document.getElementById("liveStatus");
+  if(!simState.live) return;
+  try{
+    const r = await fetch("http://localhost:8123/picks", {cache:"no-store"});
+    const p = await r.json();
+    if(st){ st.textContent = "✔ compagnon connecté"; st.style.color = "var(--win)"; }
+    let added = false;
+    const apply = async (ids, side) => {
+      const mine = side==="A" ? simState.picksA : simState.picksB;
+      for(const id of (ids||[])){
+        if(mine.length >= 5) break;
+        if(simState.picksA.some(x=>x.id===id) || simState.picksB.some(x=>x.id===id)) continue;
+        await simPick(id, side);
+        added = true;
+      }
+    };
+    await apply(p.a, "A");
+    await apply(p.b, "B");
+  }catch(e){
+    if(st){ st.textContent = "✖ compagnon non détecté (lance python companion/watch.py)"; st.style.color = "var(--lose)"; }
+  }
+}
+
 /* grille "tous les monstres" pour l'adversaire sans pseudo : filtre en direct, clic/drag pour poser son pick */
 function anonGridHTML(){
   const box = simState.anonBox;
