@@ -1697,6 +1697,14 @@ function addSlot(box, vw){
   const mid = cam.midX || vw/2;
   cam.slots.push({box, side: (box[0]+box[2]/2) < mid ? "A" : "B", id:null, diag:null, pend:null, pendN:0, emptyN:0});
 }
+function camSetFP(side){
+  cam.fpSet = true;
+  if(simState.fp !== side){
+    simState.fp = side;
+    document.querySelectorAll("input[name=simfp]").forEach(r=>{ r.checked = (r.value===side); });
+    renderSim();
+  }
+}
 /* applique (ou remplace) le pick d'un slot dans le simulateur */
 async function applySlotPick(s, newId){
   const arr = s.side==="A" ? simState.picksA : simState.picksB;
@@ -1774,15 +1782,17 @@ async function camTick(){
     if(hl) addSlot(hl, f.W);
     for(const b of detectPortraits(f)) addSlot(b, f.W);
   }
-  // premier slot actif détecté → qui a le first pick
-  if(!cam.fpSet && cam.slots.length && simState.picksA.length + simState.picksB.length === 0){
-    cam.fpSet = true;
-    const fpSide = cam.slots[0].side;
-    if(simState.fp !== fpSide){
-      simState.fp = fpSide;
-      document.querySelectorAll("input[name=simfp]").forEach(r=>{ r.checked = (r.value===fpSide); });
-      renderSim();
-      return;
+  // détection du first pick :
+  // règle 1 : surbrillance vue alors que le plateau est entièrement vide → ce côté ouvre la draft
+  // règle 2 : total de cases remplies IMPAIR (1, 5 ou 9) → le côté qui en a le plus est forcément FP
+  if(!cam.fpSet){
+    const mid = cam.midX || f.W/2;
+    const nA = cam.slots.filter(s=>s.side==="A" && s.content).length;
+    const nB = cam.slots.filter(s=>s.side==="B" && s.content).length;
+    if(cam.lastHl && nA+nB === 0 && simState.picksA.length + simState.picksB.length === 0){
+      camSetFP((cam.lastHl[0]+cam.lastHl[2]/2) < mid ? "A" : "B");
+    }else if(nA+nB >= 5 && (nA+nB) % 2 === 1){
+      camSetFP(nA > nB ? "A" : "B");
     }
   }
   // lecture du pseudo adverse (une fois, si aucun adversaire renseigné)
@@ -1797,6 +1807,7 @@ async function camTick(){
     }
     if(!best) continue;
     if(best.dark){ if(!s.id) s.diag = {std:best.lum, txt:"sombre — en attente d'éclairage"}; continue; }
+    if(best.std > 10) s.content = true; // contenu vu au moins une fois (sert à la détection du first pick)
     const m = best.m;
     // case redevenue vide alors qu'elle est éclairée → le joueur a retiré son pick
     if(s.id && !m.id && best.std < 10){
