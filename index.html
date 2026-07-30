@@ -1561,7 +1561,10 @@ async function camStart(){
       cam.db = Object.entries(j.sigs).map(([id, b64])=>{
         const bin = atob(b64), v = new Float32Array(bin.length);
         for(let i=0;i<bin.length;i++){ let x = bin.charCodeAt(i); if(x>127) x-=256; v[i]=x/sc; }
-        return {id:+id, name: monCache.get(+id)?.name || ("#"+id), v};
+        const mm = j.means?.[id];
+        const tot = mm ? (mm[0]+mm[1]+mm[2]) || 1 : 1;
+        return {id:+id, name: monCache.get(+id)?.name || ("#"+id), v,
+                hue: mm ? [mm[0]/tot, mm[1]/tot, mm[2]/tot] : null};
       });
     }
   }catch(e){ liveStatus("✖ base de reconnaissance inaccessible (" + (e?.message||e) + ") — réessaie dans 1 min", false); liveOff(); return; }
@@ -1783,12 +1786,12 @@ async function processBoxRow(f){
     if(!e.id && !isChecked){
       let best = null;
       for(const cv of SIG_CROPS){
-        const {v, lum} = cropSig(e.box, cv);
+        const {v, lum, hue} = cropSig(e.box, cv);
         if(lum < 60) continue;
-        const m = camMatchSig(v, dbForSide("A"));
+        const m = camMatchSig(v, dbForSide("A"), hue);
         if(!best || m.rel > best.rel) best = m;
       }
-      if(best && best.id && best.rel >= 0.30) e.id = best.id;
+      if(best && best.id && best.rel >= 0.38) e.id = best.id; // seuil box relevé (confusions type Sonia/Nana)
     }
     // coche apparue sur une icône identifiée → c'est un pick du joueur A
     if(isChecked && !e.checked){
@@ -1856,8 +1859,10 @@ function sigFromCanvas(){
     for(let i=0;i<n;i++) v[ch*n+i] = (d[SIG_IDX[i]*4+ch]-m)/s;
     lum += m * [0.3,0.6,0.1][ch];
     std += s * [0.3,0.6,0.1][ch];
+    (sigFromCanvas._m ||= [0,0,0])[ch] = m;
   }
-  return {v, lum, std};
+  const mm = sigFromCanvas._m, tot = (mm[0]+mm[1]+mm[2]) || 1;
+  return {v, lum, std, hue:[mm[0]/tot, mm[1]/tot, mm[2]/tot]};
 }
 const SIG_CROPS = [];
 for(const top of [0.18, 0.22, 0.26]) for(const bot of [0.04, 0.08, 0.12]) for(const side of [0.08, 0.11, 0.14]) SIG_CROPS.push({top, bot, side});
@@ -1880,7 +1885,7 @@ function dbForSide(side){
   }
   return cam.dbSub[side].arr.length ? cam.dbSub[side].arr : cam.db;
 }
-function camMatchSig(v, db){
+function camMatchSig(v, db, hue){
   db = db || cam.db;
   let d1 = 1e9, d2 = 1e9, e1 = null, e2 = null;
   for(const e of db){
@@ -1890,6 +1895,22 @@ function camMatchSig(v, db){
     s /= v.length;
     if(s < d1){ if(!e1 || baseName(e1.name) !== baseName(e.name)){ d2 = d1; e2 = e1; } d1 = s; e1 = e; }
     else if(s < d2 && (!e1 || baseName(e.name) !== baseName(e1.name))){ d2 = s; e2 = e; }
+  }
+  // départage des variantes élémentaires d'un même monstre par la TEINTE brute
+  // (la normalisation par canal efface la couleur qui distingue les recolorations Feu/Eau/Ténèbres…)
+  if(e1 && hue){
+    const fam = db.filter(e => e !== e1 && baseName(e.name) === baseName(e1.name) && e.hue);
+    if(fam.length && e1.hue){
+      const hd = e => Math.abs(hue[0]-e.hue[0]) + Math.abs(hue[1]-e.hue[1]) + Math.abs(hue[2]-e.hue[2]);
+      let bestE = e1, bestH = hd(e1);
+      for(const e of fam){
+        let d = 0;
+        for(let i=0;i<v.length;i++){ const dd = v[i]-e.v[i]; d += dd*dd; }
+        d /= v.length;
+        if(d <= d1*1.18 && hd(e) < bestH){ bestH = hd(e); bestE = e; }
+      }
+      e1 = bestE;
+    }
   }
   const rel = (d2 - d1) / (d1 + 1e-6);
   const restricted = db !== cam.db;
@@ -1944,9 +1965,9 @@ async function camTick(){
     const sdb = dbForSide(s.side);
     const lumMin = sdb !== cam.db ? 33 : 55; // base restreinte à la box → cases plus sombres lisibles
     for(const cv of SIG_CROPS){
-      const {v, lum, std} = cropSig(s.box, cv);
+      const {v, lum, std, hue} = cropSig(s.box, cv);
       if(lum < lumMin){ if(!best) best = {dark:true, lum}; continue; }
-      const m = camMatchSig(v, sdb);
+      const m = camMatchSig(v, sdb, hue);
       if(!best || best.dark || m.rel > (best.m?.rel ?? -1)) best = {m, lum, std};
     }
     if(!best) continue;

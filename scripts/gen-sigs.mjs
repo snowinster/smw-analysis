@@ -25,7 +25,7 @@ export default async function genSigs(){
   const metas = ["api/meta-s37.json","api/meta-s38.json"].filter(fs.existsSync).map(f=>JSON.parse(fs.readFileSync(f)));
   const iconOf = new Map();
   for(const m of metas) for(const mm of m.monsters) if(mm.image_filename) iconOf.set(mm.monster_id, mm.image_filename);
-  const sigs = {};
+  const sigs = {}, means = {};
   const entries = [...iconOf.entries()];
   for(let i=0; i<entries.length; i+=25){
     await Promise.all(entries.slice(i, i+25).map(async ([id, file])=>{
@@ -37,13 +37,17 @@ export default async function genSigs(){
                  w-2*Math.round(w*ICON_VAR.side), h-Math.round(h*(ICON_VAR.top+ICON_VAR.bot)))
            .resize(T, T, Jimp.RESIZE_BILINEAR);
         sigs[id] = quant(sigOf((x,y)=>Jimp.intToRGBA(img.getPixelColor(x,y))));
+        // teinte moyenne brute (départage des variantes élémentaires d'un même monstre)
+        let mr=0, mg=0, mb=0, n=0;
+        for(const idx of IDX){ const c = Jimp.intToRGBA(img.getPixelColor(idx%T, (idx/T)|0)); mr+=c.r; mg+=c.g; mb+=c.b; n++; }
+        means[id] = [Math.round(mr/n), Math.round(mg/n), Math.round(mb/n)];
       }catch(e){}
     }));
   }
   fs.writeFileSync("api/icon-sigs.json", JSON.stringify({
     generated_at: new Date().toISOString(),
-    algo: "colorsig-v2", T, icon_var: ICON_VAR, dims: IDX.length*3, scale: 40,
-    sigs
+    algo: "colorsig-v2.1", T, icon_var: ICON_VAR, dims: IDX.length*3, scale: 40,
+    sigs, means
   }));
   console.log("icon-sigs.json :", Object.keys(sigs).length, "signatures");
 }
