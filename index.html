@@ -1608,6 +1608,7 @@ async function camStart(){
 }
 function camStop(){
   clearInterval(cam.timer); cam.timer = null;
+  if(cam.ocrW){ try{ cam.ocrW.w.terminate(); }catch(e){} cam.ocrW = null; }
   if(cam.stream) cam.stream.getTracks().forEach(t=>t.stop());
   cam.stream = null; cam.video = null; cam.boxes = null; cam.manualBoxes = false;
   document.getElementById("camOverlay")?.remove();
@@ -2464,6 +2465,18 @@ function loadOCR(){
     document.head.appendChild(sc);
   });
 }
+/* worker Tesseract réutilisé : PSM 7 (« une seule ligne de texte », bien plus fiable qu'une
+   page auto) + whitelist stricte sur les essais latin pur (élimine les « | 「 » parasites).
+   Les données de langue sont mises en cache par le navigateur (IndexedDB). */
+async function ocrRecognize(canvas, langs){
+  if(cam.ocrW && cam.ocrW.langs !== langs){ try{ await cam.ocrW.w.terminate(); }catch(e){} cam.ocrW = null; }
+  if(!cam.ocrW) cam.ocrW = { w: await Tesseract.createWorker(langs), langs };
+  await cam.ocrW.w.setParameters({
+    tessedit_pageseg_mode: "7",
+    tessedit_char_whitelist: langs === "eng" ? "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-. '" : ""
+  });
+  return await cam.ocrW.w.recognize(canvas);
+}
 async function camFindOpponent(){
   try{
     if(!(await loadOCR())) return;
@@ -2527,9 +2540,11 @@ async function camFindOpponent(){
       im.data[i] = im.data[i+1] = im.data[i+2] = v;
     }
     cx.putImageData(im, 0, 0);
-    // essai 1 : latin ; à partir du 2e : + japonais/coréen/chinois (pseudos CJC fréquents)
-    const langs = (cam.oppTry?.n || 1) >= 2 ? "eng+jpn+kor+chi_sim" : "eng";
-    const res = await Tesseract.recognize(c, langs);
+    // rotation de langues : latin pur (whitelist stricte) alterné avec deux jeux multilingues
+    // — CJC simplifié, puis chinois traditionnel + cyrillique + thaï
+    const LANG_SETS = ["eng", "eng+jpn+kor+chi_sim", "eng", "eng+chi_tra+rus+tha"];
+    const langs = LANG_SETS[((cam.oppTry?.n || 1) - 1) % LANG_SETS.length];
+    const res = await ocrRecognize(c, langs);
     let txt = (res?.data?.text || "").split("\n").map(x=>x.trim()).sort((a,b)=>b.length-a.length)[0] || "";
     camLog(`🔎 OCR pseudo adverse (essai ${cam.oppTry?.n||1}, ${langs.split("+").length} langue(s)) : « ${txt || "—"} »`);
     if(txt.length < 2) return;
@@ -2565,25 +2580,42 @@ async function camFindOpponent(){
       const oØ = q.replace(/O/g, "Ø").replace(/o/g, "ø");
       const eΞ = q.replace(/[Ee]/g, "Ξ");
       const both = eΞ.replace(/O/g, "Ø").replace(/o/g, "ø");
-      const out = [oØ, eΞ, both];
+      const out = [oØ, eΞ, both, q.replace(/A/g, "Δ"), q.replace(/[Ss]/g, "$")];
       if(q.length >= 6) out.push(q.slice(0, -1), oØ.slice(0, -1), both.slice(0, -1));
       return out;
     };
     const variants = [...new Set(cands.flatMap(q =>
       [q, q.replace(/I/g,"l"), q.replace(/l/g,"I"), q.replace(/[Il1]/g,"l"), q.replace(/0/g,"O"), q.replace(/O/g,"0"), ...styl(q)]))];
+    // pliage UNIVERSEL pour comparer un nom lu à un nom enregistré : accents ôtés
+    // (« UnMaxFatigué » ↔ « UnMaxFatigue »), lettres stylisées repliées (Ξ→e, Ø→o, Δ→a, $→s…),
+    // petites capitales via NFKD, confusables I/l/1 et O/0 fusionnés, symboles ignorés
+    const FOLD = {"Ξ":"e","∃":"e","€":"e","Ø":"o","ø":"o","Ө":"o","Δ":"a","Λ":"a","⍺":"a","α":"a","И":"n","Я":"r","$":"s","§":"s","⚝":"","☆":"","★":"","✩":"","×":"x",
+      // petites capitales (Tᴇqтᴇq), homoglyphes cyrilliques et grecs (⍴ρ, т, с…)
+      "ᴀ":"a","ʙ":"b","ᴄ":"c","ᴅ":"d","ᴇ":"e","ꜰ":"f","ɢ":"g","ʜ":"h","ɪ":"i","ᴊ":"j","ᴋ":"k","ʟ":"l","ᴍ":"m","ɴ":"n","ᴏ":"o","ᴘ":"p","ǫ":"q","ʀ":"r","ꜱ":"s","ᴛ":"t","ᴜ":"u","ᴠ":"v","ᴡ":"w","ʏ":"y","ᴢ":"z",
+      "а":"a","е":"e","о":"o","р":"p","с":"c","у":"y","х":"x","т":"t","к":"k","в":"b","м":"m","н":"h","є":"e","Є":"e","і":"i","ї":"i","⍴":"p","ρ":"p"};
+    const norm = x => (x||"").normalize("NFKD").replace(/[̀-ͯ]/g, "")
+      .replace(/./g, ch => FOLD[ch] ?? ch)
+      .toLowerCase().replace(/[il1|!]/g, "l").replace(/[o0]/g, "o").replace(/[^\p{L}\p{N}]/gu, "");
+    // un résultat n'est accepté que s'il RESSEMBLE vraiment à ce que l'OCR a lu — la recherche
+    // « Bows » renvoie « Bowser26 » : sans ce filtre on pouvait verrouiller un inconnu
+    const refsN = [...new Set(variants.map(norm))].filter(x=>x.length >= 2);
+    const goodHit = list => (list||[]).slice(0, 6).find(p => {
+      const pn = norm(p.wizard_name);
+      return refsN.some(cn => pn === cn || (cn.length >= 4 && Math.abs(pn.length - cn.length) <= 2 && (pn.includes(cn) || cn.includes(pn))));
+    });
     for(const q of variants){
       const r = await api("/player/search/" + encodeURIComponent(q)).catch(()=>({data:[]}));
-      if(r.data?.length){ await accept(r.data[0]); return; }
+      const hit = goodHit(r.data);
+      if(hit){ await accept(hit); return; }
     }
-    // repli : recherche par PRÉFIXE puis rapprochement en normalisant les confusables
-    const norm = x => (x||"").toLowerCase().replace(/[il1|!]/g,"l").replace(/[o0]/g,"o").replace(/[^\p{L}\p{N}]/gu,"");
+    // repli : recherche par PRÉFIXE (accents et décorations sont surtout en fin de pseudo)
     const base = cands[0];
     if(base && base.length >= 5){
       for(const cut of [6, 4]){
         const q = base.slice(0, cut);
         if(q.length < 3 || !/\p{L}/u.test(q)) continue;
         const r = await api("/player/search/" + encodeURIComponent(q)).catch(()=>({data:[]}));
-        const hit = (r.data||[]).find(p => cands.some(c => norm(p.wizard_name) === norm(c)));
+        const hit = goodHit(r.data);
         if(hit){ await accept(hit); return; }
       }
     }
