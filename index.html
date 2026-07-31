@@ -2412,7 +2412,11 @@ async function simPickDuo(id1, id2){
   await simPick(id1, "A");
   await simPick(id2, "A");
 }
-async function simPick(id, side){
+/* geo (optionnel, fourni par la capture) : position réelle de la case sur le plateau
+   ("lone" ou TL/BL/TR/BR). Le jeu remplit chaque colonne dans l'ordre des picks (1er en HAUT) :
+   insérer à l'index correspondant rétablit le VRAI ordre même quand la capture lit les cases
+   dans le désordre (ex : Gandalf [BL] vu avant Bolverk [TL] dans le même tick). */
+async function simPick(id, side, geo){
   side = side || simTurn();
   if(!side) return;
   const arr = side==="A" ? simState.picksA : simState.picksB;
@@ -2420,7 +2424,9 @@ async function simPick(id, side){
   // règle RTA : impossible de picker un monstre déjà pris par l'un ou l'autre joueur
   if(arr.length >= 5 || arr.some(p=>p.id===id) || other.some(p=>p.id===id)) return;
   const m = await getMonster(id);
-  arr.push({id, name:m.name, img:m.image_filename});
+  const order = simState.fp===side ? {lone:0, TL:1, BL:2, TR:3, BR:4} : {TL:0, BL:1, TR:2, BR:3, lone:4};
+  const at = geo != null && order[geo] != null ? Math.min(order[geo], arr.length) : arr.length;
+  arr.splice(at, 0, {id, name:m.name, img:m.image_filename});
   simState.history.push(side);
   renderSim();
 }
