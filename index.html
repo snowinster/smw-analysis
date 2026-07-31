@@ -1596,8 +1596,10 @@ function camRun(boxes){
   // boxes fournies = calibration manuelle (5 cases à toi puis 5 adverses) ; sinon détection AUTO
   cam.slots = boxes ? boxes.map((b,i)=>({box:b, side:i<5?"A":"B", id:null, diag:null})) : [];
   cam.manualBoxes = !!boxes;
-  cam.fpSet = false; cam.oppTried = false; cam.offDraft = 0; cam.boxMap = [];
-  liveStatus(boxes ? "🎥 capture active (calibration manuelle)" : "🔎 en attente d'une draft…", boxes?true:undefined);
+  cam.fpSet = false; cam.oppTried = false; cam.boxMap = [];
+  // machine à états : IDLE (hors page VS) → ACTIVE (page VS confirmée, détection des 10 cases)
+  cam.page = "IDLE"; cam.onN = 0; cam.offN = 0; cam.locked = false;
+  liveStatus(boxes ? "🎯 calibration chargée — en attente de l'écran VS…" : "🔎 en attente de l'écran VS…", boxes?true:undefined);
   clearInterval(cam.timer);
   cam.timer = setInterval(camTick, 600);
   camTick();
@@ -1679,9 +1681,25 @@ function detectHighlight(f){
     if(ratio < 0.86 || ratio > 1.16) continue;
     const fill = c.cnt/(c.w*c.h);
     if(fill < 0.05 || fill > 0.34) continue;
+    if(Math.abs(c.x + c.w/2 - (cam.midX || W/2)) < W*0.09) continue; // exclut compteur/VS au centre
     if(!best || c.cnt > best.cnt) best = c;
   }
   return best ? [best.x, best.y, best.w, best.h] : null;
+}
+/* rôle géométrique d'une case dans son équipe : "lone" ou cellule du carré (TL/BL/TR/BR) */
+function slotGeoRole(s){
+  const mates = cam.slots.filter(o=>o.side === s.side);
+  if(mates.length < 5) return null;
+  const tol = s.box[3]*0.4;
+  const ys = mates.map(o=>o.box[1]);
+  const yTop = Math.min(...ys), yBot = Math.max(...ys);
+  if(yBot - yTop < tol) return null;
+  const rowOf = o => Math.abs(o.box[1]-yTop) < tol ? 0 : Math.abs(o.box[1]-yBot) < tol ? 1 : -1;
+  if(rowOf(s) === -1) return "lone";
+  const grid = mates.filter(o=>rowOf(o) !== -1);
+  const xs = [...new Set(grid.map(o=>o.box[0]))].sort((a,b)=>a-b);
+  const colOf = o => Math.abs(o.box[0]-xs[0]) < tol ? 0 : 1;
+  return (colOf(s) === 0 ? (rowOf(s) === 0 ? "TL" : "BL") : (rowOf(s) === 0 ? "TR" : "BR"));
 }
 /* slots : carrés colorés (portraits) OU anneaux de cadre dans la zone du plateau */
 function detectPortraits(f){
@@ -1702,6 +1720,43 @@ function detectPortraits(f){
     const fill = c.cnt/(c.w*c.h);
     if(fill < 0.10) continue; // portrait plein OU anneau de cadre
     if(Math.abs(c.x + c.w/2 - W/2) < W*0.07) continue;
+    out.push([c.x, c.y, c.w, c.h]);
+  }
+  return out;
+}
+/* cases VIDES du plateau : carrés brun sombre à l'emblème crâne, désaturés et nettement plus
+   foncés que le fond de LEUR côté (référence = 80e percentile de luminance par côté : les cases
+   sombres tirent la médiane vers le bas, le p80 reste sur le fond).
+   Limite connue : le côté dont ce n'est pas le tour est assombri au point que l'intérieur des
+   cases se confond avec le fond — ces cases-là sont reconstruites par miroir (completeSlots). */
+function detectEmptySlots(f){
+  const {d, W, H} = f;
+  const mid = cam.midX || W/2;
+  const yMin = Math.floor(H*0.12), yMax = Math.floor(H*0.60);
+  const xMin = Math.floor(W*0.06), xMax = Math.floor(W*0.94);
+  const lumAt = i => 0.3*d[i] + 0.6*d[i+1] + 0.1*d[i+2];
+  const ref = {};
+  for(const side of [0,1]){
+    const a = [];
+    const x0 = side===0 ? xMin : Math.ceil(mid + W*0.07);
+    const x1 = side===0 ? Math.floor(mid - W*0.07) : xMax;
+    for(let y=yMin; y<yMax; y+=4) for(let x=x0; x<x1; x+=4) a.push(lumAt((y*W+x)*4));
+    a.sort((p,q)=>p-q);
+    ref[side] = a[Math.floor(a.length*0.8)] || 1;
+  }
+  const mask = new Uint8Array(W*H);
+  for(let y=yMin;y<yMax;y++) for(let x=xMin;x<xMax;x++){
+    if(Math.abs(x-mid) < W*0.07) continue; // exclut compteur/VS au centre
+    const i = (y*W+x)*4, R=d[i], G=d[i+1], B=d[i+2];
+    if(Math.max(R,G,B)-Math.min(R,G,B) > 60) continue; // coloré = portrait (géré par detectPortraits)
+    if(lumAt(i) < ref[x < mid ? 0 : 1]*0.72) mask[y*W+x] = 1;
+  }
+  const out = [];
+  for(const c of maskComponents(mask, W, H)){
+    if(c.w < W*0.05 || c.w > W*0.16 || c.w < 36) continue;
+    const ratio = c.w/c.h;
+    if(ratio < 0.8 || ratio > 1.25) continue;
+    if(c.cnt < c.w*c.h*0.45) continue; // carré PLEIN sombre (pas un anneau ni une ombre diffuse)
     out.push([c.x, c.y, c.w, c.h]);
   }
   return out;
@@ -1853,8 +1908,9 @@ async function applySlotPick(s, newId){
   }
   s.id = newId; s.pend = null; s.pendN = 0; s.emptyN = 0;
   if(newId && !simState.picksA.some(p=>p.id===newId) && !simState.picksB.some(p=>p.id===newId) && arr.length < 5){
-    camLog(`→ ${monCache.get(newId)?.name||newId} posé côté ${s.side} (plateau, x=${s.box[0]})`);
-    await simPick(newId, s.side);
+    const geo = slotGeoRole(s);
+    camLog(`→ ${monCache.get(newId)?.name||newId} posé côté ${s.side}${geo?" ["+geo+"]":""} (plateau, x=${s.box[0]})`);
+    await simPick(newId, s.side, geo);
   }
   else if(!newId){ camLog(`← pick retiré côté ${s.side}`); renderSim(); }
 }
@@ -1934,25 +1990,52 @@ async function camTick(){
   if(!cam.video || !simState.live || !cam.db) return;
   if(cam.video.videoWidth !== cam.frameW){
     cam.frameW = cam.video.videoWidth;
-    if(!cam.manualBoxes) cam.slots = [];
+    if(!cam.manualBoxes){ cam.slots = []; cam.locked = false; }
   }
   const f = grabFrame();
   if(!f) return;
-  // porte : uniquement pendant l'écran de draft ; reset des cases quand la draft se termine
-  if(!onDraftScreen(f)){
-    cam.offDraft = (cam.offDraft||0) + 1;
-    if(cam.offDraft > 5 && (cam.slots.length || cam.boxMap?.length) && !cam.manualBoxes){ cam.slots = []; cam.boxMap = []; cam.fpSet = false; cam.oppTried = false; }
-    liveStatus("⏸ pas d'écran de draft détecté — la capture reprendra automatiquement");
+  /* ---- machine à états ----
+     IDLE →(page VS vue 2 analyses de suite)→ ACTIVE →(page VS perdue 3 analyses de suite)→ IDLE
+     Ancres de page (onDraftScreen) : emblème VS doré au centre + bande noire des pseudos + panneau
+     latéral sombre — présentes en continu sur tout l'écran de draft, jamais liées à la surbrillance. */
+  const onPage = onDraftScreen(f);
+  if(cam.page !== "ACTIVE"){
+    cam.onN = onPage ? (cam.onN||0) + 1 : 0;
+    if(cam.onN >= 2){ // ~1,2 s de confirmation : un écran doré transitoire ne déclenche rien
+      cam.page = "ACTIVE"; cam.offN = 0; cam.locked = false;
+      if(!cam.manualBoxes) cam.slots = [];
+      camLog("▶ page VS confirmée — détection des 10 cases activée");
+    }else{
+      liveStatus("🔎 en attente de l'écran VS…");
+      camPreview();
+      return; // rien n'est détecté tant que la page VS n'est pas confirmée
+    }
+  }else if(!onPage){
+    // lecture stoppée IMMÉDIATEMENT ; reset complet après 3 analyses (~1,8 s : laisse passer un fondu/une popup)
+    cam.offN = (cam.offN||0) + 1;
+    if(cam.offN >= 3){
+      cam.page = "IDLE"; cam.onN = 0; cam.locked = false; cam.lastHl = null;
+      if(cam.manualBoxes) for(const s of cam.slots){ s.id=null; s.diag=null; s.pend=null; s.pendN=0; s.emptyN=0; s.weak=null; s.weakN=0; s.content=false; }
+      else cam.slots = [];
+      cam.boxMap = []; cam.fpSet = false; cam.oppTried = false;
+      camLog("⏹ sortie de la page VS — détection stoppée, cases réinitialisées");
+    }
+    liveStatus("🔎 en attente de l'écran VS…");
     camPreview();
     return;
+  }else{
+    cam.offN = 0;
   }
-  cam.offDraft = 0;
-  if(!cam.manualBoxes){
-    const hl = detectHighlight(f);
-    cam.lastHl = hl;
-    if(hl) addSlot(hl, f.W);
+  // surbrillance : simple indice d'appoint (first pick, case manquante) — jamais un déclencheur
+  if(!cam.locked || !cam.fpSet) cam.lastHl = detectHighlight(f);
+  else cam.lastHl = null; // plateau verrouillé + FP connu : plus besoin d'elle (évite un cadre jaune figé)
+  // acquisition des 10 cases dès l'entrée sur la page (cadres vides compris), puis verrouillage
+  if(!cam.manualBoxes && !cam.locked){
+    for(const b of detectEmptySlots(f)) addSlot(b, f.W);
     for(const b of detectPortraits(f)) addSlot(b, f.W);
-    completeSlots(f); // reconstruit les cases manquantes par symétrie (utile si la capture démarre en cours de draft)
+    if(cam.lastHl) addSlot(cam.lastHl, f.W);
+    completeSlots(f); // reconstruit les cases manquantes : miroir autour du VS + coins des carrés 2x2
+    if(cam.slots.length >= 10){ cam.locked = true; camLog("🔒 plateau verrouillé : 10 cases cadrées"); }
   }
   // détection du first pick :
   // règle 1 : surbrillance vue alors que le plateau est entièrement vide → ce côté ouvre la draft
@@ -2013,7 +2096,8 @@ async function camTick(){
       s.diag = {std:best.lum, txt:`${monCache.get(m.id)?.name || m.best.name} ✔ (d=${m.d1.toFixed(2)}, marge ${Math.round(m.rel*100)}%)`};
     }else if(!s.id){
       // acceptation par STABILITÉ : match faible mais identique 3 analyses de suite → validé
-      if(m.best && m.rel >= 0.16 && m.d1 <= 1.3){
+      // (std ≥ 12 : une case vide — crâne, std ≈ 4-8 même en surbrillance — ne peut jamais passer ici)
+      if(m.best && m.rel >= 0.16 && m.d1 <= 1.3 && best.std >= 12){
         s.weakN = (s.weak === m.best.id) ? (s.weakN||0)+1 : 1;
         s.weak = m.best.id;
         if(s.weakN >= 3){
@@ -2029,7 +2113,7 @@ async function camTick(){
     }
   }
   // (lecture de la box du bas désactivée : elle défile et créait des confusions — seules les 10 cases du plateau comptent)
-  liveStatus(`🎥 draft en cours — ${cam.slots.length}/10 cases, ${cam.slots.filter(s=>s.id).length} picks reconnus`, true);
+  liveStatus(`🎥 draft en cours — ${cam.slots.length}/10 cases${cam.locked ? " 🔒" : ""}, ${cam.slots.filter(s=>s.id).length} picks reconnus`, true);
   camPreview();
 }
 /* aperçu + diagnostic */
