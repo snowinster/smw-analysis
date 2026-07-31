@@ -1410,7 +1410,11 @@ async function viewSimulator(){
       if(e?.gi != null) simState.giLock[side].add(e.gi); // annulé à la main : la capture ne re-remplit pas cette case
       renderSim();
     };
-    document.getElementById("simReset").onclick = () => { simState.picksA=[]; simState.picksB=[]; simState.history=[]; simState.giLock = {A:new Set(), B:new Set()}; renderSim(); };
+    document.getElementById("simReset").onclick = () => {
+      simState.picksA=[]; simState.picksB=[]; simState.history=[]; simState.giLock = {A:new Set(), B:new Set()};
+      if(cam.ocrSetB && simState.b){ simState.b = null; simState.boxB = null; cam.ocrSetB = false; cam.oppTry = null; cam.oppCand = null; } // l'adversaire OCR repart aussi
+      renderSim();
+    };
     // drag & drop : glisser un monstre (box ou suggestion) sur une équipe pour le picker
     const $board = document.getElementById("simBoard");
     $board.addEventListener("dragstart", e => {
@@ -2116,6 +2120,24 @@ function camMatchSig(v, db, hue, hue4){
   const ok = restricted ? (d1 <= 1.25 && rel >= 0.30) : (d1 <= 1.0 && rel >= 0.25);
   return { id: ok ? e1.id : null, best: e1, d1, rel, restricted };
 }
+/* match box restreinte + repli base COMPLÈTE : un monstre joué pour la PREMIÈRE fois n'est pas
+   dans la box RTA de l'adversaire — la base complète le récupère si elle est NETTEMENT meilleure
+   (sinon la box gagne : ses marges sont bien plus fiables). Le repli est marqué offBox pour
+   exiger la vraie lumière (règle des 882 candidats) et l'afficher dans le diagnostic. */
+function camMatch2(v, sdb, hue, hue4){
+  const m = camMatchSig(v, sdb, hue, hue4);
+  if(sdb === cam.db) return m;
+  const mf = camMatchSig(v, cam.db, hue, hue4);
+  if(!mf.id) return m;
+  if(!m.id || m.d1 > 0.9){
+    // la box ne reconnaît rien de convaincant ET la base complète est très sûre
+    if(mf.d1 <= 0.85 && mf.rel >= 0.40 && (!m.best || mf.d1 < m.d1*0.7)) return {...mf, offBox:true};
+  }else if(mf.id !== m.id && mf.d1 < m.d1*0.6 && mf.rel >= 0.35){
+    // la box propose un sosie mais la base complète voit un AUTRE monstre bien plus proche
+    return {...mf, offBox:true};
+  }
+  return m;
+}
 async function camTick(){
   if(!cam.video || !simState.live || !cam.db) return;
   if(cam.video.videoWidth !== cam.frameW){
@@ -2156,6 +2178,40 @@ async function camTick(){
   }else{
     cam.offN = 0;
   }
+  // stabilisation post-verrouillage (~2 s) : AUCUNE lecture pendant l'animation d'entrée du
+  // plateau (cartes qui volent, reflets → monstres fantômes) ; à la fin, plateau calme :
+  // modèle de case vide appris + détection d'un éventuel NOUVEAU combat
+  if(!cam.manualBoxes && cam.locked && (cam.warm||0) > 0){
+    cam.warm--;
+    if(cam.warm === 0){
+      const esigs = cam.slots.map(s=>cropSig(s.box, SIG_CROPS[13]).v);
+      const nClose = esigs.map(v=>esigs.filter(w=>sigDist(v, w) < 0.5).length);
+      const seed = nClose.indexOf(Math.max(...nClose));
+      if(nClose[seed] >= 6){
+        const grp = esigs.filter(w=>sigDist(esigs[seed], w) < 0.5);
+        const acc = new Float32Array(esigs[seed].length);
+        for(const v of grp) for(let i=0;i<acc.length;i++) acc[i] += v[i];
+        for(let i=0;i<acc.length;i++) acc[i] /= grp.length;
+        cam.emptyLearned = acc;
+        camLog(`📐 modèle de case vide appris sur ${grp.length}/10 cases`);
+      }
+      // NOUVEAU combat ? plateau (quasi) vide alors que l'app affiche encore l'état du combat
+      // précédent → on repart à neuf : picks, verrous manuels, adversaire accroché par l'OCR
+      const isEmpty = v => sigDist(v, EMPTY_SIG) < EMPTY_TH || (cam.emptyLearned && sigDist(v, cam.emptyLearned) < EMPTY_TH);
+      const nEmpty = esigs.filter(isEmpty).length;
+      if(nEmpty >= 8 && (simState.picksA.length + simState.picksB.length > 0 || (cam.ocrSetB && simState.b))){
+        simState.picksA = []; simState.picksB = []; simState.history = [];
+        simState.giLock = {A:new Set(), B:new Set()};
+        if(cam.ocrSetB && simState.b){ simState.b = null; simState.boxB = null; }
+        cam.oppTry = null; cam.oppCand = null; cam.ocrSetB = false;
+        camLog("🆕 nouveau combat détecté — picks, verrous et adversaire remis à zéro");
+        renderSim();
+      }
+    }
+    liveStatus("🎥 plateau verrouillé — stabilisation…", true);
+    camPreview();
+    return;
+  }
   // surbrillance : simple indice d'appoint (first pick, case manquante) — jamais un déclencheur
   if(!cam.locked || !cam.fpSet) cam.lastHl = detectHighlight(f);
   else cam.lastHl = null; // plateau verrouillé + FP connu : plus besoin d'elle (évite un cadre jaune figé)
@@ -2170,22 +2226,9 @@ async function camTick(){
     if(boardValid(f.W)){
       cam.locked = true; cam.acqN = 0;
       camLog("🔒 plateau verrouillé : 10 cases cohérentes (2x2 + isolée, symétriques)");
-      // modèle de case vide APPRIS sur CE plateau : au verrouillage la plupart des cases sont
-      // vides (crâne) — le plus grand groupe de cases mutuellement similaires donne la référence
-      // dans le mode/l'échelle/l'éclairage réels. Complète EMPTY_SIG pour les variantes que la
-      // référence hors-ligne rate (beige « à ton tour », surbrillance Arène World…).
-      cam.emptyLearned = null;
-      const esigs = cam.slots.map(s=>cropSig(s.box, SIG_CROPS[13]).v);
-      const nClose = esigs.map(v=>esigs.filter(w=>sigDist(v, w) < 0.5).length);
-      const seed = nClose.indexOf(Math.max(...nClose));
-      if(nClose[seed] >= 6){
-        const grp = esigs.filter(w=>sigDist(esigs[seed], w) < 0.5);
-        const acc = new Float32Array(esigs[seed].length);
-        for(const v of grp) for(let i=0;i<acc.length;i++) acc[i] += v[i];
-        for(let i=0;i<acc.length;i++) acc[i] /= grp.length;
-        cam.emptyLearned = acc;
-        camLog(`📐 modèle de case vide appris sur ${grp.length}/10 cases`);
-      }
+      // stabilisation avant toute lecture : l'animation d'entrée du plateau (cartes qui volent,
+      // reflets) matche des monstres FANTÔMES sur des cases vides — on laisse ~2 s se calmer
+      cam.warm = 3; cam.emptyLearned = null;
       if(!cam.fpSet){
         const fp = fpFromLayout();
         if(fp){ camLog(`⭐ first pick ${fp==="A"?"TOI":"adversaire"} (case isolée ${fp==="A"?"extérieure":"côté VS"})`); camSetFP(fp); }
@@ -2247,7 +2290,7 @@ async function camTick(){
       const {v, lum, std, hue, hue4} = cropSig(s.box, cv);
       dEmpty = Math.min(dEmpty, sigDist(v, EMPTY_SIG), cam.emptyLearned ? sigDist(v, cam.emptyLearned) : 1e9); // ressemblance au crâne (référence + modèle appris)
       if(lum*g < lumMin){ if(!best) best = {dark:true, lum}; continue; }
-      const m = camMatchSig(v, sdb, hue, hue4);
+      const m = camMatch2(v, sdb, hue, hue4);
       if(!best || best.dark || m.rel > (best.m?.rel ?? -1)) best = {m, lum, std};
     }
     if(!best) continue;
@@ -2286,7 +2329,7 @@ async function camTick(){
     // (côté grisé) matche « confiant » mais FAUX contre les 882 icônes de la base complète
     // (cas Hanra/Hrungnir) → ❓ en attendant que le côté se rallume ; la base restreinte à la
     // box adverse tolère bien plus sombre. Aucune pose/retrait/remplacement sur lecture sombre.
-    const trusted = best.lum >= (sdb !== cam.db ? 30 : 50);
+    const trusted = best.lum >= ((sdb !== cam.db && !m?.offBox) ? 30 : 50); // repli hors-box = décision à 882 candidats → vraie lumière exigée
     if(!trusted){
       if(!s.id){
         s.diag = {std:best.lum, txt:`🌒 trop sombre pour identifier${m.best?` (${m.best.name} ?)`:""} — clique le ❓ pour saisir`};
@@ -2318,7 +2361,7 @@ async function camTick(){
       s.pendN = (s.pend === m.id) ? (s.pendN||0)+1 : 1;
       s.pend = m.id;
       if(s.pendN >= 2){
-        s.diag = {std:best.lum, txt:`${s.id?"remplacé par ":""}${monCache.get(m.id)?.name || m.best.name} ✔ (d=${m.d1.toFixed(2)}, marge ${Math.round(m.rel*100)}%)`};
+        s.diag = {std:best.lum, txt:`${s.id?"remplacé par ":""}${monCache.get(m.id)?.name || m.best.name} ✔ (d=${m.d1.toFixed(2)}, marge ${Math.round(m.rel*100)}%${m.offBox?", HORS box":""})`};
         await applySlotPick(s, m.id);
       }else{
         s.diag = {std:best.lum, txt:`${monCache.get(m.id)?.name || m.best.name} ? (confirmation 1/2)`};
@@ -2485,6 +2528,7 @@ async function camFindOpponent(){
         }
         liveStatus("🎯 adversaire identifié : " + p.wizard_name, true);
         camLog(`🎯 adversaire identifié : ${p.wizard_name} → box restreinte activée`);
+        cam.ocrSetB = true; // posé par l'OCR : sera remis à zéro au prochain combat
         simState.b = p.id; simState.boxB = null;
         renderSim();
         simState.boxB = await loadSimBox(p.id);
