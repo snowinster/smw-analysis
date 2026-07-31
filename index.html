@@ -184,6 +184,7 @@ td.best{color:var(--win);font-weight:800}
 .slot.next{border-color:var(--accent);border-style:solid}
 .slot.unknown{border-style:solid;border-color:var(--accent)}
 .slot.unknown span{font-size:34px;font-weight:800;color:var(--accent);opacity:.65}
+.slot.manual{border:2px solid var(--win)}
 .sugg{display:flex;align-items:center;gap:10px;padding:7px 8px;border-radius:9px;cursor:pointer;border-bottom:1px solid rgba(43,53,80,.4)}
 .sugg:hover{background:var(--card2)}
 .sugg img{width:38px;height:38px;border-radius:8px;background:var(--bg2)}
@@ -1087,6 +1088,8 @@ function viewAddCalc(){
 /* ================= SIMULATEUR DE DRAFT ================= */
 const simState = { a:null, b:null, fp:"A", lds:true, picksA:[], picksB:[], boxA:null, boxB:null, season:null, history:[], editBoxA:false, editBoxB:false, anonBox:null, anonFilter:"",
   anonSort:"played", live:false,
+  // positions du plateau (.gi) modifiées À LA MAIN : la capture n'y écrit plus jamais
+  giLock: {A:new Set(), B:new Set()},
   boxSort: (()=>{ try{ return localStorage.getItem("simBoxSort_v2") || "element"; }catch(e){ return "element"; } })() };
 const ELEM_ORDER = {Fire:0, Water:1, Wind:2, Light:3, Dark:4};
 
@@ -1403,10 +1406,11 @@ async function viewSimulator(){
       const total = simState.picksA.length + simState.picksB.length;
       if(!total) return;
       const side = simState.history.pop() ?? simSeq()[total-1];
-      (side==="A" ? simState.picksA : simState.picksB).pop();
+      const e = (side==="A" ? simState.picksA : simState.picksB).pop();
+      if(e?.gi != null) simState.giLock[side].add(e.gi); // annulé à la main : la capture ne re-remplit pas cette case
       renderSim();
     };
-    document.getElementById("simReset").onclick = () => { simState.picksA=[]; simState.picksB=[]; simState.history=[]; renderSim(); };
+    document.getElementById("simReset").onclick = () => { simState.picksA=[]; simState.picksB=[]; simState.history=[]; simState.giLock = {A:new Set(), B:new Set()}; renderSim(); };
     // drag & drop : glisser un monstre (box ou suggestion) sur une équipe pour le picker
     const $board = document.getElementById("simBoard");
     $board.addEventListener("dragstart", e => {
@@ -1451,12 +1455,19 @@ function simSideHTML(side, mirrored){
   const ready = !!(simState.a && simState.boxA && (!simState.b || simState.boxB));
   const turn = ready && simTurn()===side;
   const label = box ? `${esc(box.name)}${box.anon?' <span class="muted" style="font-weight:400;font-size:12px">(pseudo non renseigné - reco théoriques)</span>':""}` : (side==="A"?simState.a:simState.b) ? "Chargement de la box…" : `Joueur ${side} (non choisi)`;
+  // vue POSITIONNELLE : chaque entrée .gi s'affiche à SA case du plateau (un trou — case pas
+  // encore lue — ne décale plus les suivantes) ; les picks manuels sans position comblent les trous
+  const view = new Array(5).fill(null), loose = [];
+  for(const p of picks){ if(p.gi != null && p.gi < 5 && !view[p.gi]) view[p.gi] = p; else loose.push(p); }
+  for(const p of loose){ const k = view.findIndex(v=>!v); if(k > -1) view[k] = p; }
+  const nextIdx = view.findIndex(v=>!v);
   const slotFor = i => {
-    const p = picks[i];
-    if(p?.unknown) return `<div class="slot unknown" title="Monstre détecté sur le plateau mais pas encore identifié"><span>?</span><button class="rm" onclick="simRemove('${side}',${i})">✕</button></div>`;
+    const p = view[i];
+    const ri = p ? picks.indexOf(p) : -1; // index réel dans le tableau (pour la suppression)
+    if(p?.unknown) return `<div class="slot unknown" title="Monstre détecté sur le plateau mais pas encore identifié"><span>?</span><button class="rm" onclick="simRemove('${side}',${ri})">✕</button></div>`;
     return p
-      ? `<div class="slot" title="${esc(p.name)}"><img src="${monImg(p.img)}"><button class="rm" onclick="simRemove('${side}',${i})">✕</button></div>`
-      : `<div class="slot ${turn && i===picks.length ? "next":""}"></div>`;
+      ? `<div class="slot ${p.manual?"manual":""}" title="${esc(p.name)}${p.manual?" · posé à la main (la capture n'y touche plus)":""}"><img src="${monImg(p.img)}"><button class="rm" onclick="simRemove('${side}',${ri})">✕</button></div>`
+      : `<div class="slot ${turn && i===nextIdx ? "next":""}"></div>`;
   };
   // first pick : 1 (slot isolé) puis 2-2 (carré) · second pick : 2-2 (carré) puis 1 (slot isolé en dernier)
   // chaque paire de picks remplit une COLONNE (1er en haut, 2e en dessous), ordre DOM = TL,TR,BL,BR
@@ -1962,6 +1973,8 @@ async function applySlotPick(s, newId){
   const gi = geoIndex(s.side, slotGeoRole(s)) ?? 9;
   s.unk = false; s.unkN = 0;
   s.id = newId || null; s.pend = null; s.pendN = 0; s.emptyN = 0;
+  // position modifiée à la main (pick manuel ou case vidée) : la capture n'y écrit plus
+  if(simState.giLock[s.side].has(gi) || arr.some(p=>p.gi === gi && p.manual)) return;
   if(!newId){
     camLog(`← pick retiré côté ${s.side}`);
     setSlotEntry(s, null);
@@ -1969,11 +1982,19 @@ async function applySlotPick(s, newId){
   }
   if(other.some(p=>p.id===newId)) return;            // déjà pris en face : lecture erronée, on ignore
   if(arr.some(p=>p.id===newId && p.gi !== gi)){
-    // même monstre déjà posé À UNE AUTRE position de ce côté :
-    // s'il vient d'un pick MANUEL (sans .gi), la capture l'adopte à sa vraie position
+    // même monstre déjà posé ailleurs de ce côté : s'il vient d'un pick MANUEL encore sans
+    // position (.gi), la capture lui ATTRIBUE sa vraie position — sans toucher à son statut manuel
     const dup = arr.findIndex(p=>p.id===newId && p.gi == null);
-    if(dup > -1){ arr.splice(dup, 1); const h = simState.history.lastIndexOf(s.side); if(h > -1) simState.history.splice(h, 1); }
-    else return;                                     // deux cases lisent le même monstre : on garde la première
+    if(dup > -1){
+      const e = arr.splice(dup, 1)[0];
+      e.gi = gi;
+      let at = arr.length;
+      for(let i=0;i<arr.length;i++){ if((arr[i].gi ?? 9) > gi){ at = i; break; } }
+      arr.splice(at, 0, e);
+      camLog(`→ ${e.name} (manuel) rattaché à sa case côté ${s.side} (x=${s.box[0]})`);
+      renderSim();
+    }
+    return;                                          // sinon : deux cases lisent le même monstre, la première gagne
   }
   const m = await getMonster(newId);
   const geo = slotGeoRole(s);
@@ -2195,13 +2216,13 @@ async function camTick(){
     // emblème crâne reconnu → case certifiée VIDE (sombre, beige « à ton tour » ou surbrillance) :
     // aucun match possible dessus, et sert de détection de retrait même quand la case est éclairée
     if(dEmpty < EMPTY_TH){
-      if(s.id){
+      // case vide alors qu'une entrée occupe sa position : pick retiré, ❓ périmé, ou RESTE de
+      // la draft précédente → on nettoie (confirmé sur 2 analyses) ; un pick manuel reste figé
+      const sarr = s.side==="A" ? simState.picksA : simState.picksB;
+      const sgi = geoIndex(s.side, slotGeoRole(s)) ?? 9;
+      if(s.id || s.unk || sarr.some(p=>p.gi === sgi && !p.manual)){
         s.emptyN = (s.emptyN||0) + 1;
         if(s.emptyN >= 2){ s.diag = {std:best.lum, txt:"pick retiré (case vide)"}; await applySlotPick(s, null); }
-      }else if(s.unk){
-        // la case portait un ❓ et est redevenue vide (pick annulé) : confirmé sur 2 analyses
-        s.emptyN = (s.emptyN||0) + 1;
-        if(s.emptyN >= 2) await applySlotPick(s, null);
       }else{
         s.diag = {std:best.lum, txt:`case vide (crâne, d=${dEmpty.toFixed(2)})`};
         s.weak = null; s.weakN = 0; s.pend = null; s.pendN = 0; s.unkN = 0;
@@ -2472,7 +2493,10 @@ function simAnonSortChange(v){
   if(g) g.innerHTML = anonGridHTML();
 }
 function simRemove(side, i){
-  (side==="A"?simState.picksA:simState.picksB).splice(i,1);
+  const arr = side==="A"?simState.picksA:simState.picksB;
+  const e = arr[i];
+  if(e?.gi != null) simState.giLock[side].add(e.gi); // retiré à la MAIN : la capture ne re-remplit pas cette case
+  arr.splice(i,1);
   const h = simState.history.lastIndexOf(side);
   if(h > -1) simState.history.splice(h,1);
   renderSim();
@@ -2498,9 +2522,17 @@ async function simPick(id, side, geo){
   // règle RTA : impossible de picker un monstre déjà pris par l'un ou l'autre joueur
   if(arr.length >= 5 || arr.some(p=>p.id===id) || other.some(p=>p.id===id)) return;
   const m = await getMonster(id);
-  const gi = geoIndex(side, geo);
-  const at = gi != null ? Math.min(gi, arr.length) : arr.length;
-  arr.splice(at, 0, {id, name:m.name, img:m.image_filename});
+  // pick posé À LA MAIN : définitif — la capture ne pourra ni le remplacer ni le retirer.
+  const entry = {id, name:m.name, img:m.image_filename, manual:true};
+  let at = arr.length;
+  // s'il comble une position que l'utilisateur vient de vider (✕/annuler), il en hérite (et elle reste figée)
+  const freed = [...simState.giLock[side]].filter(g=>!arr.some(p=>p.gi===g)).sort((a,b)=>a-b)[0];
+  if(freed !== undefined){
+    entry.gi = freed;
+    at = arr.length;
+    for(let i=0;i<arr.length;i++){ if((arr[i].gi ?? 9) > freed){ at = i; break; } }
+  }
+  arr.splice(at, 0, entry);
   simState.history.push(side);
   renderSim();
 }
@@ -2512,7 +2544,9 @@ async function simPick(id, side, geo){
 function setSlotEntry(s, entry){
   const arr = s.side==="A" ? simState.picksA : simState.picksB;
   const gi = geoIndex(s.side, slotGeoRole(s)) ?? 9;
+  if(simState.giLock[s.side].has(gi)) return;       // position vidée/modifiée à la main : figée
   const ix = arr.findIndex(p=>p.gi === gi);
+  if(ix > -1 && arr[ix].manual) return;             // pick manuel : la capture n'y touche plus
   if(entry) entry.gi = gi;
   if(ix > -1){
     if(entry) arr[ix] = entry;
