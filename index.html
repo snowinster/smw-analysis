@@ -2266,6 +2266,21 @@ async function camTick(){
     }
     if(best.std*g > 10) s.content = true; // contenu vu au moins une fois (sert à la détection du first pick)
     const m = best.m;
+    // identification FIABLE seulement avec assez de VRAIE lumière : un crop fortement compensé
+    // (côté grisé) matche « confiant » mais FAUX contre les 882 icônes de la base complète
+    // (cas Hanra/Hrungnir) → ❓ en attendant que le côté se rallume ; la base restreinte à la
+    // box adverse tolère bien plus sombre. Aucune pose/retrait/remplacement sur lecture sombre.
+    const trusted = best.lum >= (sdb !== cam.db ? 30 : 50);
+    if(!trusted){
+      if(!s.id){
+        s.diag = {std:best.lum, txt:`🌒 trop sombre pour identifier${m.best?` (${m.best.name} ?)`:""} — clique le ❓ pour saisir`};
+        if(best.std*g > 10 && dEmpty >= EMPTY_TH){
+          s.unkN = (s.unkN||0) + 1;
+          if(!s.unk && s.unkN >= 5) await simPlaceUnknown(s);
+        }
+      }
+      continue;
+    }
     // case redevenue vide alors qu'elle est éclairée → le joueur a retiré son pick
     if(s.id && !m.id && best.std*g < 10){
       s.emptyN = (s.emptyN||0) + 1;
