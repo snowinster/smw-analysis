@@ -1952,45 +1952,30 @@ function camLog(msg){
   cam.journal.push(msg);
   if(cam.journal.length > 8) cam.journal.shift();
 }
-/* applique (ou remplace) le pick d'un slot dans le simulateur */
+/* applique (ou remplace) le pick d'un slot dans le simulateur — écriture par POSITION (.gi) */
 async function applySlotPick(s, newId){
   const arr = s.side==="A" ? simState.picksA : simState.picksB;
-  // la case portait un ❓ : on le remplace SUR PLACE (l'ordre des picks est déjà le bon)
-  if(s.unk){
-    const ix = s.unkRef ? arr.indexOf(s.unkRef) : -1;
-    s.unk = false; s.unkN = 0; s.unkRef = null;
-    if(ix > -1){
-      if(newId && !simState.picksA.some(p=>p.id===newId) && !simState.picksB.some(p=>p.id===newId)){
-        const m = await getMonster(newId);
-        arr[ix] = {id:newId, name:m.name, img:m.image_filename};
-        s.id = newId; s.pend = null; s.pendN = 0; s.emptyN = 0;
-        camLog(`→ ${m.name} identifié (remplace ❓) côté ${s.side} (x=${s.box[0]})`);
-        renderSim();
-        return;
-      }
-      // case redevenue vide (ou monstre déjà pris ailleurs) : on retire le ❓
-      arr.splice(ix, 1);
-      const h = simState.history.lastIndexOf(s.side);
-      if(h > -1) simState.history.splice(h, 1);
-      camLog(`← ❓ retiré côté ${s.side}`);
-      if(!newId){ s.id = null; s.pend = null; s.pendN = 0; s.emptyN = 0; renderSim(); return; }
-    }
+  const other = s.side==="A" ? simState.picksB : simState.picksA;
+  const gi = geoIndex(s.side, slotGeoRole(s)) ?? 9;
+  s.unk = false; s.unkN = 0;
+  s.id = newId || null; s.pend = null; s.pendN = 0; s.emptyN = 0;
+  if(!newId){
+    camLog(`← pick retiré côté ${s.side}`);
+    setSlotEntry(s, null);
+    return;
   }
-  if(s.id){
-    const ix = arr.findIndex(p=>p.id===s.id);
-    if(ix > -1){
-      arr.splice(ix, 1);
-      const h = simState.history.lastIndexOf(s.side);
-      if(h > -1) simState.history.splice(h, 1);
-    }
+  if(other.some(p=>p.id===newId)) return;            // déjà pris en face : lecture erronée, on ignore
+  if(arr.some(p=>p.id===newId && p.gi !== gi)){
+    // même monstre déjà posé À UNE AUTRE position de ce côté :
+    // s'il vient d'un pick MANUEL (sans .gi), la capture l'adopte à sa vraie position
+    const dup = arr.findIndex(p=>p.id===newId && p.gi == null);
+    if(dup > -1){ arr.splice(dup, 1); const h = simState.history.lastIndexOf(s.side); if(h > -1) simState.history.splice(h, 1); }
+    else return;                                     // deux cases lisent le même monstre : on garde la première
   }
-  s.id = newId; s.pend = null; s.pendN = 0; s.emptyN = 0;
-  if(newId && !simState.picksA.some(p=>p.id===newId) && !simState.picksB.some(p=>p.id===newId) && arr.length < 5){
-    const geo = slotGeoRole(s);
-    camLog(`→ ${monCache.get(newId)?.name||newId} posé côté ${s.side}${geo?" ["+geo+"]":""} (plateau, x=${s.box[0]})`);
-    await simPick(newId, s.side, geo);
-  }
-  else if(!newId){ camLog(`← pick retiré côté ${s.side}`); renderSim(); }
+  const m = await getMonster(newId);
+  const geo = slotGeoRole(s);
+  camLog(`→ ${m.name} posé côté ${s.side}${geo?" ["+geo+"]":""} (plateau, x=${s.box[0]})`);
+  setSlotEntry(s, {id:newId, name:m.name, img:m.image_filename});
 }
 /* ----- reconnaissance : signature couleur v2 (16x16, coins badges masqués, z-norm par canal) ----- */
 const SIG_T = 16;
@@ -2131,7 +2116,7 @@ async function camTick(){
     cam.offN = (cam.offN||0) + 1;
     if(cam.offN >= 3){
       cam.page = "IDLE"; cam.onN = 0; cam.locked = false; cam.lastHl = null; cam.acqN = 0;
-      if(cam.manualBoxes) for(const s of cam.slots){ s.id=null; s.diag=null; s.pend=null; s.pendN=0; s.emptyN=0; s.weak=null; s.weakN=0; s.content=false; s.unk=false; s.unkN=0; s.unkRef=null; }
+      if(cam.manualBoxes) for(const s of cam.slots){ s.id=null; s.diag=null; s.pend=null; s.pendN=0; s.emptyN=0; s.weak=null; s.weakN=0; s.content=false; s.unk=false; s.unkN=0; }
       else cam.slots = [];
       cam.boxMap = []; cam.fpSet = false; cam.oppTried = false;
       camLog("⏹ sortie de la page VS — détection stoppée, cases réinitialisées");
@@ -2510,21 +2495,39 @@ async function simPick(id, side, geo){
   simState.history.push(side);
   renderSim();
 }
-/* case occupée mais monstre pas (encore) reconnu : pose un ❓ à la bonne position du plateau.
-   Le placeholder est remplacé sur place dès que la reconnaissance aboutit (applySlotPick). */
-async function simPlaceUnknown(s){
+/* ----- écriture POSITIONNELLE des picks lus par la capture -----
+   Chaque entrée posée par la capture porte .gi = index géométrique de sa case (0-4, ordre
+   conventionnel des picks). Une même case remplace TOUJOURS sa propre entrée (par .gi), même
+   après une sortie/ré-entrée de page (transition picks → bans) qui a réinitialisé les cases :
+   plus de ❓ orphelins, plus de doublons, plus d'ordre brassé. */
+function setSlotEntry(s, entry){
   const arr = s.side==="A" ? simState.picksA : simState.picksB;
-  if(arr.length >= 5) return;
+  const gi = geoIndex(s.side, slotGeoRole(s)) ?? 9;
+  const ix = arr.findIndex(p=>p.gi === gi);
+  if(entry) entry.gi = gi;
+  if(ix > -1){
+    if(entry) arr[ix] = entry;
+    else{
+      arr.splice(ix, 1);
+      const h = simState.history.lastIndexOf(s.side);
+      if(h > -1) simState.history.splice(h, 1);
+    }
+  }else if(entry){
+    if(arr.length >= 5) return;
+    let at = arr.length;
+    for(let i=0;i<arr.length;i++){ if((arr[i].gi ?? 9) > gi){ at = i; break; } } // tri par position
+    arr.splice(at, 0, entry);
+    simState.history.push(s.side);
+  }
+  renderSim();
+}
+/* case occupée mais monstre pas (encore) reconnu : pose un ❓ à sa position du plateau.
+   Remplacé sur place (même .gi) dès que la reconnaissance aboutit. */
+function simPlaceUnknown(s){
   s.unk = true; s.unkN = 0;
   const geo = slotGeoRole(s);
-  const gi = geoIndex(s.side, geo);
-  const at = gi != null ? Math.min(gi, arr.length) : arr.length;
-  const ph = {id:0, unknown:true, name:"Monstre non identifié"};
-  s.unkRef = ph;
-  arr.splice(at, 0, ph);
-  simState.history.push(s.side);
   camLog(`→ ❓ case occupée non identifiée côté ${s.side}${geo?" ["+geo+"]":""} (x=${s.box[0]})`);
-  renderSim();
+  setSlotEntry(s, {id:0, unknown:true, name:"Monstre non identifié"});
 }
 let simRenderToken = 0;
 async function renderSim(){
