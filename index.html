@@ -2226,6 +2226,28 @@ async function camTick(){
     if(boardValid(f.W)){
       cam.locked = true; cam.acqN = 0;
       camLog("🔒 plateau verrouillé : 10 cases cohérentes (2x2 + isolée, symétriques)");
+      // re-symétrisation : le centroïde doré (midX) peut être décalé de quelques pixels et les
+      // cases B reconstruites par miroir héritent du biais (cadres adverses décalés → lectures
+      // faussées). Vrai centre = moyenne des paires A/B, puis chaque case B est recalée en
+      // miroir EXACT de sa case A (le côté A, directement détecté, est le plus fiable).
+      {
+        const As = cam.slots.filter(s=>s.side==="A"), Bs = cam.slots.filter(s=>s.side==="B");
+        const tol2 = As[0].box[3]*0.4, used = new Set();
+        let sum = 0;
+        const pairs = [];
+        for(const a of As){
+          const mx = 2*(cam.midX || f.W/2) - (a.box[0]+a.box[2]);
+          const b = Bs.filter(o=>Math.abs(o.box[1]-a.box[1]) < tol2 && !used.has(o))
+                      .sort((p,q)=>Math.abs(p.box[0]-mx) - Math.abs(q.box[0]-mx))[0];
+          if(b){ used.add(b); pairs.push({a, b}); sum += (a.box[0]+a.box[2]/2 + b.box[0]+b.box[2]/2)/2; }
+        }
+        if(pairs.length === 5){
+          const midTrue = sum/5;
+          if(Math.abs(midTrue - (cam.midX || midTrue)) > 2) camLog(`📏 centre du plateau recalé : ${Math.round(cam.midX)} → ${Math.round(midTrue)}`);
+          cam.midX = midTrue;
+          for(const {a, b} of pairs) b.box = [Math.round(2*midTrue - (a.box[0]+a.box[2])), a.box[1], a.box[2], a.box[3]];
+        }
+      }
       // stabilisation avant toute lecture : l'animation d'entrée du plateau (cartes qui volent,
       // reflets) matche des monstres FANTÔMES sur des cases vides — on laisse ~2 s se calmer
       cam.warm = 3; cam.emptyLearned = null;
@@ -2532,9 +2554,20 @@ async function camFindOpponent(){
       renderSim();
     };
     // variantes de CONFUSABLES : dans la police du jeu I majuscule et l minuscule sont
-    // identiques (« JasonIIIX » lu pour « JasonlllX »), pareil pour O/0
+    // identiques (« JasonIIIX » lu pour « JasonlllX »), pareil pour O/0.
+    // + variantes STYLISÉES : les pseudos décorés (VΞYMØNTH☆) sont lus en lettres plates
+    // (« VEYMONTHS ») — on reconstruit Ξ/Ø et on retire la décoration finale ; la recherche
+    // par inclusion fait le reste (« VΞYMØNTH » est une sous-chaîne du vrai pseudo)
+    const styl = q => {
+      const oØ = q.replace(/O/g, "Ø").replace(/o/g, "ø");
+      const eΞ = q.replace(/[Ee]/g, "Ξ");
+      const both = eΞ.replace(/O/g, "Ø").replace(/o/g, "ø");
+      const out = [oØ, eΞ, both];
+      if(q.length >= 6) out.push(q.slice(0, -1), oØ.slice(0, -1), both.slice(0, -1));
+      return out;
+    };
     const variants = [...new Set(cands.flatMap(q =>
-      [q, q.replace(/I/g,"l"), q.replace(/l/g,"I"), q.replace(/[Il1]/g,"l"), q.replace(/0/g,"O"), q.replace(/O/g,"0")]))];
+      [q, q.replace(/I/g,"l"), q.replace(/l/g,"I"), q.replace(/[Il1]/g,"l"), q.replace(/0/g,"O"), q.replace(/O/g,"0"), ...styl(q)]))];
     for(const q of variants){
       const r = await api("/player/search/" + encodeURIComponent(q)).catch(()=>({data:[]}));
       if(r.data?.length){ await accept(r.data[0]); return; }
