@@ -2281,7 +2281,7 @@ async function camTick(){
     }
   }
   // lecture du pseudo adverse (une fois, si aucun adversaire renseigné)
-  if(!simState.b && cam.slots.length && (cam.oppTry?.n||0) < 8 && (!cam.oppTry || Date.now()-cam.oppTry.t > 5000)){
+  if(!simState.b && cam.slots.length && (cam.oppTry?.n||0) < 10 && (!cam.oppTry || Date.now()-cam.oppTry.t > 5000)){
     cam.oppTry = {t: Date.now(), n: (cam.oppTry?.n||0)+1};
     camFindOpponent().catch(()=>{}); // pseudo adverse → box restreinte = reconnaissance bien plus fiable
   }
@@ -2524,28 +2524,35 @@ async function camFindOpponent(){
     const r0 = runs.filter(r=>r.b-r.a > vw*0.02).sort((p,q)=>q.w-p.w)[0];
     const sx = r0 ? Math.max(0, r0.a - 6) : Math.floor(vw*0.52);
     const sw = r0 ? Math.min(vw - sx, r0.b - r0.a + 12) : Math.floor(vw*0.40);
-    // agrandissement x3 + prétraitement ALTERNÉ selon l'essai : binarisation noir/blanc
-    // (idéale pour le latin) ou niveaux de gris inversés (les traits fins des idéogrammes
-    // survivent mieux sans seuillage — cas 零式100)
+    // agrandissement x3 ; les DEUX prétraitements sont tentés dans le MÊME essai :
+    // binarisation noir/blanc (idéale pour le latin), puis niveaux de gris inversés si vide
+    // (les traits fins des idéogrammes survivent mieux sans seuillage — cas 零式100)
     const bh = band.y1 - band.y0 + 1;
     const c = document.createElement("canvas");
     c.width = sw*3; c.height = bh*3;
     const cx = c.getContext("2d");
     cx.drawImage(cam.det.c, sx, band.y0, sw, bh, 0, 0, c.width, c.height);
-    const im = cx.getImageData(0, 0, c.width, c.height);
-    const binarize = (cam.oppTry?.n || 1) % 2 === 1;
-    for(let i=0; i<im.data.length; i+=4){
-      const l = 0.3*im.data[i] + 0.6*im.data[i+1] + 0.1*im.data[i+2];
-      const v = binarize ? (l > 120 ? 0 : 255) : Math.max(0, Math.min(255, Math.round(255 - l*1.4)));
-      im.data[i] = im.data[i+1] = im.data[i+2] = v;
-    }
-    cx.putImageData(im, 0, 0);
+    const srcIm = cx.getImageData(0, 0, c.width, c.height);
+    const render = mode => {
+      const im = new ImageData(new Uint8ClampedArray(srcIm.data), srcIm.width, srcIm.height);
+      for(let i=0; i<im.data.length; i+=4){
+        const l = 0.3*im.data[i] + 0.6*im.data[i+1] + 0.1*im.data[i+2];
+        const v = mode === "bin" ? (l > 120 ? 0 : 255) : Math.max(0, Math.min(255, Math.round(255 - l*1.4)));
+        im.data[i] = im.data[i+1] = im.data[i+2] = v;
+      }
+      cx.putImageData(im, 0, 0);
+    };
     // rotation de langues : latin pur (whitelist stricte) alterné avec deux jeux multilingues
     // — CJC simplifié, puis chinois traditionnel + cyrillique + thaï
     const LANG_SETS = ["eng", "eng+jpn+kor+chi_sim", "eng", "eng+chi_tra+rus+tha"];
     const langs = LANG_SETS[((cam.oppTry?.n || 1) - 1) % LANG_SETS.length];
-    const res = await ocrRecognize(c, langs);
-    let txt = (res?.data?.text || "").split("\n").map(x=>x.trim()).sort((a,b)=>b.length-a.length)[0] || "";
+    let txt = "";
+    for(const mode of ["bin", "gray"]){
+      render(mode);
+      const res = await ocrRecognize(c, langs);
+      txt = (res?.data?.text || "").split("\n").map(x=>x.trim()).sort((a,b)=>b.length-a.length)[0] || "";
+      if(txt.length >= 2) break;
+    }
     camLog(`🔎 OCR pseudo adverse (essai ${cam.oppTry?.n||1}, ${langs.split("+").length} langue(s)) : « ${txt || "—"} »`);
     if(txt.length < 2) return;
     const cands = [...new Set([
@@ -2561,6 +2568,7 @@ async function camFindOpponent(){
       if(cam.oppCand !== p.id){
         cam.oppCand = p.id;
         camLog(`🕐 candidat adversaire : ${p.wizard_name} (confirmation 1/2)`);
+        if(cam.oppTry) cam.oppTry.t = 0; // re-vérification immédiate au prochain tick
         return;
       }
       liveStatus("🎯 adversaire identifié : " + p.wizard_name, true);
