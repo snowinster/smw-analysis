@@ -1464,7 +1464,7 @@ function simSideHTML(side, mirrored){
   const slotFor = i => {
     const p = view[i];
     const ri = p ? picks.indexOf(p) : -1; // index réel dans le tableau (pour la suppression)
-    if(p?.unknown) return `<div class="slot unknown" title="Monstre détecté sur le plateau mais pas encore identifié"><span>?</span><button class="rm" onclick="simRemove('${side}',${ri})">✕</button></div>`;
+    if(p?.unknown) return `<div class="slot unknown" onclick="simFillUnknown('${side}',${ri})" style="cursor:pointer" title="Monstre détecté mais pas encore identifié — clique pour le saisir à la main"><span>?</span><button class="rm" onclick="event.stopPropagation();simRemove('${side}',${ri})">✕</button></div>`;
     return p
       ? `<div class="slot ${p.manual?"manual":""}" title="${esc(p.name)}${p.manual?" · posé à la main (la capture n'y touche plus)":""}"><img src="${monImg(p.img)}"><button class="rm" onclick="simRemove('${side}',${ri})">✕</button></div>`
       : `<div class="slot ${turn && i===nextIdx ? "next":""}"></div>`;
@@ -1614,7 +1614,7 @@ function camRun(boxes){
   // boxes fournies = calibration manuelle (5 cases à toi puis 5 adverses) ; sinon détection AUTO
   cam.slots = boxes ? boxes.map((b,i)=>({box:b, side:i<5?"A":"B", id:null, diag:null})) : [];
   cam.manualBoxes = !!boxes;
-  cam.fpSet = false; cam.oppTried = false; cam.boxMap = [];
+  cam.fpSet = false; cam.oppTry = null; cam.boxMap = [];
   // machine à états : IDLE (hors page VS) → ACTIVE (page VS confirmée, détection des 10 cases)
   cam.page = "IDLE"; cam.onN = 0; cam.offN = 0; cam.locked = false; cam.acqN = 0;
   liveStatus(boxes ? "🎯 calibration chargée — en attente de l'écran VS…" : "🔎 en attente de l'écran VS…", boxes?true:undefined);
@@ -2147,7 +2147,7 @@ async function camTick(){
       cam.page = "IDLE"; cam.onN = 0; cam.locked = false; cam.lastHl = null; cam.acqN = 0;
       if(cam.manualBoxes) for(const s of cam.slots){ s.id=null; s.diag=null; s.pend=null; s.pendN=0; s.emptyN=0; s.weak=null; s.weakN=0; s.content=false; s.unk=false; s.unkN=0; }
       else cam.slots = [];
-      cam.boxMap = []; cam.fpSet = false; cam.oppTried = false;
+      cam.boxMap = []; cam.fpSet = false; cam.oppTry = null;
       camLog("⏹ sortie de la page VS — détection stoppée, cases réinitialisées");
     }
     liveStatus("🔎 en attente de l'écran VS…");
@@ -2199,16 +2199,38 @@ async function camTick(){
     }
   }
   // lecture du pseudo adverse (une fois, si aucun adversaire renseigné)
-  if(!cam.oppTried && !simState.b && cam.slots.length){ cam.oppTried = true; camFindOpponent().catch(()=>{}); }
+  if(!simState.b && cam.slots.length && (cam.oppTry?.n||0) < 6 && (!cam.oppTry || Date.now()-cam.oppTry.t > 12000)){
+    cam.oppTry = {t: Date.now(), n: (cam.oppTry?.n||0)+1};
+    camFindOpponent().catch(()=>{}); // pseudo adverse → box restreinte = reconnaissance bien plus fiable
+  }
   const gain = camGain(); // fenêtre grisée (alt-tab) → seuils lum/std compensés par l'exposition de l'emblème
+  // grisage PAR CÔTÉ : le jeu assombrit le côté dont ce n'est pas le tour → niveau de fond (p80)
+  // de chaque moitié du plateau, le côté le plus clair sert de référence. Sans ça, les picks
+  // adverses ne deviennent lisibles que quand leur côté est rééclairé (lenteur, voire jamais).
+  const sg = (()=>{
+    const {d, W, H} = f;
+    const mid = cam.midX || W/2;
+    const lumAt = i => 0.3*d[i] + 0.6*d[i+1] + 0.1*d[i+2];
+    const p80 = (x0, x1) => {
+      const a = [];
+      for(let y = Math.floor(H*0.12); y < H*0.60; y += 6) for(let x = x0; x < x1; x += 6) a.push(lumAt((y*W+x)*4));
+      a.sort((p,q)=>p-q);
+      return a[Math.floor(a.length*0.8)] || 1;
+    };
+    const pA = p80(Math.floor(W*0.06), Math.floor(mid - W*0.07));
+    const pB = p80(Math.ceil(mid + W*0.07), Math.floor(W*0.94));
+    const ref = Math.max(pA, pB);
+    return { A: Math.min(2, Math.max(1, ref/pA)), B: Math.min(2, Math.max(1, ref/pB)) };
+  })();
   for(const s of cam.slots){
     let best = null, dEmpty = 1e9;
     const sdb = dbForSide(s.side);
+    const g = gain * sg[s.side]; // compensation totale : fenêtre grisée x côté assombri
     const lumMin = sdb !== cam.db ? 33 : 55; // base restreinte à la box → cases plus sombres lisibles
     for(const cv of SIG_CROPS){
       const {v, lum, std, hue, hue4} = cropSig(s.box, cv);
       dEmpty = Math.min(dEmpty, sigDist(v, EMPTY_SIG)); // ressemblance au crâne des cases vides
-      if(lum*gain < lumMin){ if(!best) best = {dark:true, lum}; continue; }
+      if(lum*g < lumMin){ if(!best) best = {dark:true, lum}; continue; }
       const m = camMatchSig(v, sdb, hue, hue4);
       if(!best || best.dark || m.rel > (best.m?.rel ?? -1)) best = {m, lum, std};
     }
@@ -2235,23 +2257,23 @@ async function camTick(){
         // sombre mais PAS le crâne d'une case vide → occupée illisible (ex : first pick adverse
         // côté assombri) : ❓ après ~3 s pour que l'ordre des picks suivants reste juste.
         // (lum ≥ 42 : une case vide totalement noyée dans le fond assombri reste ignorée)
-        if(best.lum*gain >= 42 && dEmpty >= EMPTY_TH){
+        if(best.lum*g >= 42 && dEmpty >= EMPTY_TH){
           s.unkN = (s.unkN||0) + 1;
           if(!s.unk && s.unkN >= 5) await simPlaceUnknown(s);
         }
       }
       continue;
     }
-    if(best.std*gain > 10) s.content = true; // contenu vu au moins une fois (sert à la détection du first pick)
+    if(best.std*g > 10) s.content = true; // contenu vu au moins une fois (sert à la détection du first pick)
     const m = best.m;
     // case redevenue vide alors qu'elle est éclairée → le joueur a retiré son pick
-    if(s.id && !m.id && best.std*gain < 10){
+    if(s.id && !m.id && best.std*g < 10){
       s.emptyN = (s.emptyN||0) + 1;
       if(s.emptyN >= 2){ s.diag = {std:best.lum, txt:"pick retiré"}; await applySlotPick(s, null); }
       continue;
     }
     s.emptyN = 0;
-    if(m.id && m.id !== s.id && best.std*gain < 12){
+    if(m.id && m.id !== s.id && best.std*g < 12){
       // « match confiant » sur un crop quasi uniforme (case beige « à son tour », std ≈ 8) :
       // refusé — un vrai portrait a toujours std ≥ 12 (mesuré : pire icône assombrie 8.8, nettes ≥ 20)
       s.diag = {std:best.lum, txt:`? ${monCache.get(m.id)?.name || m.best.name} — contraste trop faible (std ${best.std.toFixed(0)})`};
@@ -2276,7 +2298,7 @@ async function camTick(){
     }else if(!s.id){
       // acceptation par STABILITÉ : match faible mais identique 3 analyses de suite → validé
       // (std ≥ 12 : une case vide — crâne, std ≈ 4-8 même en surbrillance — ne peut jamais passer ici)
-      if(m.best && m.rel >= 0.16 && m.d1 <= 1.3 && best.std*gain >= 12){
+      if(m.best && m.rel >= 0.16 && m.d1 <= 1.3 && best.std*g >= 12){
         s.weakN = (s.weak === m.best.id) ? (s.weakN||0)+1 : 1;
         s.weak = m.best.id;
         if(s.weakN >= 3){
@@ -2291,7 +2313,7 @@ async function camTick(){
       }
       // contenu NET mais toujours pas reconnu après ~3 s → ❓ dans le simulateur
       // (la case compte comme prise ; remplacé sur place dès que la reconnaissance aboutit)
-      if(best.std*gain > 10){
+      if(best.std*g > 10){
         s.unkN = (s.unkN||0) + 1;
         if(!s.unk && s.unkN >= 5) await simPlaceUnknown(s);
       }else s.unkN = 0;
@@ -2562,6 +2584,38 @@ function setSlotEntry(s, entry){
     arr.splice(at, 0, entry);
     simState.history.push(s.side);
   }
+  renderSim();
+}
+/* clic sur une carte ❓ : petite fenêtre de recherche pour SAISIR le monstre à la main.
+   Le pick saisi est manuel donc définitif — la capture ne touchera plus à cette case. */
+function simFillUnknown(side, i){
+  document.getElementById("unkOverlay")?.remove();
+  const ov = document.createElement("div");
+  ov.id = "unkOverlay"; ov.className = "cam-overlay";
+  ov.innerHTML = `<div class="cam-panel" style="min-width:340px">
+    <b>Quel monstre occupe cette case ?</b>
+    <p class="muted" style="font-size:12.5px;margin:6px 0">Saisi à la main = définitif : la capture ne touchera plus à cette case.</p>
+    <div class="cmp-pick"><input id="unkFill" placeholder="🔍 Nom du monstre…" autocomplete="off">
+      <div class="cmp-results" id="unkFillRes" style="display:none"></div></div>
+    <div class="row" style="margin-top:10px"><span class="spacer"></span><button class="btn" id="unkCancel">✕ Annuler</button></div>
+  </div>`;
+  document.body.appendChild(ov);
+  document.getElementById("unkCancel").onclick = ()=>ov.remove();
+  ov.addEventListener("click", e=>{ if(e.target===ov) ov.remove(); });
+  attachMonSearch("unkFill", "unkFillRes", id=>{ ov.remove(); simSetUnknown(side, i, id); });
+  document.getElementById("unkFill").focus();
+}
+async function simSetUnknown(side, i, id){
+  const arr = side==="A" ? simState.picksA : simState.picksB;
+  const other = side==="A" ? simState.picksB : simState.picksA;
+  const e = arr[i];
+  if(!e || !e.unknown || arr.some(p=>p.id===id) || other.some(p=>p.id===id)) return;
+  const m = await getMonster(id);
+  arr[i] = {id, name:m.name, img:m.image_filename, gi:e.gi, manual:true};
+  // la case correspondante de la capture adopte cet id et cesse de chercher
+  const s = (cam.slots||[]).find(o=>o.side===side && (geoIndex(side, slotGeoRole(o)) ?? 9) === e.gi);
+  if(s){ s.id = id; s.unk = false; s.unkN = 0; s.pend = null; s.pendN = 0; s.weak = null; s.weakN = 0; }
+  camLog(`✍ ${m.name} saisi à la main (case ${side})`);
   renderSim();
 }
 /* case occupée mais monstre pas (encore) reconnu : pose un ❓ à sa position du plateau.
