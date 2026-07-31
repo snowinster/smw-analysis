@@ -2511,16 +2511,19 @@ async function camFindOpponent(){
     const r0 = runs.filter(r=>r.b-r.a > vw*0.02).sort((p,q)=>q.w-p.w)[0];
     const sx = r0 ? Math.max(0, r0.a - 6) : Math.floor(vw*0.52);
     const sw = r0 ? Math.min(vw - sx, r0.b - r0.a + 12) : Math.floor(vw*0.40);
-    // binarisation NOIR sur BLANC agrandie x3 (Tesseract y est bien meilleur que sur blanc/noir brut)
+    // agrandissement x3 + prétraitement ALTERNÉ selon l'essai : binarisation noir/blanc
+    // (idéale pour le latin) ou niveaux de gris inversés (les traits fins des idéogrammes
+    // survivent mieux sans seuillage — cas 零式100)
     const bh = band.y1 - band.y0 + 1;
     const c = document.createElement("canvas");
     c.width = sw*3; c.height = bh*3;
     const cx = c.getContext("2d");
     cx.drawImage(cam.det.c, sx, band.y0, sw, bh, 0, 0, c.width, c.height);
     const im = cx.getImageData(0, 0, c.width, c.height);
+    const binarize = (cam.oppTry?.n || 1) % 2 === 1;
     for(let i=0; i<im.data.length; i+=4){
       const l = 0.3*im.data[i] + 0.6*im.data[i+1] + 0.1*im.data[i+2];
-      const v = l > 120 ? 0 : 255;
+      const v = binarize ? (l > 120 ? 0 : 255) : Math.max(0, Math.min(255, Math.round(255 - l*1.4)));
       im.data[i] = im.data[i+1] = im.data[i+2] = v;
     }
     cx.putImageData(im, 0, 0);
@@ -2581,6 +2584,21 @@ async function camFindOpponent(){
         if(q.length < 3 || !/\p{L}/u.test(q)) continue;
         const r = await api("/player/search/" + encodeURIComponent(q)).catch(()=>({data:[]}));
         const hit = (r.data||[]).find(p => cands.some(c => norm(p.wizard_name) === norm(c)));
+        if(hit){ await accept(hit); return; }
+      }
+    }
+    // pseudo IDÉOGRAMMES + chiffres (零式100) : les idéogrammes sont souvent mal lus mais les
+    // chiffres/lettres latines sont fiables → recherche par cette partie-là, puis filtrage des
+    // résultats (doit contenir des idéogrammes, contenir le fragment, longueur cohérente).
+    // Ne s'active QUE si l'OCR a vu des idéogrammes : un « 240% » de popup ne passe pas ici.
+    const CJK = /[぀-鿿가-힯]/;
+    if(CJK.test(txt)){
+      const runs = [...txt.matchAll(/[A-Za-z0-9]{3,}/g)].map(x=>x[0]);
+      const tlen = txt.replace(/\s+/g, "").length;
+      for(const run of runs){
+        const r = await api("/player/search/" + encodeURIComponent(run)).catch(()=>({data:[]}));
+        const hit = (r.data||[]).find(p => CJK.test(p.wizard_name) && p.wizard_name.includes(run)
+          && Math.abs(p.wizard_name.length - tlen) <= 2);
         if(hit){ await accept(hit); return; }
       }
     }
