@@ -2144,7 +2144,7 @@ async function camTick(){
     // lecture stoppée IMMÉDIATEMENT ; reset complet après 3 analyses (~1,8 s : laisse passer un fondu/une popup)
     cam.offN = (cam.offN||0) + 1;
     if(cam.offN >= 3){
-      cam.page = "IDLE"; cam.onN = 0; cam.locked = false; cam.lastHl = null; cam.acqN = 0;
+      cam.page = "IDLE"; cam.onN = 0; cam.locked = false; cam.lastHl = null; cam.acqN = 0; cam.emptyLearned = null;
       if(cam.manualBoxes) for(const s of cam.slots){ s.id=null; s.diag=null; s.pend=null; s.pendN=0; s.emptyN=0; s.weak=null; s.weakN=0; s.content=false; s.unk=false; s.unkN=0; }
       else cam.slots = [];
       cam.boxMap = []; cam.fpSet = false; cam.oppTry = null;
@@ -2170,6 +2170,22 @@ async function camTick(){
     if(boardValid(f.W)){
       cam.locked = true; cam.acqN = 0;
       camLog("🔒 plateau verrouillé : 10 cases cohérentes (2x2 + isolée, symétriques)");
+      // modèle de case vide APPRIS sur CE plateau : au verrouillage la plupart des cases sont
+      // vides (crâne) — le plus grand groupe de cases mutuellement similaires donne la référence
+      // dans le mode/l'échelle/l'éclairage réels. Complète EMPTY_SIG pour les variantes que la
+      // référence hors-ligne rate (beige « à ton tour », surbrillance Arène World…).
+      cam.emptyLearned = null;
+      const esigs = cam.slots.map(s=>cropSig(s.box, SIG_CROPS[13]).v);
+      const nClose = esigs.map(v=>esigs.filter(w=>sigDist(v, w) < 0.5).length);
+      const seed = nClose.indexOf(Math.max(...nClose));
+      if(nClose[seed] >= 6){
+        const grp = esigs.filter(w=>sigDist(esigs[seed], w) < 0.5);
+        const acc = new Float32Array(esigs[seed].length);
+        for(const v of grp) for(let i=0;i<acc.length;i++) acc[i] += v[i];
+        for(let i=0;i<acc.length;i++) acc[i] /= grp.length;
+        cam.emptyLearned = acc;
+        camLog(`📐 modèle de case vide appris sur ${grp.length}/10 cases`);
+      }
       if(!cam.fpSet){
         const fp = fpFromLayout();
         if(fp){ camLog(`⭐ first pick ${fp==="A"?"TOI":"adversaire"} (case isolée ${fp==="A"?"extérieure":"côté VS"})`); camSetFP(fp); }
@@ -2199,7 +2215,7 @@ async function camTick(){
     }
   }
   // lecture du pseudo adverse (une fois, si aucun adversaire renseigné)
-  if(!simState.b && cam.slots.length && (cam.oppTry?.n||0) < 6 && (!cam.oppTry || Date.now()-cam.oppTry.t > 12000)){
+  if(!simState.b && cam.slots.length && (cam.oppTry?.n||0) < 8 && (!cam.oppTry || Date.now()-cam.oppTry.t > 5000)){
     cam.oppTry = {t: Date.now(), n: (cam.oppTry?.n||0)+1};
     camFindOpponent().catch(()=>{}); // pseudo adverse → box restreinte = reconnaissance bien plus fiable
   }
@@ -2229,7 +2245,7 @@ async function camTick(){
     const lumMin = sdb !== cam.db ? 33 : 55; // base restreinte à la box → cases plus sombres lisibles
     for(const cv of SIG_CROPS){
       const {v, lum, std, hue, hue4} = cropSig(s.box, cv);
-      dEmpty = Math.min(dEmpty, sigDist(v, EMPTY_SIG)); // ressemblance au crâne des cases vides
+      dEmpty = Math.min(dEmpty, sigDist(v, EMPTY_SIG), cam.emptyLearned ? sigDist(v, cam.emptyLearned) : 1e9); // ressemblance au crâne (référence + modèle appris)
       if(lum*g < lumMin){ if(!best) best = {dark:true, lum}; continue; }
       const m = camMatchSig(v, sdb, hue, hue4);
       if(!best || best.dark || m.rel > (best.m?.rel ?? -1)) best = {m, lum, std};
@@ -2446,7 +2462,7 @@ async function camFindOpponent(){
     // essai 1 : latin ; à partir du 2e : + japonais/coréen/chinois (pseudos CJC fréquents)
     const langs = (cam.oppTry?.n || 1) >= 2 ? "eng+jpn+kor+chi_sim" : "eng";
     const res = await Tesseract.recognize(c, langs);
-    let txt = (res?.data?.text || "").split("\n")[0].trim();
+    let txt = (res?.data?.text || "").split("\n").map(x=>x.trim()).sort((a,b)=>b.length-a.length)[0] || "";
     camLog(`🔎 OCR pseudo adverse (essai ${cam.oppTry?.n||1}, ${langs.split("+").length} langue(s)) : « ${txt || "—"} »`);
     if(txt.length < 2) return;
     const cands = [...new Set([
