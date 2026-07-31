@@ -182,6 +182,8 @@ td.best{color:var(--win);font-weight:800}
 .slot .rm{position:absolute;top:-8px;right:-8px;width:22px;height:22px;border-radius:11px;background:var(--lose);color:#fff;font-size:12px;font-weight:800;display:none;align-items:center;justify-content:center;cursor:pointer;border:none;z-index:2}
 .slot:hover .rm{display:flex}
 .slot.next{border-color:var(--accent);border-style:solid}
+.slot.unknown{border-style:solid;border-color:var(--accent)}
+.slot.unknown span{font-size:34px;font-weight:800;color:var(--accent);opacity:.65}
 .sugg{display:flex;align-items:center;gap:10px;padding:7px 8px;border-radius:9px;cursor:pointer;border-bottom:1px solid rgba(43,53,80,.4)}
 .sugg:hover{background:var(--card2)}
 .sugg img{width:38px;height:38px;border-radius:8px;background:var(--bg2)}
@@ -1451,6 +1453,7 @@ function simSideHTML(side, mirrored){
   const label = box ? `${esc(box.name)}${box.anon?' <span class="muted" style="font-weight:400;font-size:12px">(pseudo non renseigné - reco théoriques)</span>':""}` : (side==="A"?simState.a:simState.b) ? "Chargement de la box…" : `Joueur ${side} (non choisi)`;
   const slotFor = i => {
     const p = picks[i];
+    if(p?.unknown) return `<div class="slot unknown" title="Monstre détecté sur le plateau mais pas encore identifié"><span>?</span><button class="rm" onclick="simRemove('${side}',${i})">✕</button></div>`;
     return p
       ? `<div class="slot" title="${esc(p.name)}"><img src="${monImg(p.img)}"><button class="rm" onclick="simRemove('${side}',${i})">✕</button></div>`
       : `<div class="slot ${turn && i===picks.length ? "next":""}"></div>`;
@@ -1563,8 +1566,12 @@ async function camStart(){
         for(let i=0;i<bin.length;i++){ let x = bin.charCodeAt(i); if(x>127) x-=256; v[i]=x/sc; }
         const mm = j.means?.[id];
         const tot = mm ? (mm[0]+mm[1]+mm[2]) || 1 : 1;
+        // grille chromatique 4x4 (proportions R/G/B par cellule) : départage des variantes élémentaires
+        let h4 = null;
+        const h4b = j.hues4?.[id];
+        if(h4b){ const hb = atob(h4b); h4 = new Float32Array(hb.length); for(let i=0;i<hb.length;i++) h4[i] = hb.charCodeAt(i)/255; }
         return {id:+id, name: monCache.get(+id)?.name || ("#"+id), v,
-                hue: mm ? [mm[0]/tot, mm[1]/tot, mm[2]/tot] : null};
+                hue: mm ? [mm[0]/tot, mm[1]/tot, mm[2]/tot] : null, hue4: h4};
       });
     }
   }catch(e){ liveStatus("✖ base de reconnaissance inaccessible (" + (e?.message||e) + ") — réessaie dans 1 min", false); liveOff(); return; }
@@ -1903,9 +1910,9 @@ async function processBoxRow(f){
     if(!e.id && !isChecked){
       let best = null;
       for(const cv of SIG_CROPS){
-        const {v, lum, hue} = cropSig(e.box, cv);
+        const {v, lum, hue, hue4} = cropSig(e.box, cv);
         if(lum < 60) continue;
-        const m = camMatchSig(v, dbForSide("A"), hue);
+        const m = camMatchSig(v, dbForSide("A"), hue, hue4);
         if(!best || m.rel > best.rel) best = m;
       }
       if(best && best.id && best.rel >= 0.38) e.id = best.id; // seuil box relevé (confusions type Sonia/Nana)
@@ -1948,6 +1955,27 @@ function camLog(msg){
 /* applique (ou remplace) le pick d'un slot dans le simulateur */
 async function applySlotPick(s, newId){
   const arr = s.side==="A" ? simState.picksA : simState.picksB;
+  // la case portait un ❓ : on le remplace SUR PLACE (l'ordre des picks est déjà le bon)
+  if(s.unk){
+    const ix = s.unkRef ? arr.indexOf(s.unkRef) : -1;
+    s.unk = false; s.unkN = 0; s.unkRef = null;
+    if(ix > -1){
+      if(newId && !simState.picksA.some(p=>p.id===newId) && !simState.picksB.some(p=>p.id===newId)){
+        const m = await getMonster(newId);
+        arr[ix] = {id:newId, name:m.name, img:m.image_filename};
+        s.id = newId; s.pend = null; s.pendN = 0; s.emptyN = 0;
+        camLog(`→ ${m.name} identifié (remplace ❓) côté ${s.side} (x=${s.box[0]})`);
+        renderSim();
+        return;
+      }
+      // case redevenue vide (ou monstre déjà pris ailleurs) : on retire le ❓
+      arr.splice(ix, 1);
+      const h = simState.history.lastIndexOf(s.side);
+      if(h > -1) simState.history.splice(h, 1);
+      camLog(`← ❓ retiré côté ${s.side}`);
+      if(!newId){ s.id = null; s.pend = null; s.pendN = 0; s.emptyN = 0; renderSim(); return; }
+    }
+  }
   if(s.id){
     const ix = arr.findIndex(p=>p.id===s.id);
     if(ix > -1){
@@ -1966,7 +1994,8 @@ async function applySlotPick(s, newId){
 }
 /* ----- reconnaissance : signature couleur v2 (16x16, coins badges masqués, z-norm par canal) ----- */
 const SIG_T = 16;
-const SIG_IDX = (()=>{ const a=[]; for(let y=0;y<SIG_T;y++) for(let x=0;x<SIG_T;x++) if(!(y > SIG_T*0.62 && (x < SIG_T*0.40 || x > SIG_T*0.58))) a.push(y*SIG_T+x); return a; })();
+const SIG_OK = (x,y)=>!(y > SIG_T*0.62 && (x < SIG_T*0.40 || x > SIG_T*0.58));
+const SIG_IDX = (()=>{ const a=[]; for(let y=0;y<SIG_T;y++) for(let x=0;x<SIG_T;x++) if(SIG_OK(x,y)) a.push(y*SIG_T+x); return a; })();
 function sigFromCanvas(){
   const d = cam.tctx.getImageData(0, 0, SIG_T, SIG_T).data;
   const n = SIG_IDX.length, v = new Float32Array(n*3);
@@ -1980,7 +2009,20 @@ function sigFromCanvas(){
     (sigFromCanvas._m ||= [0,0,0])[ch] = m;
   }
   const mm = sigFromCanvas._m, tot = (mm[0]+mm[1]+mm[2]) || 1;
-  return {v, lum, std, hue:[mm[0]/tot, mm[1]/tot, mm[2]/tot]};
+  // grille chromatique 4x4 du crop (même construction que dans gen-sigs.mjs)
+  const h4 = new Float32Array(48);
+  let k = 0;
+  for(let gy=0; gy<4; gy++) for(let gx=0; gx<4; gx++){
+    let r=0, g=0, b=0, cn=0;
+    for(let y=gy*4; y<gy*4+4; y++) for(let x=gx*4; x<gx*4+4; x++){
+      if(!SIG_OK(x,y)) continue;
+      const i = (y*SIG_T+x)*4; r+=d[i]; g+=d[i+1]; b+=d[i+2]; cn++;
+    }
+    const t = (r+g+b)||1;
+    if(cn){ h4[k++]=r/t; h4[k++]=g/t; h4[k++]=b/t; }
+    else { h4[k++]=1/3; h4[k++]=1/3; h4[k++]=1/3; }
+  }
+  return {v, lum, std, hue:[mm[0]/tot, mm[1]/tot, mm[2]/tot], hue4:h4};
 }
 const SIG_CROPS = [];
 for(const top of [0.18, 0.22, 0.26]) for(const bot of [0.04, 0.08, 0.12]) for(const side of [0.08, 0.11, 0.14]) SIG_CROPS.push({top, bot, side});
@@ -2020,7 +2062,7 @@ function dbForSide(side){
   }
   return cam.dbSub[side].arr.length ? cam.dbSub[side].arr : cam.db;
 }
-function camMatchSig(v, db, hue){
+function camMatchSig(v, db, hue, hue4){
   db = db || cam.db;
   let d1 = 1e9, d2 = 1e9, e1 = null, e2 = null;
   for(const e of db){
@@ -2031,12 +2073,18 @@ function camMatchSig(v, db, hue){
     if(s < d1){ if(!e1 || baseName(e1.name) !== baseName(e.name)){ d2 = d1; e2 = e1; } d1 = s; e1 = e; }
     else if(s < d2 && (!e1 || baseName(e.name) !== baseName(e1.name))){ d2 = s; e2 = e; }
   }
-  // départage des variantes élémentaires d'un même monstre par la TEINTE brute
+  // départage des variantes élémentaires d'un même monstre par la COULEUR brute
   // (la normalisation par canal efface la couleur qui distingue les recolorations Feu/Eau/Ténèbres…)
-  if(e1 && hue){
-    const fam = db.filter(e => e !== e1 && baseName(e.name) === baseName(e1.name) && e.hue);
-    if(fam.length && e1.hue){
-      const hd = e => Math.abs(hue[0]-e.hue[0]) + Math.abs(hue[1]-e.hue[1]) + Math.abs(hue[2]-e.hue[2]);
+  // : grille chromatique 4x4 en priorité — spatiale, elle voit OÙ est le rouge/vert (Stark feu vs
+  // vent : 93,1% vs 87,3% mesurés par scripts/tune-family.mjs) — teinte moyenne globale en repli
+  if(e1 && (hue4 || hue)){
+    const fam = db.filter(e => e !== e1 && baseName(e.name) === baseName(e1.name) && (e.hue4 || e.hue));
+    if(fam.length && (e1.hue4 || e1.hue)){
+      const hd = e => {
+        if(hue4 && e.hue4){ let s=0; for(let i=0;i<48;i++) s += Math.abs(hue4[i]-e.hue4[i]); return s/16; }
+        if(hue && e.hue) return Math.abs(hue[0]-e.hue[0]) + Math.abs(hue[1]-e.hue[1]) + Math.abs(hue[2]-e.hue[2]);
+        return 1e9;
+      };
       let bestE = e1, bestH = hd(e1);
       for(const e of fam){
         let d = 0;
@@ -2082,7 +2130,7 @@ async function camTick(){
     cam.offN = (cam.offN||0) + 1;
     if(cam.offN >= 3){
       cam.page = "IDLE"; cam.onN = 0; cam.locked = false; cam.lastHl = null; cam.acqN = 0;
-      if(cam.manualBoxes) for(const s of cam.slots){ s.id=null; s.diag=null; s.pend=null; s.pendN=0; s.emptyN=0; s.weak=null; s.weakN=0; s.content=false; }
+      if(cam.manualBoxes) for(const s of cam.slots){ s.id=null; s.diag=null; s.pend=null; s.pendN=0; s.emptyN=0; s.weak=null; s.weakN=0; s.content=false; s.unk=false; s.unkN=0; s.unkRef=null; }
       else cam.slots = [];
       cam.boxMap = []; cam.fpSet = false; cam.oppTried = false;
       camLog("⏹ sortie de la page VS — détection stoppée, cases réinitialisées");
@@ -2142,10 +2190,10 @@ async function camTick(){
     const sdb = dbForSide(s.side);
     const lumMin = sdb !== cam.db ? 33 : 55; // base restreinte à la box → cases plus sombres lisibles
     for(const cv of SIG_CROPS){
-      const {v, lum, std, hue} = cropSig(s.box, cv);
+      const {v, lum, std, hue, hue4} = cropSig(s.box, cv);
       dEmpty = Math.min(dEmpty, sigDist(v, EMPTY_SIG)); // ressemblance au crâne des cases vides
       if(lum < lumMin){ if(!best) best = {dark:true, lum}; continue; }
-      const m = camMatchSig(v, sdb, hue);
+      const m = camMatchSig(v, sdb, hue, hue4);
       if(!best || best.dark || m.rel > (best.m?.rel ?? -1)) best = {m, lum, std};
     }
     if(!best) continue;
@@ -2155,9 +2203,13 @@ async function camTick(){
       if(s.id){
         s.emptyN = (s.emptyN||0) + 1;
         if(s.emptyN >= 2){ s.diag = {std:best.lum, txt:"pick retiré (case vide)"}; await applySlotPick(s, null); }
+      }else if(s.unk){
+        // la case portait un ❓ et est redevenue vide (pick annulé) : confirmé sur 2 analyses
+        s.emptyN = (s.emptyN||0) + 1;
+        if(s.emptyN >= 2) await applySlotPick(s, null);
       }else{
         s.diag = {std:best.lum, txt:`case vide (crâne, d=${dEmpty.toFixed(2)})`};
-        s.weak = null; s.weakN = 0; s.pend = null; s.pendN = 0;
+        s.weak = null; s.weakN = 0; s.pend = null; s.pendN = 0; s.unkN = 0;
       }
       continue;
     }
@@ -2205,6 +2257,12 @@ async function camTick(){
         s.weak = null; s.weakN = 0;
         s.diag = {std:best.lum, txt:`? ${m.best?.name||"—"} (d=${m.d1.toFixed(2)}, marge ${Math.round(m.rel*100)}%)`};
       }
+      // contenu NET mais toujours pas reconnu après ~3 s → ❓ dans le simulateur
+      // (la case compte comme prise ; remplacé sur place dès que la reconnaissance aboutit)
+      if(best.std > 10){
+        s.unkN = (s.unkN||0) + 1;
+        if(!s.unk && s.unkN >= 5) await simPlaceUnknown(s);
+      }else s.unkN = 0;
     }
   }
   // (lecture de la box du bas désactivée : elle défile et créait des confusions — seules les 10 cases du plateau comptent)
@@ -2412,10 +2470,15 @@ async function simPickDuo(id1, id2){
   await simPick(id1, "A");
   await simPick(id2, "A");
 }
+/* index de pick conventionnel d'une position du plateau (le jeu remplit chaque colonne
+   dans l'ordre des picks, 1er en HAUT ; la case isolée est le 1er pick côté FP, le 5e sinon) */
+function geoIndex(side, geo){
+  const order = simState.fp===side ? {lone:0, TL:1, BL:2, TR:3, BR:4} : {TL:0, BL:1, TR:2, BR:3, lone:4};
+  return geo != null && order[geo] != null ? order[geo] : null;
+}
 /* geo (optionnel, fourni par la capture) : position réelle de la case sur le plateau
-   ("lone" ou TL/BL/TR/BR). Le jeu remplit chaque colonne dans l'ordre des picks (1er en HAUT) :
-   insérer à l'index correspondant rétablit le VRAI ordre même quand la capture lit les cases
-   dans le désordre (ex : Gandalf [BL] vu avant Bolverk [TL] dans le même tick). */
+   ("lone" ou TL/BL/TR/BR). Insérer à l'index correspondant rétablit le VRAI ordre même
+   quand la capture lit les cases dans le désordre (ex : Gandalf [BL] vu avant Bolverk [TL]). */
 async function simPick(id, side, geo){
   side = side || simTurn();
   if(!side) return;
@@ -2424,10 +2487,26 @@ async function simPick(id, side, geo){
   // règle RTA : impossible de picker un monstre déjà pris par l'un ou l'autre joueur
   if(arr.length >= 5 || arr.some(p=>p.id===id) || other.some(p=>p.id===id)) return;
   const m = await getMonster(id);
-  const order = simState.fp===side ? {lone:0, TL:1, BL:2, TR:3, BR:4} : {TL:0, BL:1, TR:2, BR:3, lone:4};
-  const at = geo != null && order[geo] != null ? Math.min(order[geo], arr.length) : arr.length;
+  const gi = geoIndex(side, geo);
+  const at = gi != null ? Math.min(gi, arr.length) : arr.length;
   arr.splice(at, 0, {id, name:m.name, img:m.image_filename});
   simState.history.push(side);
+  renderSim();
+}
+/* case occupée mais monstre pas (encore) reconnu : pose un ❓ à la bonne position du plateau.
+   Le placeholder est remplacé sur place dès que la reconnaissance aboutit (applySlotPick). */
+async function simPlaceUnknown(s){
+  const arr = s.side==="A" ? simState.picksA : simState.picksB;
+  if(arr.length >= 5) return;
+  s.unk = true; s.unkN = 0;
+  const geo = slotGeoRole(s);
+  const gi = geoIndex(s.side, geo);
+  const at = gi != null ? Math.min(gi, arr.length) : arr.length;
+  const ph = {id:0, unknown:true, name:"Monstre non identifié"};
+  s.unkRef = ph;
+  arr.splice(at, 0, ph);
+  simState.history.push(s.side);
+  camLog(`→ ❓ case occupée non identifiée côté ${s.side}${geo?" ["+geo+"]":""} (x=${s.box[0]})`);
   renderSim();
 }
 let simRenderToken = 0;
@@ -2478,9 +2557,11 @@ async function renderSim(){
   $b.innerHTML = html;
   wireSimAdd();
   // ----- suggestions TOUJOURS du point de vue du joueur A (celui qui veut gagner) -----
+  // (les ❓ — cases occupées non identifiées — comptent pour le tour/l'avancement mais sont
+  //  exclus des calculs de matchups, qui exigent un id de monstre réel)
   const my = getSimBox("A");
-  const myPicks = simState.picksA;
-  const enemyPicks = simState.picksB;
+  const myPicks = simState.picksA.filter(p=>!p.unknown);
+  const enemyPicks = simState.picksB.filter(p=>!p.unknown);
   // règle RTA : un monstre déjà pické (par toi OU par l'adversaire) n'est plus disponible
   const pickedIds = new Set([...myPicks, ...enemyPicks].map(p=>p.id));
   const isLD = el => el==="Light" || el==="Dark";
@@ -2488,8 +2569,8 @@ async function renderSim(){
   // stats méta de la saison (ban rate, seuils)
   const meta = await getMetaStats();
   if(token !== simRenderToken) return;
-  // mode FIRST PICK (aucun pick adverse) : classement par les VRAIES stats FP1 du top ladder
-  const fpMode = !enemyPicks.length;
+  // mode FIRST PICK (aucun pick adverse, ❓ compris) : classement par les VRAIES stats FP1 du top ladder
+  const fpMode = !simState.picksB.length;
   let fpGlobal = [];
   if(fpMode){
     const fps = await getFirstPickStats();
@@ -2586,7 +2667,7 @@ async function renderSim(){
   }
   // 3) duos conseillés : paires prises dans TA box qui counterent les picks adverses ET synergisent
   // (inutile au dernier pick : il ne reste qu'un seul slot)
-  const lastPick = !fpMode && myPicks.length === 4;
+  const lastPick = !fpMode && simState.picksA.length === 4;
   let duos = [], duosFromBox = true;
   if(countersFull.length >= 2 && !lastPick){
     let base = boxVs;
@@ -2686,7 +2767,7 @@ async function renderSim(){
    matchups réels tes 5 vs ses 5 (pondérés par volume) + différentiel de synergie interne */
 async function computeConfidence(token){
   try{
-    const A = simState.picksA, B = simState.picksB;
+    const A = simState.picksA.filter(p=>!p.unknown), B = simState.picksB.filter(p=>!p.unknown);
     let mw = 0, mv = 0, nCross = 0;
     for(const a of A){
       const rows = await getPairsAgainst(a.id);

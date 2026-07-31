@@ -25,7 +25,7 @@ export default async function genSigs(){
   const metas = ["api/meta-s37.json","api/meta-s38.json"].filter(fs.existsSync).map(f=>JSON.parse(fs.readFileSync(f)));
   const iconOf = new Map();
   for(const m of metas) for(const mm of m.monsters) if(mm.image_filename) iconOf.set(mm.monster_id, mm.image_filename);
-  const sigs = {}, means = {};
+  const sigs = {}, means = {}, hues4 = {};
   const entries = [...iconOf.entries()];
   for(let i=0; i<entries.length; i+=25){
     await Promise.all(entries.slice(i, i+25).map(async ([id, file])=>{
@@ -37,17 +37,31 @@ export default async function genSigs(){
                  w-2*Math.round(w*ICON_VAR.side), h-Math.round(h*(ICON_VAR.top+ICON_VAR.bot)))
            .resize(T, T, Jimp.RESIZE_BILINEAR);
         sigs[id] = quant(sigOf((x,y)=>Jimp.intToRGBA(img.getPixelColor(x,y))));
-        // teinte moyenne brute (départage des variantes élémentaires d'un même monstre)
+        // teinte moyenne brute (repli du départage des variantes élémentaires)
         let mr=0, mg=0, mb=0, n=0;
         for(const idx of IDX){ const c = Jimp.intToRGBA(img.getPixelColor(idx%T, (idx/T)|0)); mr+=c.r; mg+=c.g; mb+=c.b; n++; }
         means[id] = [Math.round(mr/n), Math.round(mg/n), Math.round(mb/n)];
+        // grille chromatique 4x4 (départage SPATIAL des variantes élémentaires : mesuré
+        // 93,1% vs 87,3% pour la teinte globale sur les familles — scripts/tune-family.mjs)
+        const cells = [];
+        for(let gy=0; gy<4; gy++) for(let gx=0; gx<4; gx++){
+          let r=0, g=0, b=0, cn=0;
+          for(let y=gy*4; y<gy*4+4; y++) for(let x=gx*4; x<gx*4+4; x++){
+            if(!cellOK(x,y)) continue;
+            const c = Jimp.intToRGBA(img.getPixelColor(x,y)); r+=c.r; g+=c.g; b+=c.b; cn++;
+          }
+          const t = (r+g+b)||1;
+          if(cn) cells.push(Math.round(255*r/t), Math.round(255*g/t), Math.round(255*b/t));
+          else cells.push(85, 85, 85);
+        }
+        hues4[id] = Buffer.from(cells).toString("base64");
       }catch(e){}
     }));
   }
   fs.writeFileSync("api/icon-sigs.json", JSON.stringify({
     generated_at: new Date().toISOString(),
-    algo: "colorsig-v2.1", T, icon_var: ICON_VAR, dims: IDX.length*3, scale: 40,
-    sigs, means
+    algo: "colorsig-v2.2", T, icon_var: ICON_VAR, dims: IDX.length*3, scale: 40,
+    sigs, means, hues4
   }));
   console.log("icon-sigs.json :", Object.keys(sigs).length, "signatures");
 }
