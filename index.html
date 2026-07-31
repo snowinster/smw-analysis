@@ -1827,6 +1827,21 @@ function boardValid(vw){
   }
   return true;
 }
+/* first pick par la GÉOMÉTRIE du plateau (références : captures « Combat ordinaire ») :
+   quand TU as le first pick, ta case isolée est côté EXTÉRIEUR (à gauche de ton carré) ;
+   quand l'adversaire l'a, elle est côté VS. Déterminé une seule fois, au verrouillage. */
+function fpFromLayout(){
+  const ss = cam.slots.filter(s=>s.side==="A");
+  if(ss.length !== 5) return null;
+  const ys = ss.map(o=>o.box[1]);
+  const yTop = Math.min(...ys), yBot = Math.max(...ys);
+  const tol = ss[0].box[3]*0.4;
+  const lone = ss.find(o=>Math.abs(o.box[1]-yTop) >= tol && Math.abs(o.box[1]-yBot) >= tol);
+  if(!lone) return null;
+  const grid = ss.filter(o=>o !== lone);
+  const gx = grid.reduce((a,o)=>a+o.box[0]+o.box[2]/2, 0)/grid.length;
+  return (lone.box[0]+lone.box[2]/2) < gx ? "A" : "B";
+}
 /* ----- carte de la BOX en bas d'écran : icônes reconnues quand elles sont propres,
    puis une coche jaune qui apparaît dessus = pick du joueur identifié par sa position ----- */
 function scanBoxRow(f){
@@ -2092,6 +2107,10 @@ async function camTick(){
     if(boardValid(f.W)){
       cam.locked = true; cam.acqN = 0;
       camLog("🔒 plateau verrouillé : 10 cases cohérentes (2x2 + isolée, symétriques)");
+      if(!cam.fpSet){
+        const fp = fpFromLayout();
+        if(fp){ camLog(`⭐ first pick ${fp==="A"?"TOI":"adversaire"} (case isolée ${fp==="A"?"extérieure":"côté VS"})`); camSetFP(fp); }
+      }
     }else{
       cam.acqN = (cam.acqN||0) + 1;
       if(cam.acqN >= 8){ cam.slots = []; cam.acqN = 0; camLog("↻ cadrage incohérent — nouvelle acquisition"); } // ~5 s sans converger : on repart de zéro

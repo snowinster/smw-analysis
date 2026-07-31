@@ -195,7 +195,18 @@ if(onPage){
   for(const b of ports) addSlot(b);
   if(hl) addSlot(hl);
   completeSlots(); completeSlots();
-  console.log(`→ ${slots.length}/10 cases (A=${slots.filter(s=>s.side==="A").length}, B=${slots.filter(s=>s.side==="B").length}) · plateau valide (verrouillage) = ${boardValid()}`);
+  const fpGeo = (()=>{ // copie de fpFromLayout : case isolée extérieure = first pick côté A
+    const ss = slots.filter(s=>s.side==="A");
+    if(ss.length !== 5) return null;
+    const ys = ss.map(o=>o.box[1]);
+    const yTop = Math.min(...ys), yBot = Math.max(...ys), tol = ss[0].box[3]*0.4;
+    const lone = ss.find(o=>Math.abs(o.box[1]-yTop) >= tol && Math.abs(o.box[1]-yBot) >= tol);
+    if(!lone) return null;
+    const grid = ss.filter(o=>o !== lone);
+    const gx = grid.reduce((a,o)=>a+o.box[0]+o.box[2]/2, 0)/grid.length;
+    return (lone.box[0]+lone.box[2]/2) < gx ? "A" : "B";
+  })();
+  console.log(`→ ${slots.length}/10 cases (A=${slots.filter(s=>s.side==="A").length}, B=${slots.filter(s=>s.side==="B").length}) · plateau valide (verrouillage) = ${boardValid()} · first pick (géométrie) = ${fpGeo}`);
   slots.forEach((s,i)=>console.log(`  #${i} [${s.side}] x=${s.box[0]} y=${s.box[1]} ${s.box[2]}x${s.box[3]}`));
   const out = img.clone();
   const col = (b, rgba) => {
