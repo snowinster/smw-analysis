@@ -35,7 +35,7 @@ function onDraftScreen(){
   let gold = 0, n = 0, sx = 0;
   for(let y = Math.floor(H*0.15); y < H*0.55; y += 2) for(let x = Math.floor(W*0.42); x < W*0.58; x += 2){
     const i = (y*W+x)*4, R = d[i], G = d[i+1], B = d[i+2];
-    if(R>110 && G>75 && B<110 && R>G && G>B && (R-B)>40){ gold++; sx += x; }
+    if(R>95 && G>65 && B<110 && R>G && G>B && (R-B)>34){ gold++; sx += x; }
     n++;
   }
   if(gold/n < 0.008) return false;

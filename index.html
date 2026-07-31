@@ -1622,16 +1622,19 @@ function grabFrame(){
   cam.det.ctx.drawImage(cam.video, 0, 0, vw, vh);
   return { d: cam.det.ctx.getImageData(0, 0, vw, vh).data, W: vw, H: vh };
 }
-/* écran de DRAFT présent ? (emblème VS doré au centre + panneaux latéraux sombres) */
+/* écran de DRAFT présent ? (emblème VS doré au centre + panneaux latéraux sombres)
+   Seuils dorés volontairement tolérants : la fenêtre du jeu est GRISÉE quand elle perd le
+   focus (alt-tab) et l'or descend d'autant — la bande noire des pseudos reste le discriminant fort. */
 function onDraftScreen(f){
   const {d, W, H} = f;
-  let gold = 0, n = 0, sx = 0;
+  let gold = 0, n = 0, sx = 0, gl = 0;
   for(let y = Math.floor(H*0.15); y < H*0.55; y += 2) for(let x = Math.floor(W*0.42); x < W*0.58; x += 2){
     const i = (y*W+x)*4, R = d[i], G = d[i+1], B = d[i+2];
-    if(R>110 && G>75 && B<110 && R>G && G>B && (R-B)>40){ gold++; sx += x; }
+    if(R>95 && G>65 && B<110 && R>G && G>B && (R-B)>34){ gold++; sx += x; gl += 0.3*R + 0.6*G + 0.1*B; }
     n++;
   }
   if(gold/n < 0.008) return false;
+  cam.goldLum = gl/gold; // luminosité de l'emblème = référence d'EXPOSITION de la frame (nominal ≈ 168)
   // signature propre aux écrans de draft : la bande NOIRE des pseudos sous le plateau
   // (absente du menu Arène World, des combats et des autres écrans dorés)
   let stripFound = false;
@@ -2035,6 +2038,11 @@ function sigDist(v, ref){
   for(let i=0;i<L;i++){ const d = v[i]-ref[i]; s += d*d; }
   return s/L;
 }
+/* compensation d'exposition : fenêtre grisée (perte de focus) → l'emblème VS doré descend
+   sous sa valeur nominale (≈ 168, mesurée stable sur toutes les captures) → on remonte
+   virtuellement lum/std des crops pour que les seuils fixes restent justes. */
+const GOLD_REF = 168;
+const camGain = () => Math.min(2.2, Math.max(1, GOLD_REF / (cam.goldLum || GOLD_REF)));
 const baseName = n => (n||"").split(" (")[0];
 /* base restreinte aux monstres de la box du joueur (discrimination bien meilleure, surtout côté sombre) */
 function dbForSide(side){
@@ -2171,6 +2179,7 @@ async function camTick(){
   }
   // lecture du pseudo adverse (une fois, si aucun adversaire renseigné)
   if(!cam.oppTried && !simState.b && cam.slots.length){ cam.oppTried = true; camFindOpponent().catch(()=>{}); }
+  const gain = camGain(); // fenêtre grisée (alt-tab) → seuils lum/std compensés par l'exposition de l'emblème
   for(const s of cam.slots){
     let best = null, dEmpty = 1e9;
     const sdb = dbForSide(s.side);
@@ -2178,7 +2187,7 @@ async function camTick(){
     for(const cv of SIG_CROPS){
       const {v, lum, std, hue, hue4} = cropSig(s.box, cv);
       dEmpty = Math.min(dEmpty, sigDist(v, EMPTY_SIG)); // ressemblance au crâne des cases vides
-      if(lum < lumMin){ if(!best) best = {dark:true, lum}; continue; }
+      if(lum*gain < lumMin){ if(!best) best = {dark:true, lum}; continue; }
       const m = camMatchSig(v, sdb, hue, hue4);
       if(!best || best.dark || m.rel > (best.m?.rel ?? -1)) best = {m, lum, std};
     }
@@ -2205,23 +2214,23 @@ async function camTick(){
         // sombre mais PAS le crâne d'une case vide → occupée illisible (ex : first pick adverse
         // côté assombri) : ❓ après ~3 s pour que l'ordre des picks suivants reste juste.
         // (lum ≥ 42 : une case vide totalement noyée dans le fond assombri reste ignorée)
-        if(best.lum >= 42 && dEmpty >= EMPTY_TH){
+        if(best.lum*gain >= 42 && dEmpty >= EMPTY_TH){
           s.unkN = (s.unkN||0) + 1;
           if(!s.unk && s.unkN >= 5) await simPlaceUnknown(s);
         }
       }
       continue;
     }
-    if(best.std > 10) s.content = true; // contenu vu au moins une fois (sert à la détection du first pick)
+    if(best.std*gain > 10) s.content = true; // contenu vu au moins une fois (sert à la détection du first pick)
     const m = best.m;
     // case redevenue vide alors qu'elle est éclairée → le joueur a retiré son pick
-    if(s.id && !m.id && best.std < 10){
+    if(s.id && !m.id && best.std*gain < 10){
       s.emptyN = (s.emptyN||0) + 1;
       if(s.emptyN >= 2){ s.diag = {std:best.lum, txt:"pick retiré"}; await applySlotPick(s, null); }
       continue;
     }
     s.emptyN = 0;
-    if(m.id && m.id !== s.id && best.std < 12){
+    if(m.id && m.id !== s.id && best.std*gain < 12){
       // « match confiant » sur un crop quasi uniforme (case beige « à son tour », std ≈ 8) :
       // refusé — un vrai portrait a toujours std ≥ 12 (mesuré : pire icône assombrie 8.8, nettes ≥ 20)
       s.diag = {std:best.lum, txt:`? ${monCache.get(m.id)?.name || m.best.name} — contraste trop faible (std ${best.std.toFixed(0)})`};
@@ -2246,7 +2255,7 @@ async function camTick(){
     }else if(!s.id){
       // acceptation par STABILITÉ : match faible mais identique 3 analyses de suite → validé
       // (std ≥ 12 : une case vide — crâne, std ≈ 4-8 même en surbrillance — ne peut jamais passer ici)
-      if(m.best && m.rel >= 0.16 && m.d1 <= 1.3 && best.std >= 12){
+      if(m.best && m.rel >= 0.16 && m.d1 <= 1.3 && best.std*gain >= 12){
         s.weakN = (s.weak === m.best.id) ? (s.weakN||0)+1 : 1;
         s.weak = m.best.id;
         if(s.weakN >= 3){
@@ -2261,14 +2270,14 @@ async function camTick(){
       }
       // contenu NET mais toujours pas reconnu après ~3 s → ❓ dans le simulateur
       // (la case compte comme prise ; remplacé sur place dès que la reconnaissance aboutit)
-      if(best.std > 10){
+      if(best.std*gain > 10){
         s.unkN = (s.unkN||0) + 1;
         if(!s.unk && s.unkN >= 5) await simPlaceUnknown(s);
       }else s.unkN = 0;
     }
   }
   // (lecture de la box du bas désactivée : elle défile et créait des confusions — seules les 10 cases du plateau comptent)
-  liveStatus(`🎥 draft en cours — ${cam.slots.length}/10 cases${cam.locked ? " 🔒" : ""}, ${cam.slots.filter(s=>s.id).length} picks reconnus`, true);
+  liveStatus(`🎥 draft en cours — ${cam.slots.length}/10 cases${cam.locked ? " 🔒" : ""}, ${cam.slots.filter(s=>s.id).length} picks reconnus${gain > 1.15 ? ` · 🌒 fenêtre assombrie (compensation ×${gain.toFixed(2)})` : ""}`, true);
   camPreview();
 }
 /* aperçu + diagnostic */
