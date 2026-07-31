@@ -2034,15 +2034,16 @@ function cropSig(b, cv){
 }
 /* signature du CRÂNE des cases vides (générée par scripts/gen-empty-sig.mjs depuis les captures).
    La z-norm par canal rend le motif identique quelle que soit la teinte de la case
-   (sombre, beige « à toi de jouer », surbrillance dorée) : distances mesurées ≤ 0.06 pour
-   une case vide, ≥ 1.7 pour un portrait → seuil 0.35 avec une marge énorme des deux côtés. */
+   (sombre, beige « à toi de jouer », surbrillance dorée). Mesures sur toutes les captures
+   (scratch measure-empty-th) : cases vides ≤ 0.71 (les petites fenêtres dégradent le motif),
+   pire portrait possible sur les 882 icônes réduites + assombries ≥ 1.03 → seuil 0.85. */
 const EMPTY_SIG = (()=>{
   const bin = atob("JCoxNDk19B0e8SsxMTEoKCUxMTku68sPCtPlJTExKCgoMTkg29PTA/3T09kWMSgoKTE579PT0+bl09PT7jEoKCgxNuXT09PT09PT0+EwKiUuNjXZ09PT09PT09PYKSggKDQj1Oz/1NPT1PvrzxQoHSgO09PhQQ/T0w0+2tPTARgoFtXT0+sN09QP59HT1RAdIzEa1Bfl09PT0+EQ1BIoHdPT2dPT7trc9xoWHCsuMSAjIBEcLDQ8M/QnIvIvMjIyJxoSJzI8N+fSFQ/S5ysyMjIjHDI8JdrS0gsD0tLZIDUuIyAyP/TS0tLr5tLS0vI8MCAlOEPn0tLS0tLS0tLkPDIeIzI/2dLS0tLS0tLS2TAvGSMyKdLyAdTS0tQC7dMcJxgZDtPS4E8Y0tITQ+LS0gcZFhjX0tPuFdLSGOzT0tcSGQ4nGdMn5dLS0tLlG9MVJhPS0trS0vPd3vkWER4nHxwPCxKezgEuHknrKRPmHgkJBunGqe4eTlbm7iwj6+E5Nh4G68QMOTbu7u4RE+7u5jY2FvveHlP2/O7u8QHu7u75TiH+7C5j6+7u7u7u7u7u7k4p/vQuW+7r5OPu4+7u7tZLHu7mLkbhCybm7u7uExHWLjH+2fvk1vl/K/HhOXbh4eb28dQG7u7hC1He7j727u7jAebGESvWRvbu7ubh+UbeFAnZ7u7s5ub+9vYGBgYO4e7xmbOm");
   const v = new Float32Array(bin.length);
   for(let i=0;i<bin.length;i++){ let x = bin.charCodeAt(i); if(x>127) x-=256; v[i]=x/40; }
   return v;
 })();
-const EMPTY_TH = 0.35;
+const EMPTY_TH = 0.85;
 function sigDist(v, ref){
   const L = Math.min(v.length, ref.length);
   let s = 0;
@@ -2213,7 +2214,19 @@ async function camTick(){
       }
       continue;
     }
-    if(best.dark){ if(!s.id) s.diag = {std:best.lum, txt:"sombre — en attente d'éclairage"}; continue; }
+    if(best.dark){
+      if(!s.id){
+        s.diag = {std:best.lum, txt:"sombre — en attente d'éclairage"};
+        // sombre mais PAS le crâne d'une case vide → occupée illisible (ex : first pick adverse
+        // côté assombri) : ❓ après ~3 s pour que l'ordre des picks suivants reste juste.
+        // (lum ≥ 42 : une case vide totalement noyée dans le fond assombri reste ignorée)
+        if(best.lum >= 42 && dEmpty >= EMPTY_TH){
+          s.unkN = (s.unkN||0) + 1;
+          if(!s.unk && s.unkN >= 5) await simPlaceUnknown(s);
+        }
+      }
+      continue;
+    }
     if(best.std > 10) s.content = true; // contenu vu au moins une fois (sert à la détection du first pick)
     const m = best.m;
     // case redevenue vide alors qu'elle est éclairée → le joueur a retiré son pick
@@ -2223,20 +2236,24 @@ async function camTick(){
       continue;
     }
     s.emptyN = 0;
-    if(m.id && m.id !== s.id){
-      // nouveau monstre confiant : immédiat si la case était libre, confirmé 2 fois si c'est un REMPLACEMENT
-      if(!s.id){
-        s.diag = {std:best.lum, txt:`${monCache.get(m.id)?.name || m.best.name} ✔ (d=${m.d1.toFixed(2)}, marge ${Math.round(m.rel*100)}%)`};
+    if(m.id && m.id !== s.id && best.std < 12){
+      // « match confiant » sur un crop quasi uniforme (case beige « à son tour », std ≈ 8) :
+      // refusé — un vrai portrait a toujours std ≥ 12 (mesuré : pire icône assombrie 8.8, nettes ≥ 20)
+      s.diag = {std:best.lum, txt:`? ${monCache.get(m.id)?.name || m.best.name} — contraste trop faible (std ${best.std.toFixed(0)})`};
+      if(!s.id && dEmpty >= EMPTY_TH){
+        s.unkN = (s.unkN||0) + 1;
+        if(!s.unk && s.unkN >= 5) await simPlaceUnknown(s);
+      }
+    }else if(m.id && m.id !== s.id){
+      // nouveau monstre confiant : confirmé sur 2 analyses de suite, pose comme remplacement
+      // (une frame isolée — animation, transition — ne peut plus poser de pick fantôme)
+      s.pendN = (s.pend === m.id) ? (s.pendN||0)+1 : 1;
+      s.pend = m.id;
+      if(s.pendN >= 2){
+        s.diag = {std:best.lum, txt:`${s.id?"remplacé par ":""}${monCache.get(m.id)?.name || m.best.name} ✔ (d=${m.d1.toFixed(2)}, marge ${Math.round(m.rel*100)}%)`};
         await applySlotPick(s, m.id);
       }else{
-        s.pendN = (s.pend === m.id) ? (s.pendN||0)+1 : 1;
-        s.pend = m.id;
-        if(s.pendN >= 2){
-          s.diag = {std:best.lum, txt:`remplacé par ${monCache.get(m.id)?.name || m.best.name} ✔`};
-          await applySlotPick(s, m.id);
-        }else{
-          s.diag = {std:best.lum, txt:`changement en cours ? ${monCache.get(m.id)?.name || m.best.name}…`};
-        }
+        s.diag = {std:best.lum, txt:`${monCache.get(m.id)?.name || m.best.name} ? (confirmation 1/2)`};
       }
     }else if(m.id && m.id === s.id){
       s.pend = null; s.pendN = 0;
