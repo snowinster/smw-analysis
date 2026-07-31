@@ -157,6 +157,35 @@ function completeSlots(){
   }
 }
 
+// ---- boardValid (copie du site) : géométrie 2x2 + isolée, tailles uniformes, miroir ----
+function boardValid(){
+  if(slots.length !== 10) return false;
+  const ws = slots.map(s=>s.box[2]).slice().sort((a,b)=>a-b);
+  const wMed = ws[5];
+  if(ws[0] < wMed*0.82 || ws[9] > wMed*1.22) return false;
+  const tol = wMed*0.4;
+  for(const side of ["A","B"]){
+    const ss = slots.filter(s=>s.side===side);
+    if(ss.length !== 5) return false;
+    const rows = [];
+    for(const s of ss){
+      const r = rows.find(r=>Math.abs(r.y - s.box[1]) < tol);
+      if(r) r.n++; else rows.push({y:s.box[1], n:1});
+    }
+    if(rows.length !== 3) return false;
+    rows.sort((a,b)=>a.y-b.y);
+    if(rows[0].n !== 2 || rows[1].n !== 1 || rows[2].n !== 2) return false;
+    const grid = ss.filter(s=>Math.abs(s.box[1]-rows[1].y) >= tol);
+    const xs = grid.map(s=>s.box[0]).sort((a,b)=>a-b);
+    if(Math.abs(xs[0]-xs[1]) > tol || Math.abs(xs[2]-xs[3]) > tol || xs[2]-xs[1] < wMed*0.7) return false;
+  }
+  for(const s of slots.filter(s=>s.side==="A")){
+    const mx = 2*midX - (s.box[0]+s.box[2]);
+    if(!slots.some(o=>o.side==="B" && Math.abs(o.box[0]-mx) < tol && Math.abs(o.box[1]-s.box[1]) < tol)) return false;
+  }
+  return true;
+}
+
 const onPage = onDraftScreen();
 console.log(`${path.basename(SRC)} : ${W}x${H} · page VS = ${onPage} · midX = ${midX.toFixed(0)}`);
 if(onPage){
@@ -166,7 +195,7 @@ if(onPage){
   for(const b of ports) addSlot(b);
   if(hl) addSlot(hl);
   completeSlots(); completeSlots();
-  console.log(`→ ${slots.length}/10 cases (A=${slots.filter(s=>s.side==="A").length}, B=${slots.filter(s=>s.side==="B").length})`);
+  console.log(`→ ${slots.length}/10 cases (A=${slots.filter(s=>s.side==="A").length}, B=${slots.filter(s=>s.side==="B").length}) · plateau valide (verrouillage) = ${boardValid()}`);
   slots.forEach((s,i)=>console.log(`  #${i} [${s.side}] x=${s.box[0]} y=${s.box[1]} ${s.box[2]}x${s.box[3]}`));
   const out = img.clone();
   const col = (b, rgba) => {

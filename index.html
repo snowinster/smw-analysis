@@ -1598,7 +1598,7 @@ function camRun(boxes){
   cam.manualBoxes = !!boxes;
   cam.fpSet = false; cam.oppTried = false; cam.boxMap = [];
   // machine à états : IDLE (hors page VS) → ACTIVE (page VS confirmée, détection des 10 cases)
-  cam.page = "IDLE"; cam.onN = 0; cam.offN = 0; cam.locked = false;
+  cam.page = "IDLE"; cam.onN = 0; cam.offN = 0; cam.locked = false; cam.acqN = 0;
   liveStatus(boxes ? "🎯 calibration chargée — en attente de l'écran VS…" : "🔎 en attente de l'écran VS…", boxes?true:undefined);
   clearInterval(cam.timer);
   cam.timer = setInterval(camTick, 600);
@@ -1792,6 +1792,41 @@ function completeSlots(f){
     }
   }
 }
+/* le plateau acquis est-il GÉOMÉTRIQUEMENT cohérent ? Exigé AVANT tout verrouillage/lecture.
+   Motif du jeu (constant, seule l'échelle varie avec la fenêtre) : par côté un carré 2x2 aligné
+   + une case isolée à mi-hauteur entre les deux rangées ; tailles uniformes ; les deux côtés
+   en miroir autour de l'emblème VS. Un plateau attrapé en pleine animation ne passe pas. */
+function boardValid(vw){
+  if(cam.slots.length !== 10) return false;
+  const ws = cam.slots.map(s=>s.box[2]).slice().sort((a,b)=>a-b);
+  const wMed = ws[5];
+  if(ws[0] < wMed*0.82 || ws[9] > wMed*1.22) return false; // tailles uniformes
+  const tol = wMed*0.4;
+  const mid = cam.midX || vw/2;
+  for(const side of ["A","B"]){
+    const ss = cam.slots.filter(s=>s.side===side);
+    if(ss.length !== 5) return false;
+    // rangées attendues : 2 (haut du carré) / 1 (case isolée) / 2 (bas du carré)
+    const rows = [];
+    for(const s of ss){
+      const r = rows.find(r=>Math.abs(r.y - s.box[1]) < tol);
+      if(r) r.n++; else rows.push({y:s.box[1], n:1});
+    }
+    if(rows.length !== 3) return false;
+    rows.sort((a,b)=>a.y-b.y);
+    if(rows[0].n !== 2 || rows[1].n !== 1 || rows[2].n !== 2) return false;
+    // colonnes du carré alignées et bien séparées
+    const grid = ss.filter(s=>Math.abs(s.box[1]-rows[1].y) >= tol);
+    const xs = grid.map(s=>s.box[0]).sort((a,b)=>a-b);
+    if(Math.abs(xs[0]-xs[1]) > tol || Math.abs(xs[2]-xs[3]) > tol || xs[2]-xs[1] < wMed*0.7) return false;
+  }
+  // symétrie miroir gauche/droite autour du VS
+  for(const s of cam.slots.filter(s=>s.side==="A")){
+    const mx = 2*mid - (s.box[0]+s.box[2]);
+    if(!cam.slots.some(o=>o.side==="B" && Math.abs(o.box[0]-mx) < tol && Math.abs(o.box[1]-s.box[1]) < tol)) return false;
+  }
+  return true;
+}
 /* ----- carte de la BOX en bas d'écran : icônes reconnues quand elles sont propres,
    puis une coche jaune qui apparaît dessus = pick du joueur identifié par sa position ----- */
 function scanBoxRow(f){
@@ -1940,6 +1975,23 @@ function cropSig(b, cv){
   cam.tctx.drawImage(cam.video, x, y, w, h, 0, 0, SIG_T, SIG_T);
   return sigFromCanvas();
 }
+/* signature du CRÂNE des cases vides (générée par scripts/gen-empty-sig.mjs depuis les captures).
+   La z-norm par canal rend le motif identique quelle que soit la teinte de la case
+   (sombre, beige « à toi de jouer », surbrillance dorée) : distances mesurées ≤ 0.06 pour
+   une case vide, ≥ 1.7 pour un portrait → seuil 0.35 avec une marge énorme des deux côtés. */
+const EMPTY_SIG = (()=>{
+  const bin = atob("JCoxNDk19B0e8SsxMTEoKCUxMTku68sPCtPlJTExKCgoMTkg29PTA/3T09kWMSgoKTE579PT0+bl09PT7jEoKCgxNuXT09PT09PT0+EwKiUuNjXZ09PT09PT09PYKSggKDQj1Oz/1NPT1PvrzxQoHSgO09PhQQ/T0w0+2tPTARgoFtXT0+sN09QP59HT1RAdIzEa1Bfl09PT0+EQ1BIoHdPT2dPT7trc9xoWHCsuMSAjIBEcLDQ8M/QnIvIvMjIyJxoSJzI8N+fSFQ/S5ysyMjIjHDI8JdrS0gsD0tLZIDUuIyAyP/TS0tLr5tLS0vI8MCAlOEPn0tLS0tLS0tLkPDIeIzI/2dLS0tLS0tLS2TAvGSMyKdLyAdTS0tQC7dMcJxgZDtPS4E8Y0tITQ+LS0gcZFhjX0tPuFdLSGOzT0tcSGQ4nGdMn5dLS0tLlG9MVJhPS0trS0vPd3vkWER4nHxwPCxKezgEuHknrKRPmHgkJBunGqe4eTlbm7iwj6+E5Nh4G68QMOTbu7u4RE+7u5jY2FvveHlP2/O7u8QHu7u75TiH+7C5j6+7u7u7u7u7u7k4p/vQuW+7r5OPu4+7u7tZLHu7mLkbhCybm7u7uExHWLjH+2fvk1vl/K/HhOXbh4eb28dQG7u7hC1He7j727u7jAebGESvWRvbu7ubh+UbeFAnZ7u7s5ub+9vYGBgYO4e7xmbOm");
+  const v = new Float32Array(bin.length);
+  for(let i=0;i<bin.length;i++){ let x = bin.charCodeAt(i); if(x>127) x-=256; v[i]=x/40; }
+  return v;
+})();
+const EMPTY_TH = 0.35;
+function sigDist(v, ref){
+  const L = Math.min(v.length, ref.length);
+  let s = 0;
+  for(let i=0;i<L;i++){ const d = v[i]-ref[i]; s += d*d; }
+  return s/L;
+}
 const baseName = n => (n||"").split(" (")[0];
 /* base restreinte aux monstres de la box du joueur (discrimination bien meilleure, surtout côté sombre) */
 function dbForSide(side){
@@ -2002,7 +2054,7 @@ async function camTick(){
   if(cam.page !== "ACTIVE"){
     cam.onN = onPage ? (cam.onN||0) + 1 : 0;
     if(cam.onN >= 2){ // ~1,2 s de confirmation : un écran doré transitoire ne déclenche rien
-      cam.page = "ACTIVE"; cam.offN = 0; cam.locked = false;
+      cam.page = "ACTIVE"; cam.offN = 0; cam.locked = false; cam.acqN = 0;
       if(!cam.manualBoxes) cam.slots = [];
       camLog("▶ page VS confirmée — détection des 10 cases activée");
     }else{
@@ -2014,7 +2066,7 @@ async function camTick(){
     // lecture stoppée IMMÉDIATEMENT ; reset complet après 3 analyses (~1,8 s : laisse passer un fondu/une popup)
     cam.offN = (cam.offN||0) + 1;
     if(cam.offN >= 3){
-      cam.page = "IDLE"; cam.onN = 0; cam.locked = false; cam.lastHl = null;
+      cam.page = "IDLE"; cam.onN = 0; cam.locked = false; cam.lastHl = null; cam.acqN = 0;
       if(cam.manualBoxes) for(const s of cam.slots){ s.id=null; s.diag=null; s.pend=null; s.pendN=0; s.emptyN=0; s.weak=null; s.weakN=0; s.content=false; }
       else cam.slots = [];
       cam.boxMap = []; cam.fpSet = false; cam.oppTried = false;
@@ -2029,13 +2081,24 @@ async function camTick(){
   // surbrillance : simple indice d'appoint (first pick, case manquante) — jamais un déclencheur
   if(!cam.locked || !cam.fpSet) cam.lastHl = detectHighlight(f);
   else cam.lastHl = null; // plateau verrouillé + FP connu : plus besoin d'elle (évite un cadre jaune figé)
-  // acquisition des 10 cases dès l'entrée sur la page (cadres vides compris), puis verrouillage
+  // acquisition des 10 cases dès l'entrée sur la page (cadres vides compris), puis verrouillage.
+  // AUCUNE lecture de contenu tant que la géométrie n'est pas validée par boardValid :
+  // un plateau attrapé en pleine animation ne peut plus figer des cadres faux ni poser de picks.
   if(!cam.manualBoxes && !cam.locked){
     for(const b of detectEmptySlots(f)) addSlot(b, f.W);
     for(const b of detectPortraits(f)) addSlot(b, f.W);
     if(cam.lastHl) addSlot(cam.lastHl, f.W);
     completeSlots(f); // reconstruit les cases manquantes : miroir autour du VS + coins des carrés 2x2
-    if(cam.slots.length >= 10){ cam.locked = true; camLog("🔒 plateau verrouillé : 10 cases cadrées"); }
+    if(boardValid(f.W)){
+      cam.locked = true; cam.acqN = 0;
+      camLog("🔒 plateau verrouillé : 10 cases cohérentes (2x2 + isolée, symétriques)");
+    }else{
+      cam.acqN = (cam.acqN||0) + 1;
+      if(cam.acqN >= 8){ cam.slots = []; cam.acqN = 0; camLog("↻ cadrage incohérent — nouvelle acquisition"); } // ~5 s sans converger : on repart de zéro
+      liveStatus(`🎥 page VS active — cadrage du plateau… ${cam.slots.length}/10 cases`);
+      camPreview();
+      return;
+    }
   }
   // détection du first pick :
   // règle 1 : surbrillance vue alors que le plateau est entièrement vide → ce côté ouvre la draft
@@ -2056,16 +2119,29 @@ async function camTick(){
   // lecture du pseudo adverse (une fois, si aucun adversaire renseigné)
   if(!cam.oppTried && !simState.b && cam.slots.length){ cam.oppTried = true; camFindOpponent().catch(()=>{}); }
   for(const s of cam.slots){
-    let best = null;
+    let best = null, dEmpty = 1e9;
     const sdb = dbForSide(s.side);
     const lumMin = sdb !== cam.db ? 33 : 55; // base restreinte à la box → cases plus sombres lisibles
     for(const cv of SIG_CROPS){
       const {v, lum, std, hue} = cropSig(s.box, cv);
+      dEmpty = Math.min(dEmpty, sigDist(v, EMPTY_SIG)); // ressemblance au crâne des cases vides
       if(lum < lumMin){ if(!best) best = {dark:true, lum}; continue; }
       const m = camMatchSig(v, sdb, hue);
       if(!best || best.dark || m.rel > (best.m?.rel ?? -1)) best = {m, lum, std};
     }
     if(!best) continue;
+    // emblème crâne reconnu → case certifiée VIDE (sombre, beige « à ton tour » ou surbrillance) :
+    // aucun match possible dessus, et sert de détection de retrait même quand la case est éclairée
+    if(dEmpty < EMPTY_TH){
+      if(s.id){
+        s.emptyN = (s.emptyN||0) + 1;
+        if(s.emptyN >= 2){ s.diag = {std:best.lum, txt:"pick retiré (case vide)"}; await applySlotPick(s, null); }
+      }else{
+        s.diag = {std:best.lum, txt:`case vide (crâne, d=${dEmpty.toFixed(2)})`};
+        s.weak = null; s.weakN = 0; s.pend = null; s.pendN = 0;
+      }
+      continue;
+    }
     if(best.dark){ if(!s.id) s.diag = {std:best.lum, txt:"sombre — en attente d'éclairage"}; continue; }
     if(best.std > 10) s.content = true; // contenu vu au moins une fois (sert à la détection du first pick)
     const m = best.m;
