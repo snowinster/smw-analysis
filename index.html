@@ -2515,27 +2515,43 @@ async function camFindOpponent(){
       (txt.match(/[\p{L}\p{N}_\-\.]{3,}/gu) || []).sort((a,b)=>b.length-a.length)[0]
     ])].filter(x=>x && x.length >= 2 && /\p{L}/u.test(x)); // ≥ 2 caractères ET au moins une lettre
     // (« 240% » lu dans un popup de stats passait la recherche et verrouillait un mauvais joueur)
-    for(const q of cands){
-      const r = await api("/player/search/" + encodeURIComponent(q)).catch(()=>({data:[]}));
-      if(r.data?.length){
-        const p = r.data[0];
-        // confirmation sur 2 lectures OCR distinctes : un texte transitoire (popup, animation)
-        // ne peut pas verrouiller un mauvais joueur ; le vrai pseudo, lui, se relit à l'identique
-        if(cam.oppCand !== p.id){
-          cam.oppCand = p.id;
-          camLog(`🕐 candidat adversaire : ${p.wizard_name} (confirmation 1/2)`);
-          return;
-        }
-        liveStatus("🎯 adversaire identifié : " + p.wizard_name, true);
-        camLog(`🎯 adversaire identifié : ${p.wizard_name} → box restreinte activée`);
-        cam.ocrSetB = true; // posé par l'OCR : sera remis à zéro au prochain combat
-        simState.b = p.id; simState.boxB = null;
-        renderSim();
-        simState.boxB = await loadSimBox(p.id);
-        renderSim();
+    // confirmation sur 2 lectures OCR distinctes : un texte transitoire (popup, animation)
+    // ne peut pas verrouiller un mauvais joueur ; le vrai pseudo, lui, se relit à l'identique
+    const accept = async p => {
+      if(cam.oppCand !== p.id){
+        cam.oppCand = p.id;
+        camLog(`🕐 candidat adversaire : ${p.wizard_name} (confirmation 1/2)`);
         return;
       }
+      liveStatus("🎯 adversaire identifié : " + p.wizard_name, true);
+      camLog(`🎯 adversaire identifié : ${p.wizard_name} → box restreinte activée`);
+      cam.ocrSetB = true; // posé par l'OCR : sera remis à zéro au prochain combat
+      simState.b = p.id; simState.boxB = null;
+      renderSim();
+      simState.boxB = await loadSimBox(p.id);
+      renderSim();
+    };
+    // variantes de CONFUSABLES : dans la police du jeu I majuscule et l minuscule sont
+    // identiques (« JasonIIIX » lu pour « JasonlllX »), pareil pour O/0
+    const variants = [...new Set(cands.flatMap(q =>
+      [q, q.replace(/I/g,"l"), q.replace(/l/g,"I"), q.replace(/[Il1]/g,"l"), q.replace(/0/g,"O"), q.replace(/O/g,"0")]))];
+    for(const q of variants){
+      const r = await api("/player/search/" + encodeURIComponent(q)).catch(()=>({data:[]}));
+      if(r.data?.length){ await accept(r.data[0]); return; }
     }
+    // repli : recherche par PRÉFIXE puis rapprochement en normalisant les confusables
+    const norm = x => (x||"").toLowerCase().replace(/[il1|!]/g,"l").replace(/[o0]/g,"o").replace(/[^\p{L}\p{N}]/gu,"");
+    const base = cands[0];
+    if(base && base.length >= 5){
+      for(const cut of [6, 4]){
+        const q = base.slice(0, cut);
+        if(q.length < 3 || !/\p{L}/u.test(q)) continue;
+        const r = await api("/player/search/" + encodeURIComponent(q)).catch(()=>({data:[]}));
+        const hit = (r.data||[]).find(p => cands.some(c => norm(p.wizard_name) === norm(c)));
+        if(hit){ await accept(hit); return; }
+      }
+    }
+    camLog(`🚫 « ${txt} » introuvable dans les données — tape le pseudo dans le champ Adversaire si besoin`);
   }catch(e){}
 }
 function camManual(){
