@@ -3343,7 +3343,18 @@ function wireSuggDrag(){
     el.style.left = x + "px"; el.style.top = y + "px"; el.style.right = "auto";
     el.style.maxHeight = (window.innerHeight - y - 16) + "px";
   };
-  try{ apply(JSON.parse(localStorage.getItem("simSuggPos_v1"))); }catch(e){}
+  let saved = null;
+  try{ saved = JSON.parse(localStorage.getItem("simSuggPos_v1")); }catch(e){}
+  if(saved) apply(saved);
+  else{
+    // défaut : EXACTEMENT la même hauteur que les blocs joueur/adversaire
+    const side = document.querySelector(".sim-side");
+    if(side){
+      const t = Math.max(70, Math.round(side.getBoundingClientRect().top));
+      el.style.top = t + "px";
+      el.style.maxHeight = (window.innerHeight - t - 16) + "px";
+    }
+  }
   if(el.querySelector(".sugg-handle")) return; // poignée déjà en place
   const h = document.createElement("div");
   h.className = "sugg-handle";
