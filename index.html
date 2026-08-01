@@ -220,10 +220,20 @@ td.best{color:var(--win);font-weight:800}
 .mon-click:hover{outline:2px solid var(--accent);outline-offset:1px;border-radius:8px}
 .foot-note{margin-top:40px;font-size:12.5px;color:var(--muted);text-align:center}
 @media (min-width:1560px){
-  #simSugg{position:fixed;right:16px;top:300px;width:410px;max-height:calc(100vh - 320px);overflow-y:auto;z-index:40;scrollbar-width:thin;
+  #simSugg{position:fixed;right:16px;top:300px;width:430px;max-height:calc(100vh - 320px);overflow-y:auto;z-index:40;scrollbar-width:thin;
     background:var(--bg2);border:1px solid var(--border);border-radius:14px;padding:10px;box-shadow:0 10px 34px rgba(0,0,0,.55)}
   #simSugg .panel{margin-bottom:10px}
-  #simBoard{margin-right:436px}
+  #simBoard{margin-right:456px}
+  /* colonne étroite : les deux sections s'EMPILENT au lieu d'être côte à côte */
+  #simSugg .two-col{grid-template-columns:1fr;gap:12px}
+  #simSugg h2{font-size:14.5px;margin:2px 0 8px}
+  #simSugg h2 .muted{display:none} /* les sous-titres explicatifs encombrent la colonne */
+  /* rangées compactes : détail sur UNE ligne en ellipse (le détail complet reste au survol) */
+  #simSugg .sugg{padding:6px 6px;gap:8px}
+  #simSugg .sugg .sg-n{min-width:0}
+  #simSugg .sugg .sg-n .sub{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block}
+  #simSugg .inbox-badge,#simSugg .ban-badge{font-size:10px;padding:1px 5px}
+  #simSugg .note{font-size:11.5px}
 }
 .sugg-handle{cursor:grab;user-select:none;background:var(--card);border:1px solid var(--border);border-radius:10px;padding:7px 12px;font-weight:700;font-size:13px;margin-bottom:8px}
 .sugg-handle:active{cursor:grabbing}
@@ -3151,7 +3161,7 @@ async function renderSim(){
       : `Ta box contre ses picks <span class="muted" style="font-size:12px;font-weight:400">(chaque monstre seul, WR moyen face à l'ensemble de sa draft - les duos sont à droite)</span>`;
     boxPanelRows = boxVs.length ? boxVs.map((c,i)=>
       `<div class="sugg${i>=5?" hid":""}" draggable="true" data-drag-id="${c.id}" onclick="simPick(${c.id},'A')"
-        title="Score = matchups ajustés au volume (les non-mesurés comptent au niveau de base du monstre)${c.myFit!=null?" + 25 % de synergie avec tes picks":""}${c.banRate>=0.15?" − pénalité de ban":""}">
+        title="${c.det.join(" · ")}${c.myFit!=null?` · synergie picks ${pct(c.myFit)}`:""} — score ajusté au volume${c.banRate>=0.15?", pénalité de ban":""}">
         <img src="${monImg(c.img)}" loading="lazy"><div class="sg-n">${esc(c.name)} ${c.delta>=0.03?`<span class="inbox-badge" title="Gagne ${(c.delta*100).toFixed(0)} pts de plus contre cette draft que son winrate habituel">🎯 counter +${(c.delta*100).toFixed(0)} pts</span>`:""} ${c.banRate!=null && c.banRate>=0.15 ? `<span class="ban-badge">🚫 souvent banni (${pct(c.banRate,0)})</span>` : ""}
           <div class="sub">${elemTag(c.element)} · mesuré ${c.cover}/${enemyPicks.length} pick${enemyPicks.length>1?"s":""} · ${c.det.join(" · ")}${c.myFit!=null?` · synergie picks ${pct(c.myFit)}`:""} · perso : ${c.myWr!=null?pct(c.myWr):"-"} (${c.myPlays} parties)</div></div>
         <span class="sg-wr" style="color:${c.avg>=0.5?'var(--win)':'var(--lose)'}">${pct(c.avg)}</span></div>`).join("") + moreBtn(boxVs.length)
@@ -3202,7 +3212,7 @@ async function renderSim(){
     </div>
     <div><h2>${(()=>{const t=simState.picksA.length+simState.picksB.length; const q=simSeq(); return q[t]==="A"&&q[t+1]==="A" ? "🎯 Tu dois picker 2 - duos conseillés" : "Duos conseillés";})()} <span class="muted" style="font-size:12px;font-weight:400">(meilleure chance de win : counter + synergie${duosFromBox?", pris dans ta box":" - box trop limitée, duos globaux"})</span></h2>
       <div class="panel">${duos.length ? duos.map((d,i)=>
-        `<div class="sugg${i>=5?" hid":""}" onclick="simPickDuo(${d.c1.id},${d.c2.id})" title="Picker les deux monstres">
+        `<div class="sugg${i>=5?" hid":""}" onclick="simPickDuo(${d.c1.id},${d.c2.id})" title="Picker les deux · ${pct(d.vs)} vs picks adverses · ${pct(d.tog)} ensemble (${num(d.nTog)} parties)">
           <img src="${monImg(d.c1.img)}" loading="lazy" class="mon-click" draggable="true" data-drag-id="${d.c1.id}" title="Picker uniquement ${esc(d.c1.name)}" onclick="event.stopPropagation();simPick(${d.c1.id},'A')">
           <span style="color:var(--muted);font-weight:800">+</span>
           <img src="${monImg(d.c2.img)}" loading="lazy" class="mon-click" draggable="true" data-drag-id="${d.c2.id}" title="Picker uniquement ${esc(d.c2.name)}" onclick="event.stopPropagation();simPick(${d.c2.id},'A')">
