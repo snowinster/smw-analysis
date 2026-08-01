@@ -1600,6 +1600,12 @@ async function camStart(){
   const t = document.createElement("canvas"); t.width = 16; t.height = 16;
   cam.tctx = t.getContext("2d", {willReadFrequently:true});
   cam.stream.getVideoTracks()[0].addEventListener("ended", liveOff);
+  // préchauffage OCR : script + worker + langue latine chargés pendant qu'on attend une draft
+  // (le 1er essai réel part à chaud au lieu de payer 1-3 s de mise en route)
+  loadOCR().then(async ok => {
+    if(!ok || cam.ocrW) return;
+    try{ cam.ocrW = { w: await Tesseract.createWorker("eng"), langs: "eng" }; }catch(e){}
+  });
   const key = cam.video.videoWidth + "x" + cam.video.videoHeight;
   let saved = {};
   try{ saved = JSON.parse(localStorage.getItem("camCalib_v1")) || {}; }catch(e){}
@@ -2192,7 +2198,7 @@ async function camTick(){
       // écran d'APPARIEMENT : on en profite pour lire le pseudo adverse EN AVANCE
       // (OCR uniquement — aucune détection de cases tant que le plateau n'est pas là)
       if(!simState.b && cam.db && onMatchupScreen(f)
-         && (cam.oppTry?.n||0) < 10 && (!cam.oppTry || Date.now()-cam.oppTry.t > 5000)){
+         && (cam.oppTry?.n||0) < 10 && (!cam.oppTry || Date.now()-cam.oppTry.t > 2500)){
         cam.oppTry = {t: Date.now(), n: (cam.oppTry?.n||0)+1};
         camFindOpponent().catch(()=>{});
         liveStatus("🔎 écran d'appariement — lecture du pseudo adverse…");
@@ -2674,8 +2680,8 @@ async function camFindOpponent(){
       const pn = norm(p.wizard_name);
       return refsN.some(cn => pn === cn || (cn.length >= 4 && Math.abs(pn.length - cn.length) <= 2 && (pn.includes(cn) || cn.includes(pn))));
     });
-    for(const q of variants){
-      const r = await api("/player/search/" + encodeURIComponent(q)).catch(()=>({data:[]}));
+    const rs = await Promise.all(variants.map(q => api("/player/search/" + encodeURIComponent(q)).catch(()=>({data:[]}))));
+    for(const r of rs){
       const hit = goodHit(r.data);
       if(hit){ await accept(hit); return; }
     }
