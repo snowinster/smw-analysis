@@ -39,6 +39,15 @@ function onDraftScreen(){
     n++;
   }
   if(gold/n < 0.008) return false;
+  // compte à rebours au-dessus du VS (absent de l'écran d'appariement)
+  const midG = sx/gold;
+  let tmr = 0;
+  for(let y = Math.floor(H*0.12); y < H*0.32; y += 2) for(let x = Math.floor(midG - W*0.055); x < midG + W*0.055; x += 2){
+    const i = (y*W+x)*4;
+    if(Math.min(d[i], d[i+1], d[i+2]) > 150 || (d[i] > 200 && d[i+1] < 120 && d[i+2] < 120)) tmr++;
+  }
+  console.log("  pixels compte à rebours :", tmr, tmr >= 12 ? "✓" : "✗ PORTE FERMÉE");
+  if(tmr < 12) return false;
   let stripFound = false;
   for(let y = Math.floor(H*0.45); y < H*0.72 && !stripFound; y += 3){
     let lum = 0, m2 = 0;

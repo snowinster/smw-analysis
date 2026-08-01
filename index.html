@@ -1651,6 +1651,16 @@ function onDraftScreen(f){
   }
   if(gold/n < 0.008) return false;
   cam.goldLum = gl/gold; // luminosité de l'emblème = référence d'EXPOSITION de la frame (nominal ≈ 168)
+  const midG = sx/gold;
+  // COMPTE À REBOURS blanc au-dessus du VS : présent pendant TOUTE la draft (picks et bans),
+  // absent de l'écran d'APPARIEMENT (2 pseudos + photos de profil) qui possède par ailleurs
+  // les mêmes ancres — c'était lui qui verrouillait des cadres et posait des picks fantômes
+  let tmr = 0;
+  for(let y = Math.floor(H*0.12); y < H*0.32; y += 2) for(let x = Math.floor(midG - W*0.055); x < midG + W*0.055; x += 2){
+    const i = (y*W+x)*4;
+    if(Math.min(d[i], d[i+1], d[i+2]) > 150 || (d[i] > 200 && d[i+1] < 120 && d[i+2] < 120)) tmr++; // chiffres blancs (ou rouges en fin de temps)
+  }
+  if(tmr < 12) return false;
   // signature propre aux écrans de draft : la bande NOIRE des pseudos sous le plateau
   // (absente du menu Arène World, des combats et des autres écrans dorés)
   let stripFound = false;
