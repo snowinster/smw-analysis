@@ -103,7 +103,7 @@ for(const s of [latest, latest - 1]){
 // accents…) est fait côté client, source unique de vérité.
 async function buildPlayerNames(season){
   const players = [], seen = new Set();
-  const PAGE = 500, MAX = 25000;
+  const PAGE = 500, MAX = 35000;
   for(let off = 0; off < MAX; off += PAGE){
     let rows = null;
     for(let attempt = 0; attempt < 2 && !rows; attempt++){
