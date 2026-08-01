@@ -238,8 +238,8 @@ td.best{color:var(--win);font-weight:800}
   #simSugg{overflow-x:hidden}
   #simSugg .sugg{padding:6px 6px;gap:8px;flex-wrap:nowrap}
   #simSugg .sugg .sg-n{min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
-  #simSugg .sugg .sg-n .sub{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block}
-  #simSugg .sugg .sg-wr{flex:none;padding-left:4px}
+  #simSugg .sugg .sg-n .sub{white-space:normal;display:block;line-height:1.45}
+  #simSugg .sugg .sg-wr{flex:none;padding-left:6px;font-size:15px}
   #simSugg .sugg img{flex:none}
   #simSugg .inbox-badge,#simSugg .ban-badge{font-size:10px;padding:1px 5px}
   #simSugg .note{font-size:11.5px}
@@ -3170,7 +3170,7 @@ async function renderSim(){
       `<div class="sugg${i>=5?" hid":""}" draggable="true" data-drag-id="${c.id}" onclick="simPick(${c.id},'A')"
         title="${c.det.join(" · ")}${c.myFit!=null?` · synergie picks ${pct(c.myFit)}`:""} — score ajusté au volume${c.banRate>=0.15?", pénalité de ban":""}">
         <img src="${monImg(c.img)}" loading="lazy"><div class="sg-n">${esc(c.name)} ${c.delta>=0.03?`<span class="inbox-badge" title="Gagne ${(c.delta*100).toFixed(0)} pts de plus contre cette draft que son winrate habituel">🎯 counter +${(c.delta*100).toFixed(0)} pts</span>`:""} ${c.banRate!=null && c.banRate>=0.15 ? `<span class="ban-badge">🚫 souvent banni (${pct(c.banRate,0)})</span>` : ""}
-          <div class="sub">${elemTag(c.element)} · mesuré ${c.cover}/${enemyPicks.length} pick${enemyPicks.length>1?"s":""} · ${c.det.join(" · ")}${c.myFit!=null?` · synergie picks ${pct(c.myFit)}`:""} · perso : ${c.myWr!=null?pct(c.myWr):"-"} (${c.myPlays} parties)</div></div>
+          <div class="sub">mesuré ${c.cover}/${enemyPicks.length} pick${enemyPicks.length>1?"s":""} · ${c.det.join(" · ")}${c.myFit!=null?` · synergie picks ${pct(c.myFit)}`:""} · perso : ${c.myWr!=null?pct(c.myWr):"-"} (${c.myPlays} parties)</div></div>
         <span class="sg-wr" style="color:${c.avg>=0.5?'var(--win)':'var(--lose)'}">${pct(c.avg)}</span></div>`).join("") + moreBtn(boxVs.length)
       : '<div class="muted">Pas assez de données de matchup pour les monstres de ta box contre ces picks.</div>';
     if(lastPick && myPicks.length){
