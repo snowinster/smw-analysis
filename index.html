@@ -2395,7 +2395,10 @@ async function camTick(){
     }else if(!s.id){
       // acceptation par STABILITÉ : match faible mais identique 3 analyses de suite → validé
       // (std ≥ 12 : une case vide — crâne, std ≈ 4-8 même en surbrillance — ne peut jamais passer ici)
-      if(m.best && m.rel >= 0.16 && m.d1 <= 1.3 && best.std*g >= 12){
+      // Base RESTREINTE : un « frère de box » visuellement proche serre la marge en permanence
+      // (Haegang bloqué à 13 %, Lucifer à 15 % sur plusieurs parties) → dès 8 % si d ≤ 0.9
+      if(m.best && m.d1 <= 1.3 && best.std*g >= 12
+         && (m.rel >= 0.16 || (sdb !== cam.db && m.rel >= 0.08 && m.d1 <= 0.9))){
         s.weakN = (s.weak === m.best.id) ? (s.weakN||0)+1 : 1;
         s.weak = m.best.id;
         if(s.weakN >= 3){
