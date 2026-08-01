@@ -112,6 +112,9 @@ tr.clickable:hover{background:var(--card2)}
 .picks{display:flex;gap:6px;flex-wrap:wrap}
 .pick{position:relative;width:48px;height:48px}
 .pick img{width:46px;height:46px;border-radius:9px;background:var(--bg2);display:block}
+.sim-side .picks{display:grid;grid-template-columns:repeat(8,1fr);gap:8px}
+.sim-side .pick{width:100%;height:auto;aspect-ratio:1/1}
+.sim-side .pick img{width:100%;height:100%;object-fit:cover}
 .pick.banned img{filter:grayscale(1) brightness(.45)}
 .pick.banned::after{content:"✕";position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--lose);font-size:22px;font-weight:900}
 .pick.leader::before{content:"★";position:absolute;top:-7px;left:-4px;color:var(--gold);font-size:14px;z-index:2;text-shadow:0 1px 3px #000}
@@ -3339,8 +3342,17 @@ function wireSuggDrag(){
   const side = document.querySelector(".sim-side");
   const mainEl = document.querySelector("main");
   if(side && mainEl){
-    const t = Math.round(side.getBoundingClientRect().top - mainEl.getBoundingClientRect().top);
+    const mTop = mainEl.getBoundingClientRect().top;
+    const t = Math.round(side.getBoundingClientRect().top - mTop);
     el.style.top = Math.max(0, t) + "px";
+    // les blocs joueur/adversaire s'étirent jusqu'au bas du panneau conseils
+    requestAnimationFrame(()=>{
+      const bottom = el.offsetTop + el.offsetHeight;
+      document.querySelectorAll(".sim-side").forEach(sd=>{
+        const sTop = sd.getBoundingClientRect().top - mainEl.getBoundingClientRect().top;
+        sd.style.minHeight = Math.max(0, Math.round(bottom - sTop) - 10) + "px";
+      });
+    });
   }
 }
 function wireSimAdd(){
