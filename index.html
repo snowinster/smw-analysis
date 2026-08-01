@@ -41,7 +41,7 @@ nav a.navlink:hover,nav a.navlink.active{color:var(--text);background:var(--card
 .search-results img{width:30px;height:30px;border-radius:6px;object-fit:cover;background:var(--bg2)}
 
 /* ---------- Layout ---------- */
-main{max-width:1750px;margin:0 auto;padding:28px 20px 80px}
+main{max-width:1750px;margin:0 auto;padding:28px 20px 80px;position:relative}
 h1{font-size:26px;margin-bottom:18px}
 h2{font-size:18px;margin:26px 0 12px;color:var(--text)}
 .muted{color:var(--muted)}
@@ -225,7 +225,7 @@ td.best{color:var(--win);font-weight:800}
 .mon-click:hover{outline:2px solid var(--accent);outline-offset:1px;border-radius:8px}
 .foot-note{margin-top:40px;font-size:12.5px;color:var(--muted);text-align:center}
 @media (min-width:1560px){
-  #simSugg{position:fixed;right:16px;top:380px;width:430px;max-height:calc(100vh - 396px);overflow-y:auto;z-index:40;scrollbar-width:thin;scrollbar-color:var(--border) transparent;
+  #simSugg{position:absolute;right:20px;top:340px;width:430px;z-index:40;scrollbar-width:thin;scrollbar-color:var(--border) transparent;
     background:var(--bg2);border:1px solid var(--border);border-radius:14px;padding:10px;box-shadow:0 10px 34px rgba(0,0,0,.55)}
   #simSugg .panel{margin-bottom:10px}
   #simBoard{margin-right:446px}
@@ -3340,22 +3340,16 @@ function showMore(btn){
 }
 const moreBtn = n => n>5 ? `<button class="btn more-btn" onclick="showMore(this)">▼ Voir les 5 suivants</button>` : "";
 /* panneau conseils : fixe, calé automatiquement à la même hauteur que les blocs joueurs */
+/* panneau conseils : DANS la page (scrolle avec elle), à droite du contenu,
+   aligné en haut avec les blocs joueur/adversaire */
 function wireSuggDrag(){
   const el = document.getElementById("simSugg");
   if(!el || window.innerWidth < 1560) return;
   const side = document.querySelector(".sim-side");
-  if(side){
-    const t = Math.max(70, Math.round(side.getBoundingClientRect().top));
-    el.style.top = t + "px";
-    el.style.maxHeight = (window.innerHeight - t - 16) + "px";
-  }
-  // bord droit aligné sur le CONTENU (même limite que la barre de filtres) : le panneau ne
-  // dépasse plus, et se rapproche d'autant du bloc Adversaire
   const mainEl = document.querySelector("main");
-  if(mainEl){
-    const r = mainEl.getBoundingClientRect();
-    el.style.left = Math.round(r.right - 20 - el.offsetWidth) + "px";
-    el.style.right = "auto";
+  if(side && mainEl){
+    const t = Math.round(side.getBoundingClientRect().top - mainEl.getBoundingClientRect().top);
+    el.style.top = Math.max(0, t) + "px";
   }
 }
 function wireSimAdd(){
