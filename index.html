@@ -2423,6 +2423,20 @@ async function camTick(){
       }
       continue;
     }
+    // case PLATE (côté profondément assombri : intérieur ≈ fond, crâne écrasé) : le z-norm
+    // n'amplifie plus que du bruit (dEmpty explose, « ? Carlos ») et le gain gonfle ce bruit
+    // au-dessus des seuils → on tranche au CONTRASTE BRUT : vide mesuré ≈ 4, pire portrait
+    // assombri ≥ 8.8. Une case plate est VIDE de fait : ni match, ni ❓ (et un ❓ posé est retiré).
+    if(!s.id && !best.dark && best.std < 6){
+      if(s.unk){
+        s.emptyN = (s.emptyN||0) + 1;
+        if(s.emptyN >= 2) await applySlotPick(s, null);
+      }else{
+        s.diag = {std:best.lum, txt:"vide (plate — côté assombri)"};
+        s.weak = null; s.weakN = 0; s.unkN = 0;
+      }
+      continue;
+    }
     if(best.dark){
       if(!s.id){
         s.diag = {std:best.lum, txt:"sombre — en attente d'éclairage"};
