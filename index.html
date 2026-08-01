@@ -2167,7 +2167,7 @@ function camMatchSig(v, db, hue, hue4, restricted){
   const rel = (d2 - d1) / (d1 + 1e-6);
   // base restreinte à la box → seuils adaptés (on peut accepter des cases plus sombres)
   const ok = restricted ? (d1 <= 1.25 && rel >= 0.30) : (d1 <= 1.0 && rel >= 0.25);
-  return { id: ok ? e1.id : null, best: e1, d1, rel, restricted };
+  return { id: ok ? e1.id : null, best: e1, e2, d2, d1, rel, restricted };
 }
 /* match box restreinte + repli base COMPLÈTE : un monstre joué pour la PREMIÈRE fois n'est pas
    dans la box RTA de l'adversaire — la base complète le récupère si elle est NETTEMENT meilleure
@@ -2460,7 +2460,7 @@ async function camTick(){
       }
     }else if(m.id && m.id === s.id){
       s.pend = null; s.pendN = 0;
-      s.diag = {std:best.lum, txt:`${monCache.get(m.id)?.name || m.best.name} ✔ (d=${m.d1.toFixed(2)}, marge ${Math.round(m.rel*100)}%)`};
+      s.diag = {std:best.lum, txt:`${monCache.get(m.id)?.name || m.best.name} ✔ (d=${m.d1.toFixed(2)}, marge ${Math.round(m.rel*100)}%${m.e2?`, 2e ${m.e2.name}`:""})`};
     }else if(!s.id){
       // acceptation par STABILITÉ : match faible mais identique 3 analyses de suite → validé
       // (std ≥ 12 : une case vide — crâne, std ≈ 4-8 même en surbrillance — ne peut jamais passer ici)
