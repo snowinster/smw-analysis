@@ -2122,8 +2122,9 @@ function dbForSide(side){
   }
   return cam.dbSub[side].arr.length ? cam.dbSub[side].arr : cam.db;
 }
-function camMatchSig(v, db, hue, hue4){
+function camMatchSig(v, db, hue, hue4, restricted){
   db = db || cam.db;
+  if(restricted === undefined) restricted = db !== cam.db;
   let d1 = 1e9, d2 = 1e9, e1 = null, e2 = null;
   for(const e of db){
     let s = 0;
@@ -2156,7 +2157,6 @@ function camMatchSig(v, db, hue, hue4){
     }
   }
   const rel = (d2 - d1) / (d1 + 1e-6);
-  const restricted = db !== cam.db;
   // base restreinte à la box → seuils adaptés (on peut accepter des cases plus sombres)
   const ok = restricted ? (d1 <= 1.25 && rel >= 0.30) : (d1 <= 1.0 && rel >= 0.25);
   return { id: ok ? e1.id : null, best: e1, d1, rel, restricted };
@@ -2165,10 +2165,11 @@ function camMatchSig(v, db, hue, hue4){
    dans la box RTA de l'adversaire — la base complète le récupère si elle est NETTEMENT meilleure
    (sinon la box gagne : ses marges sont bien plus fiables). Le repli est marqué offBox pour
    exiger la vraie lumière (règle des 882 candidats) et l'afficher dans le diagnostic. */
-function camMatch2(v, sdb, hue, hue4){
-  const m = camMatchSig(v, sdb, hue, hue4);
-  if(sdb === cam.db) return m;
-  const mf = camMatchSig(v, cam.db, hue, hue4);
+function camMatch2(v, sdb, hue, hue4, fdb, fromBox){
+  if(fromBox === undefined) fromBox = sdb !== cam.db;
+  const m = camMatchSig(v, sdb, hue, hue4, fromBox);
+  if(!fromBox) return m;
+  const mf = camMatchSig(v, fdb || cam.db, hue, hue4, false);
   if(!mf.id) return m;
   if(!m.id || m.d1 > 0.9){
     // la box ne reconnaît rien de convaincant ET la base complète est très sûre
@@ -2356,14 +2357,24 @@ async function camTick(){
   })();
   for(const s of cam.slots){
     let best = null, dEmpty = 1e9;
-    const sdb = dbForSide(s.side);
+    // règle RTA : un monstre déjà posé ailleurs (sim ou cases) ne peut PAS être ici → exclu
+    // des candidats. Débloque les marges serrées par un « frère » déjà pické (Haegang à 7%),
+    // et la discrimination s'améliore mécaniquement au fil de la draft.
+    const takenIds = new Set();
+    for(const p of [...simState.picksA, ...simState.picksB]) if(p.id) takenIds.add(p.id);
+    for(const o of cam.slots) if(o !== s && o.id) takenIds.add(o.id);
+    takenIds.delete(s.id);
+    const sdbAll = dbForSide(s.side);
+    const fromBox = sdbAll !== cam.db;
+    const sdb = takenIds.size ? sdbAll.filter(e=>!takenIds.has(e.id)) : sdbAll;
+    const fdb = fromBox && takenIds.size ? cam.db.filter(e=>!takenIds.has(e.id)) : null;
     const g = gain * sg[s.side]; // compensation totale : fenêtre grisée x côté assombri
-    const lumMin = sdb !== cam.db ? 33 : 55; // base restreinte à la box → cases plus sombres lisibles
+    const lumMin = fromBox ? 33 : 55; // base restreinte à la box → cases plus sombres lisibles
     for(const cv of SIG_CROPS){
       const {v, lum, std, hue, hue4} = cropSig(s.box, cv);
       dEmpty = Math.min(dEmpty, sigDist(v, EMPTY_SIG), cam.emptyLearned ? sigDist(v, cam.emptyLearned) : 1e9); // ressemblance au crâne (référence + modèle appris)
       if(lum*g < lumMin){ if(!best) best = {dark:true, lum}; continue; }
-      const m = camMatch2(v, sdb, hue, hue4);
+      const m = camMatch2(v, sdb, hue, hue4, fdb, fromBox);
       if(!best || best.dark || m.rel > (best.m?.rel ?? -1)) best = {m, lum, std};
     }
     if(!best) continue;
@@ -2402,7 +2413,7 @@ async function camTick(){
     // (côté grisé) matche « confiant » mais FAUX contre les 882 icônes de la base complète
     // (cas Hanra/Hrungnir) → ❓ en attendant que le côté se rallume ; la base restreinte à la
     // box adverse tolère bien plus sombre. Aucune pose/retrait/remplacement sur lecture sombre.
-    const trusted = best.lum >= ((sdb !== cam.db && !m?.offBox) ? 30 : 50); // repli hors-box = décision à 882 candidats → vraie lumière exigée
+    const trusted = best.lum >= ((fromBox && !m?.offBox) ? 30 : 50); // repli hors-box = décision à 882 candidats → vraie lumière exigée
     if(!trusted){
       if(!s.id){
         s.diag = {std:best.lum, txt:`🌒 trop sombre pour identifier${m.best?` (${m.best.name} ?)`:""} — clique le ❓ pour saisir`};
@@ -2448,7 +2459,7 @@ async function camTick(){
       // Base RESTREINTE : un « frère de box » visuellement proche serre la marge en permanence
       // (Haegang bloqué à 13 %, Lucifer à 15 % sur plusieurs parties) → dès 8 % si d ≤ 0.9
       if(m.best && m.d1 <= 1.3 && best.std*g >= 12
-         && (m.rel >= 0.16 || (sdb !== cam.db && m.rel >= 0.08 && m.d1 <= 0.9))){
+         && (m.rel >= 0.16 || (fromBox && m.rel >= 0.08 && m.d1 <= 0.9))){
         s.weakN = (s.weak === m.best.id) ? (s.weakN||0)+1 : 1;
         s.weak = m.best.id;
         if(s.weakN >= 3){
