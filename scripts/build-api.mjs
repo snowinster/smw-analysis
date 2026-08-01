@@ -97,6 +97,45 @@ for(const s of [latest, latest - 1]){
   await write(`leaderboard-s${s}.json`, { season: s, players: await buildLeaderboard(s) });
 }
 
+// ---- lexique des pseudos du ladder (résolution OCR côté client, sans plafond de recherche) ----
+// Endpoint sondé : tri par last_score décroissant, limit plafonné à 500 (1000 → vide),
+// profondeur utile ~35k (score 0 ensuite). Noms expédiés BRUTS : le pliage (confusables,
+// accents…) est fait côté client, source unique de vérité.
+async function buildPlayerNames(season){
+  const players = [], seen = new Set();
+  const PAGE = 500, MAX = 25000;
+  for(let off = 0; off < MAX; off += PAGE){
+    let rows = null;
+    for(let attempt = 0; attempt < 2 && !rows; attempt++){
+      try{
+        const r = await j(`/players?season=${season}&isSL=false&limit=${PAGE}&offset=${off}`);
+        rows = r.data;
+      }catch(e){
+        console.log(`  page offset=${off} en échec (${e.message})${attempt ? " — abandonnée, on écrit ce qu'on a" : ", nouvel essai…"}`);
+        await new Promise(res => setTimeout(res, 1500));
+      }
+    }
+    if(!rows || !rows.length) break; // fin de pagination ou échec définitif : écriture partielle
+    let zeros = 0;
+    for(const p of rows){
+      if(!p.wizard_name || seen.has(p.wizard_id)) continue;
+      seen.add(p.wizard_id);
+      players.push({ n: p.wizard_name, i: p.wizard_id });
+      if(!p.last_score) zeros++;
+    }
+    if(zeros > rows.length * 0.8){ console.log(`  scores nuls majoritaires à offset=${off} : fin du ladder utile`); break; }
+    await new Promise(res => setTimeout(res, 120)); // rythme doux pour l'API
+  }
+  return players;
+}
+try{
+  const names = await buildPlayerNames(latest);
+  if(names.length) await write("player-names.json", { season: latest, count: names.length, players: names });
+  console.log("lexique pseudos :", names.length, "joueurs");
+}catch(e){
+  console.log("player-names.json ignoré :", e.message);
+}
+
 // ---- empreintes visuelles des icônes (dHash 64 bits) pour la reconnaissance dans le navigateur ----
 // (le navigateur ne peut pas lire les pixels des icônes swarena : pas de CORS sur assets.swarena.gg)
 try{

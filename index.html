@@ -1629,6 +1629,7 @@ async function camStart(){
   cam.stream.getVideoTracks()[0].addEventListener("ended", liveOff);
   // préchauffage OCR : script + worker + langue latine chargés pendant qu'on attend une draft
   // (le 1er essai réel part à chaud au lieu de payer 1-3 s de mise en route)
+  loadLexicon(); // lexique des pseudos en parallèle du préchauffage OCR
   loadOCR().then(async ok => {
     if(!ok || cam.ocrW) return;
     try{ cam.ocrW = { w: await Tesseract.createWorker("eng"), langs: "eng" }; }catch(e){}
@@ -2556,6 +2557,122 @@ function loadOCR(){
     document.head.appendChild(sc);
   });
 }
+/* ---- pliage UNIVERSEL des pseudos (source unique) : accents ôtés, petites capitales et
+   homoglyphes repliés, confusables I/l/1 et O/0 fusionnés, symboles ignorés ---- */
+const FOLD = {"Ξ":"e","∃":"e","€":"e","Ø":"o","ø":"o","Ө":"o","Δ":"a","Λ":"a","⍺":"a","α":"a","И":"n","Я":"r","$":"s","§":"s","⚝":"","☆":"","★":"","✩":"","×":"x",
+      // petites capitales (Tᴇqтᴇq), homoglyphes cyrilliques et grecs (⍴ρ, т, с…)
+      "ᴀ":"a","ʙ":"b","ᴄ":"c","ᴅ":"d","ᴇ":"e","ꜰ":"f","ɢ":"g","ʜ":"h","ɪ":"i","ᴊ":"j","ᴋ":"k","ʟ":"l","ᴍ":"m","ɴ":"n","ᴏ":"o","ᴘ":"p","ǫ":"q","ʀ":"r","ꜱ":"s","ᴛ":"t","ᴜ":"u","ᴠ":"v","ᴡ":"w","ʏ":"y","ᴢ":"z",
+      "а":"a","е":"e","о":"o","р":"p","с":"c","у":"y","х":"x","т":"t","к":"k","в":"b","м":"m","н":"h","є":"e","Є":"e","і":"i","ї":"i","⍴":"p","ρ":"p"};
+function foldName(x){
+  return (x||"").normalize("NFKD").replace(/[̀-ͯ]/g, "")
+    .replace(/./g, ch => FOLD[ch] ?? ch)
+    .toLowerCase().replace(/[il1|!]/g, "l").replace(/[o0]/g, "o").replace(/[^\p{L}\p{N}]/gu, "");
+}
+/* ---- lexique local des pseudos du ladder (api/player-names.json, ~25k joueurs, nightly).
+   Résout les lectures OCR SANS le plafond de ~10 résultats de la recherche API. En cas
+   d'échec de chargement : cam.lex reste falsy et tout retombe sur l'API comme avant. ---- */
+function loadLexicon(){
+  if(cam.lex !== undefined) return;
+  cam.lex = false;
+  fetch("api/player-names.json").then(r => r.ok ? r.json() : null).then(j => {
+    if(!j?.players?.length) return;
+    const entries = [], grams = new Map();
+    for(const e of j.players){
+      const f = foldName(e.n);
+      if(f.length < 2) continue;
+      const idx = entries.length;
+      entries.push({n: e.n, i: e.i, f});
+      const seen = new Set();
+      for(let k = 0; k < f.length - 1; k++){
+        const g = f.slice(k, k + 2);
+        if(seen.has(g)) continue;
+        seen.add(g);
+        let a = grams.get(g); if(!a) grams.set(g, a = []);
+        a.push(idx);
+      }
+    }
+    cam.lex = {entries, grams};
+    camLog(`📚 lexique pseudos chargé : ${entries.length} joueurs`);
+  }).catch(()=>{});
+}
+/* distance de Damerau-Levenshtein plafonnée (early-exit) */
+function damLev(a, b, max){
+  if(Math.abs(a.length - b.length) > max) return -1;
+  const la = a.length, lb = b.length, d = [];
+  for(let i = 0; i <= la; i++) d[i] = [i];
+  for(let j = 0; j <= lb; j++) d[0][j] = j;
+  for(let i = 1; i <= la; i++){
+    let rowMin = 1e9;
+    for(let j = 1; j <= lb; j++){
+      const c = a[i-1] === b[j-1] ? 0 : 1;
+      let v = Math.min(d[i-1][j] + 1, d[i][j-1] + 1, d[i-1][j-1] + c);
+      if(i > 1 && j > 1 && a[i-1] === b[j-2] && a[i-2] === b[j-1]) v = Math.min(v, d[i-2][j-2] + 1);
+      d[i][j] = v; if(v < rowMin) rowMin = v;
+    }
+    if(rowMin > max) return -1;
+  }
+  return d[la][lb] <= max ? d[la][lb] : -1;
+}
+/* match flou d'une lecture OCR contre le lexique : préfiltre par bigrammes partagés +
+   fenêtre de longueur (±2), puis Damerau-Levenshtein sur le sous-ensemble */
+function lexMatch(raw){
+  if(!cam.lex || !/\p{L}/u.test(raw||"")) return null;
+  const {entries, grams} = cam.lex;
+  const q = foldName(raw);
+  if(q.length < 2) return null;
+  const qgrams = new Set();
+  for(let k = 0; k < q.length - 1; k++) qgrams.add(q.slice(k, k + 2));
+  const counts = new Map();
+  for(const g of qgrams){
+    const a = grams.get(g);
+    if(a) for(const idx of a) counts.set(idx, (counts.get(idx) || 0) + 1);
+  }
+  let best = null, second = null;
+  for(const [idx, shared] of counts){
+    const e = entries[idx];
+    if(Math.abs(e.f.length - q.length) > 2) continue;
+    if(shared < Math.max(1, Math.floor(qgrams.size * 0.5))) continue;
+    const dd = damLev(q, e.f, 2);
+    if(dd < 0) continue;
+    const cand = {e, d: dd, nd: dd / Math.max(q.length, e.f.length)};
+    if(!best || cand.nd < best.nd){ second = best; best = cand; }
+    else if(!second || cand.nd < second.nd) second = cand;
+  }
+  if(!best || (best.d > 0 && best.nd > 0.25)) return null;
+  const unique = !second || second.d - best.d >= 2 || second.nd - best.nd >= 0.2;
+  return {id: best.e.i, name: best.e.n, d: best.d, unique};
+}
+/* pseudo idéogrammes mal lu : match par INCLUSION du fragment chiffres/latin fiable
+   (« 100 » → 零式100), avec longueur cohérente — sans plafond de résultats */
+function lexFragment(raw){
+  if(!cam.lex || !/[぀-鿿가-힯]/.test(raw||"")) return null;
+  const runs = [...raw.matchAll(/[A-Za-z0-9]{2,}/g)].map(x => foldName(x[0])).filter(Boolean);
+  if(!runs.length) return null;
+  const tlen = raw.replace(/\s+/g, "").length;
+  const hits = [];
+  for(const e of cam.lex.entries){
+    if(!/[぀-鿿가-힯]/.test(e.n) || Math.abs(e.f.length - tlen) > 2) continue;
+    if(runs.every(r => e.f.includes(r))){ hits.push(e); if(hits.length > 1) break; }
+  }
+  return hits.length === 1 ? {id: hits[0].i, name: hits[0].n, d: 1, unique: true} : null;
+}
+/* détection de SCRIPT du crop binarisé (latin vs idéogrammes) : composantes ~carrées → CJC.
+   Permet de charger directement la bonne famille de langues Tesseract dès l'essai 1. */
+function guessScript(im){
+  const W2 = im.width >> 1, H2 = im.height >> 1;
+  const mask = new Uint8Array(W2 * H2);
+  let ink = 0;
+  for(let y = 0; y < H2; y++) for(let x = 0; x < W2; x++){
+    if(im.data[((y*2) * im.width + x*2) * 4] < 128){ mask[y*W2 + x] = 1; ink++; }
+  }
+  if(!ink) return "latin";
+  const comps = maskComponents(mask, W2, H2).filter(c => c.h > H2*0.28 && c.cnt > 10);
+  if(comps.length < 2) return "latin";
+  let aspect = 0;
+  for(const c of comps) aspect += c.w / c.h;
+  aspect /= comps.length;
+  return aspect > 0.85 ? "cjk" : "latin";
+}
 /* worker Tesseract réutilisé : PSM 7 (« une seule ligne de texte », bien plus fiable qu'une
    page auto) + whitelist stricte sur les essais latin pur (élimine les « | 「 » parasites).
    Les données de langue sont mises en cache par le navigateur (IndexedDB). */
@@ -2652,19 +2769,27 @@ async function camFindOpponent(){
         im.data[i] = im.data[i+1] = im.data[i+2] = v;
       }
       cx.putImageData(im, 0, 0);
+      return im;
     };
     // rotation de langues : latin pur (whitelist stricte), jeux multilingues, et jeux CJC PURS
     // (sans biais latin : « 哩歐歐 » se lit bien mieux en chi_tra seul qu'en mélange à 4 langues)
+    // détection de SCRIPT sur le crop binarisé : les 2 premiers essais chargent directement
+    // la bonne famille de langues ; la rotation complète ne sert plus que de secours
+    const binIm = render("bin");
+    const script = guessScript(binIm);
     const LANG_SETS = ["eng", "eng+jpn+kor+chi_sim", "chi_sim+chi_tra", "eng+chi_tra+rus+tha", "jpn+kor"];
-    const langs = LANG_SETS[((cam.oppTry?.n || 1) - 1) % LANG_SETS.length];
+    const nTry = cam.oppTry?.n || 1;
+    const langs = nTry <= 2
+      ? (script === "cjk" ? "jpn+kor+chi_sim+chi_tra" : "eng")
+      : LANG_SETS[(nTry - 1) % LANG_SETS.length];
     let txt = "";
     for(const mode of ["bin", "gray"]){
-      render(mode);
+      if(mode !== "bin") render(mode); // le rendu binarisé est déjà sur le canvas
       const res = await ocrRecognize(c, langs);
       txt = (res?.data?.text || "").split("\n").map(x=>x.trim()).sort((a,b)=>b.length-a.length)[0] || "";
       if(txt.length >= 2) break;
     }
-    camLog(`🔎 OCR pseudo adverse (essai ${cam.oppTry?.n||1}, ${langs.split("+").length} langue(s)) : « ${txt || "—"} »`);
+    camLog(`🔎 OCR pseudo adverse (essai ${nTry}, ${script}, ${langs.split("+").length} langue(s)) : « ${txt || "—"} »`);
     if(txt.length < 2) return;
     const cands = [...new Set([
       txt,
@@ -2675,15 +2800,15 @@ async function camFindOpponent(){
     // (« 240% » lu dans un popup de stats passait la recherche et verrouillait un mauvais joueur)
     // confirmation sur 2 lectures OCR distinctes : un texte transitoire (popup, animation)
     // ne peut pas verrouiller un mauvais joueur ; le vrai pseudo, lui, se relit à l'identique
-    const accept = async p => {
-      if(cam.oppCand !== p.id){
+    const accept = async (p, instant) => {
+      if(!instant && cam.oppCand !== p.id){
         cam.oppCand = p.id;
         camLog(`🕐 candidat adversaire : ${p.wizard_name} (confirmation 1/2)`);
         if(cam.oppTry) cam.oppTry.t = 0; // re-vérification immédiate au prochain tick
         return;
       }
       liveStatus("🎯 adversaire identifié : " + p.wizard_name, true);
-      camLog(`🎯 adversaire identifié : ${p.wizard_name} → box restreinte activée`);
+      camLog(`🎯 adversaire identifié : ${p.wizard_name} → box restreinte activée (essai ${cam.oppTry?.n || 1})`);
       cam.ocrSetB = true; // posé par l'OCR : sera remis à zéro au prochain combat
       simState.b = p.id; simState.boxB = null;
       renderSim();
@@ -2705,16 +2830,7 @@ async function camFindOpponent(){
     };
     const variants = [...new Set(cands.flatMap(q =>
       [q, q.replace(/I/g,"l"), q.replace(/l/g,"I"), q.replace(/[Il1]/g,"l"), q.replace(/0/g,"O"), q.replace(/O/g,"0"), ...styl(q)]))];
-    // pliage UNIVERSEL pour comparer un nom lu à un nom enregistré : accents ôtés
-    // (« UnMaxFatigué » ↔ « UnMaxFatigue »), lettres stylisées repliées (Ξ→e, Ø→o, Δ→a, $→s…),
-    // petites capitales via NFKD, confusables I/l/1 et O/0 fusionnés, symboles ignorés
-    const FOLD = {"Ξ":"e","∃":"e","€":"e","Ø":"o","ø":"o","Ө":"o","Δ":"a","Λ":"a","⍺":"a","α":"a","И":"n","Я":"r","$":"s","§":"s","⚝":"","☆":"","★":"","✩":"","×":"x",
-      // petites capitales (Tᴇqтᴇq), homoglyphes cyrilliques et grecs (⍴ρ, т, с…)
-      "ᴀ":"a","ʙ":"b","ᴄ":"c","ᴅ":"d","ᴇ":"e","ꜰ":"f","ɢ":"g","ʜ":"h","ɪ":"i","ᴊ":"j","ᴋ":"k","ʟ":"l","ᴍ":"m","ɴ":"n","ᴏ":"o","ᴘ":"p","ǫ":"q","ʀ":"r","ꜱ":"s","ᴛ":"t","ᴜ":"u","ᴠ":"v","ᴡ":"w","ʏ":"y","ᴢ":"z",
-      "а":"a","е":"e","о":"o","р":"p","с":"c","у":"y","х":"x","т":"t","к":"k","в":"b","м":"m","н":"h","є":"e","Є":"e","і":"i","ї":"i","⍴":"p","ρ":"p"};
-    const norm = x => (x||"").normalize("NFKD").replace(/[̀-ͯ]/g, "")
-      .replace(/./g, ch => FOLD[ch] ?? ch)
-      .toLowerCase().replace(/[il1|!]/g, "l").replace(/[o0]/g, "o").replace(/[^\p{L}\p{N}]/gu, "");
+    const norm = foldName; // pliage universel global (source unique de vérité)
     // un résultat n'est accepté que s'il RESSEMBLE vraiment à ce que l'OCR a lu — la recherche
     // « Bows » renvoie « Bowser26 » : sans ce filtre on pouvait verrouiller un inconnu
     const refsN = [...new Set(variants.map(norm))].filter(x=>x.length >= 2);
@@ -2722,6 +2838,23 @@ async function camFindOpponent(){
       const pn = norm(p.wizard_name);
       return refsN.some(cn => pn === cn || (cn.length >= 4 && Math.abs(pn.length - cn.length) <= 2 && (pn.includes(cn) || cn.includes(pn))));
     });
+    // 1) LEXIQUE LOCAL d'abord (~25k pseudos du ladder, sans plafond de résultats) : match flou
+    for(const q of [txt, ...cands]){
+      const hit = lexMatch(q);
+      if(hit){
+        camLog(`📚 lexique : « ${q} » → ${hit.name} (distance ${hit.d}${hit.unique ? ", unique" : ""})`);
+        // candidat net et quasi-exact → verrouillage sur UNE seule lecture (coupe une passe)
+        await accept({id: hit.id, wizard_name: hit.name}, hit.unique && hit.d <= 1);
+        return;
+      }
+    }
+    const frag = lexFragment(txt);
+    if(frag){
+      camLog(`📚 lexique (fragment idéogrammes) : « ${txt} » → ${frag.name}`);
+      await accept({id: frag.id, wizard_name: frag.name});
+      return;
+    }
+    // 2) repli API (joueur hors lexique, plafond ~10 résultats inchangé) : cascade existante
     const rs = await Promise.all(variants.map(q => api("/player/search/" + encodeURIComponent(q)).catch(()=>({data:[]}))));
     for(const r of rs){
       const hit = goodHit(r.data);
