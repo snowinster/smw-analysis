@@ -2360,7 +2360,8 @@ async function camTick(){
     }
   }
   // lecture du pseudo adverse (une fois, si aucun adversaire renseigné)
-  if(!simState.b && cam.slots.length && (cam.oppTry?.n||0) < 10 && (!cam.oppTry || Date.now()-cam.oppTry.t > 5000)){
+  if((!simState.b || cam.ocrSetB) && cam.slots.length && (cam.oppTry?.n||0) < 10
+     && (!cam.oppTry || Date.now()-cam.oppTry.t > (simState.b ? 15000 : 5000))){
     cam.oppTry = {t: Date.now(), n: (cam.oppTry?.n||0)+1};
     camFindOpponent().catch(()=>{}); // pseudo adverse → box restreinte = reconnaissance bien plus fiable
   }
@@ -2638,9 +2639,11 @@ function lexMatch(raw){
     if(!best || cand.nd < best.nd){ second = best; best = cand; }
     else if(!second || cand.nd < second.nd) second = cand;
   }
-  if(!best || (best.d > 0 && best.nd > 0.25)) return null;
+  // toute distance > 0 exige un texte assez long (≥ 5 plié) ET ≤ 20% d'erreur :
+  // « py N j » plié en « pynj » (4 lettres) ne peut plus matcher PYNK à distance 1
+  if(!best || (best.d > 0 && (q.length < 5 || best.nd > 0.2))) return null;
   const unique = !second || second.d - best.d >= 2 || second.nd - best.nd >= 0.2;
-  return {id: best.e.i, name: best.e.n, d: best.d, unique};
+  return {id: best.e.i, name: best.e.n, d: best.d, unique, qlen: q.length};
 }
 /* pseudo idéogrammes mal lu : match par INCLUSION du fragment chiffres/latin fiable
    (« 100 » → 零式100), avec longueur cohérente — sans plafond de résultats */
@@ -2838,13 +2841,37 @@ async function camFindOpponent(){
       const pn = norm(p.wizard_name);
       return refsN.some(cn => pn === cn || (cn.length >= 4 && Math.abs(pn.length - cn.length) <= 2 && (pn.includes(cn) || cn.includes(pn))));
     });
-    // 1) LEXIQUE LOCAL d'abord (~25k pseudos du ladder, sans plafond de résultats) : match flou
+    // mode VÉRIFICATION : un adversaire posé par l'OCR est re-contrôlé par les lectures
+    // suivantes — seule une correspondance EXACTE et unique peut le confirmer ou le corriger
+    if(simState.b){
+      if(!cam.ocrSetB) return; // pseudo tapé à la main : intouchable
+      for(const q of [txt, ...cands]){
+        const hit = lexMatch(q);
+        if(hit && hit.d === 0 && hit.unique && hit.qlen >= 4){
+          if(hit.id === simState.b){
+            camLog(`✅ adversaire confirmé par relecture : ${hit.name}`);
+            if(cam.oppTry) cam.oppTry.n = 99; // vérification terminée
+          }else if(cam.oppCand !== hit.id){
+            cam.oppCand = hit.id;
+            camLog(`⚠ lecture contredit l'adversaire verrouillé : ${hit.name} (confirmation 1/2)`);
+            if(cam.oppTry) cam.oppTry.t = 0;
+          }else{
+            camLog(`🔁 adversaire corrigé → ${hit.name}`);
+            await accept({id: hit.id, wizard_name: hit.name}, true);
+          }
+          return;
+        }
+      }
+      return; // pas de lecture exploitable : on ne touche à rien
+    }
+    // 1) LEXIQUE LOCAL d'abord (~35k pseudos du ladder, sans plafond de résultats) : match flou
     for(const q of [txt, ...cands]){
       const hit = lexMatch(q);
       if(hit){
         camLog(`📚 lexique : « ${q} » → ${hit.name} (distance ${hit.d}${hit.unique ? ", unique" : ""})`);
-        // candidat net et quasi-exact → verrouillage sur UNE seule lecture (coupe une passe)
-        await accept({id: hit.id, wizard_name: hit.name}, hit.unique && hit.d <= 1);
+        // verrouillage sur UNE lecture RÉSERVÉ aux correspondances EXACTES et uniques ;
+        // le flou (d ≥ 1) repasse toujours par la confirmation x2
+        await accept({id: hit.id, wizard_name: hit.name}, hit.unique && hit.d === 0 && hit.qlen >= 4);
         return;
       }
     }
