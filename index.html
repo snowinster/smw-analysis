@@ -2016,6 +2016,10 @@ async function applySlotPick(s, newId){
   s.id = newId || null; s.pend = null; s.pendN = 0; s.emptyN = 0;
   // position modifiée à la main (pick manuel ou case vidée) : la capture n'y écrit plus
   if(simState.giLock[s.side].has(gi) || arr.some(p=>p.gi === gi && p.manual)) return;
+  // même monstre déjà validé à cette position (re-lecture après retour de fenêtre) :
+  // continuité SILENCIEUSE — pas de re-pose, pas de journal, pas de re-rendu
+  const cur = arr.find(p=>p.gi === gi);
+  if(newId && cur && cur.id === newId) return;
   if(!newId){
     camLog(`← pick retiré côté ${s.side}`);
     setSlotEntry(s, null);
@@ -2611,9 +2615,9 @@ async function camFindOpponent(){
       }
       cx.putImageData(im, 0, 0);
     };
-    // rotation de langues : latin pur (whitelist stricte) alterné avec deux jeux multilingues
-    // — CJC simplifié, puis chinois traditionnel + cyrillique + thaï
-    const LANG_SETS = ["eng", "eng+jpn+kor+chi_sim", "eng", "eng+chi_tra+rus+tha"];
+    // rotation de langues : latin pur (whitelist stricte), jeux multilingues, et jeux CJC PURS
+    // (sans biais latin : « 哩歐歐 » se lit bien mieux en chi_tra seul qu'en mélange à 4 langues)
+    const LANG_SETS = ["eng", "eng+jpn+kor+chi_sim", "chi_sim+chi_tra", "eng+chi_tra+rus+tha", "jpn+kor"];
     const langs = LANG_SETS[((cam.oppTry?.n || 1) - 1) % LANG_SETS.length];
     let txt = "";
     for(const mode of ["bin", "gray"]){
@@ -2918,6 +2922,16 @@ async function simSetUnknown(side, i, id){
 /* case occupée mais monstre pas (encore) reconnu : pose un ❓ à sa position du plateau.
    Remplacé sur place (même .gi) dès que la reconnaissance aboutit. */
 function simPlaceUnknown(s){
+  const arr = s.side==="A" ? simState.picksA : simState.picksB;
+  const gi = geoIndex(s.side, slotGeoRole(s)) ?? 9;
+  const cur = arr.find(p=>p.gi === gi);
+  if(cur && cur.id){
+    // cette position a DÉJÀ un pick validé (retour de fenêtre, re-verrouillage mi-draft) :
+    // on le CONSERVE tel quel — la case l'adopte au lieu de le remplacer par un ❓.
+    // Seul un vrai désaccord confirmé (remplacement ×2) pourra encore le changer.
+    s.id = cur.id; s.unk = false; s.unkN = 0;
+    return;
+  }
   s.unk = true; s.unkN = 0;
   const geo = slotGeoRole(s);
   camLog(`→ ❓ case occupée non identifiée côté ${s.side}${geo?" ["+geo+"]":""} (x=${s.box[0]})`);
