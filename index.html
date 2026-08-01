@@ -1681,6 +1681,26 @@ function onDraftScreen(f){
   }
   return lum/m < 110;
 }
+/* écran d'APPARIEMENT (avant le plateau : 2 pseudos + photos de profil, grand VS doré sur
+   fond presque noir, pas de compte à rebours). On n'y fait QUE l'OCR du pseudo adverse —
+   aucune détection de cases — pour accrocher sa box avant même l'arrivée du plateau. */
+function onMatchupScreen(f){
+  const {d, W, H} = f;
+  let gold = 0, n = 0;
+  for(let y = Math.floor(H*0.25); y < H*0.55; y += 3) for(let x = Math.floor(W*0.40); x < W*0.60; x += 3){
+    const i = (y*W+x)*4, R = d[i], G = d[i+1], B = d[i+2];
+    if(R>95 && G>65 && B<110 && R>G && G>B && (R-B)>34) gold++;
+    n++;
+  }
+  if(gold/n < 0.01) return false;
+  // zone entre l'avatar gauche et le VS : quasi noire sur cet écran
+  let lum = 0, m = 0;
+  for(let y = Math.floor(H*0.15); y < H*0.60; y += 5) for(let x = Math.floor(W*0.33); x < W*0.43; x += 5){
+    const i = (y*W+x)*4;
+    lum += 0.3*d[i] + 0.6*d[i+1] + 0.1*d[i+2]; m++;
+  }
+  return lum/m < 55;
+}
 /* composantes connexes d'un masque binaire */
 function maskComponents(mask, W, H){
   const seen = new Uint8Array(W*H), comps = [];
@@ -2169,6 +2189,16 @@ async function camTick(){
       if(!cam.manualBoxes) cam.slots = [];
       camLog("▶ page VS confirmée — détection des 10 cases activée");
     }else{
+      // écran d'APPARIEMENT : on en profite pour lire le pseudo adverse EN AVANCE
+      // (OCR uniquement — aucune détection de cases tant que le plateau n'est pas là)
+      if(!simState.b && cam.db && onMatchupScreen(f)
+         && (cam.oppTry?.n||0) < 10 && (!cam.oppTry || Date.now()-cam.oppTry.t > 5000)){
+        cam.oppTry = {t: Date.now(), n: (cam.oppTry?.n||0)+1};
+        camFindOpponent().catch(()=>{});
+        liveStatus("🔎 écran d'appariement — lecture du pseudo adverse…");
+        camPreview();
+        return;
+      }
       liveStatus("🔎 en attente de l'écran VS…");
       camPreview();
       return; // rien n'est détecté tant que la page VS n'est pas confirmée
@@ -2496,24 +2526,44 @@ async function camFindOpponent(){
     const f = grabFrame();
     if(!f) return;
     const vw = f.W, vh = f.H;
-    // bande des pseudos : ancre = la bande noire trouvée par la porte de page (sombre des DEUX
-    // côtés — la zone de plateau grisée d'un seul côté ne compte pas), étendue vers le haut,
-    // puis hauteur proportionnelle FIXE (le texte est plus clair que tout seuil d'extension)
-    if(cam.stripY == null) return;
-    const rowMean = y => {
-      let l1 = 0, n1 = 0, l2 = 0, n2 = 0;
-      for(let x = Math.floor(vw*0.12); x < vw*0.46; x += 9){ const i = (y*vw+x)*4; l1 += 0.3*f.d[i] + 0.6*f.d[i+1] + 0.1*f.d[i+2]; n1++; }
-      for(let x = Math.floor(vw*0.54); x < vw*0.88; x += 9){ const i = (y*vw+x)*4; l2 += 0.3*f.d[i] + 0.6*f.d[i+1] + 0.1*f.d[i+2]; n2++; }
-      return Math.max(l1/n1, l2/n2);
-    };
-    let bandTop = cam.stripY;
-    while(bandTop > cam.stripY - vh*0.05 && bandTop > vh*0.3 && rowMean(bandTop-1) < 62) bandTop--;
-    const band = {y0: bandTop, y1: Math.min(vh-1, bandTop + Math.round(vh*0.095))};
+    let band = null, cx0 = Math.floor(vw*0.52), cx1 = Math.floor(vw*0.87);
+    if(cam.page === "ACTIVE"){
+      // plateau : bande des pseudos ancrée sur la porte de page (sombre des DEUX côtés),
+      // étendue vers le haut, puis hauteur proportionnelle FIXE
+      if(cam.stripY == null) return;
+      const rowMean = y => {
+        let l1 = 0, n1 = 0, l2 = 0, n2 = 0;
+        for(let x = Math.floor(vw*0.12); x < vw*0.46; x += 9){ const i = (y*vw+x)*4; l1 += 0.3*f.d[i] + 0.6*f.d[i+1] + 0.1*f.d[i+2]; n1++; }
+        for(let x = Math.floor(vw*0.54); x < vw*0.88; x += 9){ const i = (y*vw+x)*4; l2 += 0.3*f.d[i] + 0.6*f.d[i+1] + 0.1*f.d[i+2]; n2++; }
+        return Math.max(l1/n1, l2/n2);
+      };
+      let bandTop = cam.stripY;
+      while(bandTop > cam.stripY - vh*0.05 && bandTop > vh*0.3 && rowMean(bandTop-1) < 62) bandTop--;
+      band = {y0: bandTop, y1: Math.min(vh-1, bandTop + Math.round(vh*0.095))};
+    }else{
+      // écran d'APPARIEMENT : le pseudo adverse est toujours À DROITE, sous la photo de
+      // profil, à côté du drapeau — on cherche le bloc de rangées de texte blanc du cadran
+      cx0 = Math.floor(vw*0.58); cx1 = Math.floor(vw*0.96);
+      const yA = Math.floor(vh*0.34), yB = Math.floor(vh*0.66);
+      let best = null, run = null, gap = 0;
+      for(let y = yA; y < yB; y++){
+        let c = 0;
+        for(let x = cx0; x < cx1; x += 3){
+          const i = (y*vw+x)*4;
+          if(Math.min(f.d[i], f.d[i+1], f.d[i+2]) > 150) c++;
+        }
+        if(c > 2){ if(!run) run = {y0:y, y1:y, w:0}; run.y1 = y; run.w += c; gap = 0; }
+        else if(run && ++gap > 3){ if(!best || run.w > best.w) best = run; run = null; gap = 0; }
+      }
+      if(run && (!best || run.w > best.w)) best = run;
+      if(!best || best.y1 - best.y0 < vh*0.015) return;
+      band = {y0: Math.max(0, best.y0 - 4), y1: Math.min(vh-1, best.y1 + 4)};
+    }
     /* le pseudo adverse est TOUJOURS dans la moitié droite de la bande noire, entre les
        étoiles (dorées) et le drapeau (coloré) : on isole les colonnes de TEXTE BLANC —
        lum haute + faible saturation ; toute colonne contenant du saturé (étoiles, drapeau,
        cadre d'avatar) est exclue, ce qui borne le pseudo quel que soit sa taille/langue */
-    const x0 = Math.floor(vw*0.52), x1 = Math.floor(vw*0.87); // borné avant le drapeau/avatar
+    const x0 = cx0, x1 = cx1; // bornes selon l'écran (plateau : avant drapeau/avatar ; appariement : cadran droit)
     const prof = new Float32Array(vw);
     for(let x=x0; x<x1; x++){
       let cnt = 0, sat = 0;
