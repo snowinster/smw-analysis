@@ -220,10 +220,13 @@ td.best{color:var(--win);font-weight:800}
 .mon-click:hover{outline:2px solid var(--accent);outline-offset:1px;border-radius:8px}
 .foot-note{margin-top:40px;font-size:12.5px;color:var(--muted);text-align:center}
 @media (min-width:1560px){
-  #simSugg{position:fixed;right:16px;top:70px;width:410px;max-height:calc(100vh - 86px);overflow-y:auto;z-index:40;scrollbar-width:thin}
+  #simSugg{position:fixed;right:16px;top:190px;width:410px;max-height:calc(100vh - 210px);overflow-y:auto;z-index:40;scrollbar-width:thin}
   #simSugg .panel{margin-bottom:10px}
   #simBoard{margin-right:436px}
+  .sugg-handle{display:block}
 }
+.sugg-handle{display:none;cursor:grab;user-select:none;background:var(--card);border:1px solid var(--border);border-radius:10px;padding:7px 12px;font-weight:700;font-size:13px;margin-bottom:8px}
+.sugg-handle:active{cursor:grabbing}
 .site-footer{max-width:1200px;margin:0 auto;padding:26px 20px 34px;border-top:1px solid var(--border);color:var(--muted);font-size:12px;line-height:1.6;text-align:center}
 .site-footer p{margin:0 0 8px}
 .site-footer a{color:var(--accent2)}
@@ -3319,7 +3322,41 @@ function showMore(btn){
   if(hid.length<=5) btn.style.display = "none";
 }
 const moreBtn = n => n>5 ? `<button class="btn more-btn" onclick="showMore(this)">▼ Voir les 5 suivants</button>` : "";
+/* panneau conseils DÉPLAÇABLE à la souris (grand écran) : poignée ⠿, position mémorisée */
+function wireSuggDrag(){
+  const el = document.getElementById("simSugg");
+  if(!el || el.dataset.dragWired) return;
+  el.dataset.dragWired = "1";
+  if(window.innerWidth < 1560) return; // en flux normal sur petit écran
+  const apply = p => {
+    if(!p) return;
+    const x = Math.max(0, Math.min(window.innerWidth - 120, p.x));
+    const y = Math.max(0, Math.min(window.innerHeight - 80, p.y));
+    el.style.left = x + "px"; el.style.top = y + "px"; el.style.right = "auto";
+    el.style.maxHeight = (window.innerHeight - y - 16) + "px";
+  };
+  try{ apply(JSON.parse(localStorage.getItem("simSuggPos_v1"))); }catch(e){}
+  const h = document.createElement("div");
+  h.className = "sugg-handle";
+  h.innerHTML = `⠿ Conseils <span class="muted" style="font-weight:400">— glisser pour déplacer</span>`;
+  el.prepend(h);
+  h.addEventListener("mousedown", e => {
+    e.preventDefault();
+    const r = el.getBoundingClientRect();
+    const dx = e.clientX - r.left, dy = e.clientY - r.top;
+    const move = ev => apply({x: ev.clientX - dx, y: ev.clientY - dy});
+    const up = () => {
+      document.removeEventListener("mousemove", move);
+      document.removeEventListener("mouseup", up);
+      const rr = el.getBoundingClientRect();
+      try{ localStorage.setItem("simSuggPos_v1", JSON.stringify({x: rr.left, y: rr.top})); }catch(e){}
+    };
+    document.addEventListener("mousemove", move);
+    document.addEventListener("mouseup", up);
+  });
+}
 function wireSimAdd(){
+  wireSuggDrag();
   attachMonSearch("simAddA","simAddResA", id=>simPick(id,"A"));
   attachMonSearch("simAddB","simAddResB", id=>simPick(id,"B"));
   attachMonSearch("simBoxAddA","simBoxAddResA", id=>simBoxAdd("A",id));
