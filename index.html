@@ -244,8 +244,6 @@ td.best{color:var(--win);font-weight:800}
   #simSugg .inbox-badge,#simSugg .ban-badge{font-size:10px;padding:1px 5px}
   #simSugg .note{font-size:11.5px}
 }
-.sugg-handle{cursor:grab;user-select:none;background:var(--card);border:1px solid var(--border);border-radius:10px;padding:7px 12px;font-weight:700;font-size:13px;margin-bottom:8px}
-.sugg-handle:active{cursor:grabbing}
 .site-footer{max-width:1200px;margin:0 auto;padding:26px 20px 34px;border-top:1px solid var(--border);color:var(--muted);font-size:12px;line-height:1.6;text-align:center}
 .site-footer p{margin:0 0 8px}
 .site-footer a{color:var(--accent2)}
@@ -3341,48 +3339,16 @@ function showMore(btn){
   if(hid.length<=5) btn.style.display = "none";
 }
 const moreBtn = n => n>5 ? `<button class="btn more-btn" onclick="showMore(this)">▼ Voir les 5 suivants</button>` : "";
-/* panneau conseils DÉPLAÇABLE à la souris (grand écran) : poignée ⠿, position mémorisée */
+/* panneau conseils : fixe, calé automatiquement à la même hauteur que les blocs joueurs */
 function wireSuggDrag(){
   const el = document.getElementById("simSugg");
-  if(!el || window.innerWidth < 1560) return; // en flux normal sur petit écran
-  const apply = p => {
-    if(!p) return;
-    const x = Math.max(0, Math.min(window.innerWidth - 120, p.x));
-    const y = Math.max(0, Math.min(window.innerHeight - 80, p.y));
-    el.style.left = x + "px"; el.style.top = y + "px"; el.style.right = "auto";
-    el.style.maxHeight = (window.innerHeight - y - 16) + "px";
-  };
-  let saved = null;
-  try{ saved = JSON.parse(localStorage.getItem("simSuggPos_v1")); }catch(e){}
-  if(saved) apply(saved);
-  else{
-    // défaut : EXACTEMENT la même hauteur que les blocs joueur/adversaire
-    const side = document.querySelector(".sim-side");
-    if(side){
-      const t = Math.max(70, Math.round(side.getBoundingClientRect().top));
-      el.style.top = t + "px";
-      el.style.maxHeight = (window.innerHeight - t - 16) + "px";
-    }
+  if(!el || window.innerWidth < 1560) return;
+  const side = document.querySelector(".sim-side");
+  if(side){
+    const t = Math.max(70, Math.round(side.getBoundingClientRect().top));
+    el.style.top = t + "px";
+    el.style.maxHeight = (window.innerHeight - t - 16) + "px";
   }
-  if(el.querySelector(".sugg-handle")) return; // poignée déjà en place
-  const h = document.createElement("div");
-  h.className = "sugg-handle";
-  h.innerHTML = `⠿ Conseils <span class="muted" style="font-weight:400">— glisser pour déplacer</span>`;
-  el.prepend(h);
-  h.addEventListener("mousedown", e => {
-    e.preventDefault();
-    const r = el.getBoundingClientRect();
-    const dx = e.clientX - r.left, dy = e.clientY - r.top;
-    const move = ev => apply({x: ev.clientX - dx, y: ev.clientY - dy});
-    const up = () => {
-      document.removeEventListener("mousemove", move);
-      document.removeEventListener("mouseup", up);
-      const rr = el.getBoundingClientRect();
-      try{ localStorage.setItem("simSuggPos_v1", JSON.stringify({x: rr.left, y: rr.top})); }catch(e){}
-    };
-    document.addEventListener("mousemove", move);
-    document.addEventListener("mouseup", up);
-  });
 }
 function wireSimAdd(){
   wireSuggDrag();
