@@ -220,7 +220,8 @@ td.best{color:var(--win);font-weight:800}
 .mon-click:hover{outline:2px solid var(--accent);outline-offset:1px;border-radius:8px}
 .foot-note{margin-top:40px;font-size:12.5px;color:var(--muted);text-align:center}
 @media (min-width:1560px){
-  #simSugg{position:fixed;right:16px;top:190px;width:410px;max-height:calc(100vh - 210px);overflow-y:auto;z-index:40;scrollbar-width:thin}
+  #simSugg{position:fixed;right:16px;top:260px;width:410px;max-height:calc(100vh - 280px);overflow-y:auto;z-index:40;scrollbar-width:thin;
+    background:var(--bg2);border:1px solid var(--border);border-radius:14px;padding:10px;box-shadow:0 10px 34px rgba(0,0,0,.55)}
   #simSugg .panel{margin-bottom:10px}
   #simBoard{margin-right:436px}
   .sugg-handle{display:block}
@@ -3325,9 +3326,7 @@ const moreBtn = n => n>5 ? `<button class="btn more-btn" onclick="showMore(this)
 /* panneau conseils DÉPLAÇABLE à la souris (grand écran) : poignée ⠿, position mémorisée */
 function wireSuggDrag(){
   const el = document.getElementById("simSugg");
-  if(!el || el.dataset.dragWired) return;
-  el.dataset.dragWired = "1";
-  if(window.innerWidth < 1560) return; // en flux normal sur petit écran
+  if(!el || window.innerWidth < 1560) return; // en flux normal sur petit écran
   const apply = p => {
     if(!p) return;
     const x = Math.max(0, Math.min(window.innerWidth - 120, p.x));
@@ -3336,6 +3335,7 @@ function wireSuggDrag(){
     el.style.maxHeight = (window.innerHeight - y - 16) + "px";
   };
   try{ apply(JSON.parse(localStorage.getItem("simSuggPos_v1"))); }catch(e){}
+  if(el.querySelector(".sugg-handle")) return; // poignée déjà en place
   const h = document.createElement("div");
   h.className = "sugg-handle";
   h.innerHTML = `⠿ Conseils <span class="muted" style="font-weight:400">— glisser pour déplacer</span>`;
