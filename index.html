@@ -41,7 +41,7 @@ nav a.navlink:hover,nav a.navlink.active{color:var(--text);background:var(--card
 .search-results img{width:30px;height:30px;border-radius:6px;object-fit:cover;background:var(--bg2)}
 
 /* ---------- Layout ---------- */
-main{max-width:1200px;margin:0 auto;padding:28px 20px 80px}
+main{max-width:1750px;margin:0 auto;padding:28px 20px 80px}
 h1{font-size:26px;margin-bottom:18px}
 h2{font-size:18px;margin:26px 0 12px;color:var(--text)}
 .muted{color:var(--muted)}
@@ -110,7 +110,7 @@ tr.clickable:hover{background:var(--card2)}
 .b-who .n:hover{color:var(--accent2)}
 .b-who .s{font-size:12px;color:var(--muted)}
 .picks{display:flex;gap:6px;flex-wrap:wrap}
-.pick{position:relative;width:46px;height:46px}
+.pick{position:relative;width:52px;height:52px}
 .pick img{width:46px;height:46px;border-radius:9px;background:var(--bg2);display:block}
 .pick.banned img{filter:grayscale(1) brightness(.45)}
 .pick.banned::after{content:"✕";position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--lose);font-size:22px;font-weight:900}
@@ -175,9 +175,9 @@ td.best{color:var(--win);font-weight:800}
 .vs-mid{align-self:center;font-size:36px;font-weight:900;color:var(--gold);text-shadow:0 2px 14px rgba(242,193,78,.45);padding:0 8px}
 .team-slots{display:flex;gap:14px;align-items:center;margin-top:10px;justify-content:center}
 .team-slots.right{flex-direction:row-reverse}
-.slot-grid{display:grid;grid-template-columns:repeat(2,86px);gap:10px}
+.slot-grid{display:grid;grid-template-columns:repeat(2,98px);gap:10px}
 @media (max-width:860px){ .vs-wrap{grid-template-columns:1fr} .vs-mid{text-align:center;padding:4px 0} .team-slots.right{flex-direction:row} }
-.slot{width:86px;height:86px;border-radius:14px;background:var(--bg2);border:2px dashed var(--border);display:flex;align-items:center;justify-content:center;position:relative}
+.slot{width:98px;height:98px;border-radius:14px;background:var(--bg2);border:2px dashed var(--border);display:flex;align-items:center;justify-content:center;position:relative}
 .slot img{width:100%;height:100%;border-radius:12px;object-fit:cover}
 .slot .rm{position:absolute;top:-8px;right:-8px;width:22px;height:22px;border-radius:11px;background:var(--lose);color:#fff;font-size:12px;font-weight:800;display:none;align-items:center;justify-content:center;cursor:pointer;border:none;z-index:2}
 .slot:hover .rm{display:flex}
@@ -219,6 +219,11 @@ td.best{color:var(--win);font-weight:800}
 .mon-click{cursor:pointer}
 .mon-click:hover{outline:2px solid var(--accent);outline-offset:1px;border-radius:8px}
 .foot-note{margin-top:40px;font-size:12.5px;color:var(--muted);text-align:center}
+@media (min-width:1560px){
+  #simSugg{position:fixed;right:16px;top:70px;width:410px;max-height:calc(100vh - 86px);overflow-y:auto;z-index:40;scrollbar-width:thin}
+  #simSugg .panel{margin-bottom:10px}
+  #simBoard{margin-right:436px}
+}
 .site-footer{max-width:1200px;margin:0 auto;padding:26px 20px 34px;border-top:1px solid var(--border);color:var(--muted);font-size:12px;line-height:1.6;text-align:center}
 .site-footer p{margin:0 0 8px}
 .site-footer a{color:var(--accent2)}
@@ -2981,15 +2986,20 @@ async function renderSim(){
     wireSimAdd(); return;
   }
   if(!simState.boxA || (simState.b && !simState.boxB)){ $b.innerHTML = html + '<div class="loading">Chargement des box…</div>'; wireSimAdd(); return; }
+  // conseils UNIQUEMENT quand ils ont du sens : une case ❓ (non identifiée) fausserait tout
+  if([...simState.picksA, ...simState.picksB].some(p=>p.unknown)){
+    html += `<div id="simSugg"><div class="panel muted">💤 <b>Conseils en pause</b> : des cases du plateau ne sont pas encore identifiées (❓).<br>Clique un ❓ pour saisir le monstre — les conseils reviennent aussitôt.</div></div>`;
+    $b.innerHTML = html; wireSimAdd(); return;
+  }
   if(!turn){
-    html += `<div class="panel" style="border-color:var(--win)" id="draftDone"><b style="color:var(--win)">Draft complet !</b> <span class="muted">Calcul de l'indice de confiance…</span></div>`;
+    html += `<div id="simSugg"><div class="panel" style="border-color:var(--win)" id="draftDone"><b style="color:var(--win)">Draft complet !</b> <span class="muted">Calcul de l'indice de confiance…</span></div></div>`;
     $b.innerHTML = html; wireSimAdd();
     computeConfidence(token);
     return;
   }
   // au tour de l'adversaire : pas de suggestions, on garde l'écran léger
   if(turn !== "A"){
-    html += `<div class="panel muted" style="text-align:center">✋ Au tour de l'adversaire - pose son pick avec son champ 🔍, sa box 📦 ou un glisser-déposer. Tes conseils reviendront à ton tour.</div>`;
+    html += `<div id="simSugg"><div class="panel muted" style="text-align:center">✋ Au tour de l'adversaire - pose son pick avec son champ 🔍, sa box 📦 ou un glisser-déposer. Tes conseils reviendront à ton tour.</div></div>`;
     $b.innerHTML = html; wireSimAdd(); return;
   }
   html += `<div id="simSugg"><div class="loading">Calcul des suggestions…</div></div>`;
