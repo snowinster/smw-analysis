@@ -202,6 +202,8 @@ td.best{color:var(--win);font-weight:800}
 .sugg .sg-n{flex:1;min-width:0;font-size:13.5px;font-weight:600}
 .sugg .sg-n .sub{font-size:11px;color:var(--muted);font-weight:400}
 .sugg .sg-wr{flex:none;font-weight:800;font-size:13.5px;white-space:nowrap;text-align:right;min-width:58px}
+.wrong-opp{font-size:10.5px;font-weight:700;padding:2px 8px;border-radius:9px;color:var(--lose);border-color:var(--lose);background:transparent;vertical-align:middle}
+.wrong-opp:hover{background:var(--lose);color:#fff}
 .inbox-badge{font-size:10px;font-weight:700;color:var(--win);border:1px solid var(--win);padding:1px 6px;border-radius:9px}
 .ban-badge{font-size:10px;font-weight:700;color:var(--lose);border:1px solid var(--lose);padding:1px 6px;border-radius:9px;white-space:nowrap}
 .more-btn{width:100%;margin-top:8px;text-align:center}
@@ -1573,7 +1575,7 @@ async function viewSimulator(){
     };
     document.getElementById("simReset").onclick = () => {
       simState.picksA=[]; simState.picksB=[]; simState.history=[]; simState.giLock = {A:new Set(), B:new Set()};
-      if(cam.ocrSetB && simState.b){ simState.b = null; simState.boxB = null; cam.ocrSetB = false; cam.oppTry = null; cam.oppCand = null; } // l'adversaire OCR repart aussi
+      if(cam.ocrSetB && simState.b){ simState.b = null; simState.boxB = null; cam.ocrSetB = false; cam.oppTry = null; cam.oppCand = null; cam.oppRejected = null; } // l'adversaire OCR repart aussi
       renderSim();
     };
     // drag & drop : glisser un monstre (box ou suggestion) sur une équipe pour le picker
@@ -1699,6 +1701,7 @@ function simSideHTML(side, mirrored){
   return `<div class="sim-side ${turn?"turn":""}" data-drop-side="${side}">
     <div class="sim-name">${box?.pic?`<img class="avatar" src="${esc(box.pic)}" onerror="this.style.visibility='hidden'">`:""}
       ${label} ${simState.fp===side?'<span class="fp-badge">First pick</span>':""} ${turn?'<span class="tier">À son tour</span>':""}
+      ${side==="B" && simState.b ? `<button class="btn wrong-opp" onclick="simClearOpponent()" title="Ce n'est pas le bon joueur : retire-le sans toucher à la draft en cours (picks, monstres reconnus et first pick sont conservés). La lecture automatique ne le reproposera plus pour ce combat.">✕ mauvais joueur</button>` : ""}
       ${box && !box.ok ? '<span class="muted">(aucune donnée RTA)</span>':""}
       ${box ? `<span class="muted" style="font-weight:400;font-size:12px">· box RTA : ${box.list.length} monstres</span>`:""}
     </div>
@@ -1787,7 +1790,7 @@ function camRun(boxes){
   // boxes fournies = calibration manuelle (5 cases à toi puis 5 adverses) ; sinon détection AUTO
   cam.slots = boxes ? boxes.map((b,i)=>({box:b, side:i<5?"A":"B", id:null, diag:null})) : [];
   cam.manualBoxes = !!boxes;
-  cam.fpSet = false; cam.oppTry = null; cam.oppCand = null; cam.boxMap = [];
+  cam.fpSet = false; cam.oppTry = null; cam.oppCand = null; cam.oppRejected = null; cam.boxMap = [];
   // machine à états : IDLE (hors page VS) → ACTIVE (page VS confirmée, détection des 10 cases)
   cam.page = "IDLE"; cam.onN = 0; cam.offN = 0; cam.locked = false; cam.acqN = 0;
   liveStatus(boxes ? "🎯 calibration chargée — en attente de l'écran VS…" : "🔎 en attente de l'écran VS…", boxes?true:undefined);
@@ -2384,7 +2387,7 @@ async function camTick(){
       cam.page = "IDLE"; cam.onN = 0; cam.locked = false; cam.lastHl = null; cam.acqN = 0; cam.emptyLearned = null;
       if(cam.manualBoxes) for(const s of cam.slots){ s.id=null; s.diag=null; s.pend=null; s.pendN=0; s.emptyN=0; s.weak=null; s.weakN=0; s.content=false; s.unk=false; s.unkN=0; }
       else cam.slots = [];
-      cam.boxMap = []; cam.fpSet = false; cam.oppTry = null; cam.oppCand = null;
+      cam.boxMap = []; cam.fpSet = false; cam.oppTry = null; cam.oppCand = null; cam.oppRejected = null;
       camLog("⏹ sortie de la page VS — détection stoppée, cases réinitialisées");
     }
     liveStatus("🔎 en attente de l'écran VS…");
@@ -2418,7 +2421,7 @@ async function camTick(){
         simState.picksA = []; simState.picksB = []; simState.history = [];
         simState.giLock = {A:new Set(), B:new Set()};
         if(cam.ocrSetB && simState.b){ simState.b = null; simState.boxB = null; }
-        cam.oppTry = null; cam.oppCand = null; cam.ocrSetB = false;
+        cam.oppTry = null; cam.oppCand = null; cam.ocrSetB = false; cam.oppRejected = null;
         camLog("🆕 nouveau combat détecté — picks, verrous et adversaire remis à zéro");
         renderSim();
       }
@@ -2987,6 +2990,7 @@ async function camFindOpponent(){
     // adversaire posé par une correspondance APPROCHÉE de l'API est indiscernable d'une
     // lecture exacte, et le diagnostic est impossible après coup
     const accept = async (p, instant, why) => {
+      if(cam.oppRejected?.has(p.id)) return; // écarté à la main via « ✕ mauvais joueur »
       if(!instant && cam.oppCand !== p.id){
         cam.oppCand = p.id;
         camLog(`🕐 candidat adversaire : ${p.wizard_name} (confirmation 1/2${why ? " — " + why : ""})`);
@@ -3212,6 +3216,22 @@ function simAnonSortChange(v){
   simState.anonSort = v;
   const g = document.getElementById("anonGrid");
   if(g){ g.innerHTML = anonGridHTML(); fitAnonGrid(); }
+}
+/* « ✕ mauvais joueur » : retire l'adversaire identifié SANS toucher à la draft en cours.
+   Picks des deux côtés, monstres reconnus par la capture, first pick et verrous manuels sont
+   tous conservés — seule la box adverse disparaît, donc les badges « dans sa box » et le
+   classement restreint. L'id écarté est mémorisé pour le combat : sans ça la lecture
+   automatique reverrouillerait le même joueur au tick suivant, en relisant le même pseudo. */
+function simClearOpponent(){
+  if(!simState.b) return;
+  if(!cam.oppRejected) cam.oppRejected = new Set();
+  cam.oppRejected.add(simState.b);
+  const name = simState.boxB?.name || "";
+  simState.b = null; simState.boxB = null;
+  cam.ocrSetB = false; cam.oppCand = null;
+  cam.oppTry = {t: 0, n: 0}; // relecture immédiate, en évitant désormais le joueur écarté
+  camLog(`✕ adversaire écarté${name ? " : " + name : ""} — draft conservée, il ne sera plus proposé`);
+  renderSim();
 }
 function simRemove(side, i){
   const arr = side==="A"?simState.picksA:simState.picksB;
