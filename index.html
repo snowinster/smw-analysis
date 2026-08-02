@@ -1118,7 +1118,8 @@ const simState = { a:null, b:null, fp:"A", lds:true, picksA:[], picksB:[], boxA:
   // positions du plateau (.gi) modifiées À LA MAIN : la capture n'y écrit plus jamais
   giLock: {A:new Set(), B:new Set()},
   boxSort: (()=>{ try{ return localStorage.getItem("simBoxSort_v2") || "element"; }catch(e){ return "element"; } })(),
-  fpRank: (()=>{ try{ return parseInt(localStorage.getItem("simFpRank_v1"), 10) || 4003; }catch(e){ return 4003; } })() };
+  fpRank: (()=>{ try{ return parseInt(localStorage.getItem("simFpRank_v1"), 10) || 4003; }catch(e){ return 4003; } })(),
+  fpMin:  (()=>{ try{ return parseInt(localStorage.getItem("simFpMin_v1"), 10) || 100; }catch(e){ return 100; } })() };
 /* paliers de rang RTA, tels que l'API les expose dans last_rating_id du first picker.
    Vérifié sur 197 000 lignes de replays S38 : 35xx = Conquérant, 40xx = Guardian, le dernier
    chiffre donne le sous-rang, et le score médian croît bien dans cet ordre (1080 → 1278).
@@ -1132,6 +1133,12 @@ const FP_RANKS = [
   {r:4003, l:"Guardian 3+"}
 ];
 const fpRankLabel = r => (FP_RANKS.find(x=>x.r===r) || FP_RANKS.at(-1)).l;
+/* nombre minimum d'ouvertures pour qu'un monstre entre au classement des first picks.
+   Défaut 100 : mesuré sur la S38 en Guardian 3+, il laisse 38 candidats (pour 15 affichés) et
+   93 % des ouvertures, tout en garantissant que le taux montré colle à la réalité observée —
+   la correction de shrink() y plafonne à ~4 points, contre 21 points à un seuil de 10, où le
+   pourcentage affiché est presque entièrement fabriqué par le rétrécissement. */
+const FP_MIN_OPTIONS = [10, 25, 50, 100, 250, 500];
 const ELEM_ORDER = {Fire:0, Water:1, Wind:2, Light:3, Dark:4};
 
 /* ----- personnalisation de la box (suppressions/ajouts), persistée par compte ----- */
@@ -1456,6 +1463,9 @@ async function viewSimulator(){
         <label class="muted" style="margin-left:auto" title="Niveau minimum du joueur qui a ouvert la draft. Les recommandations de first pick ne comptent que les ouvertures faites à ce rang ou au-dessus - « Guardian 3+ » inclut donc la Légende.">First picks
           <select id="simFpRank">${FP_RANKS.map(x=>`<option value="${x.r}" ${x.r===simState.fpRank?"selected":""}>${x.l}</option>`).join("")}</select>
         </label>
+        <label class="muted" title="Nombre minimum d'ouvertures pour qu'un monstre entre au classement. Plus le seuil est bas, plus on voit de monstres rares - mais leur pourcentage repose sur peu de parties et se retrouve fortement corrigé vers 50 %.">min.
+          <select id="simFpMin">${FP_MIN_OPTIONS.map(x=>`<option value="${x}" ${x===simState.fpMin?"selected":""}>${x} ouvertures</option>`).join("")}</select>
+        </label>
         <label class="muted">Stats basées sur
           <select id="simSeason">${seasons.map(x=>`<option value="${x}" ${x===simState.season?"selected":""}>Saison ${x}</option>`).join("")}</select>
         </label>
@@ -1472,6 +1482,11 @@ async function viewSimulator(){
       simState.fpRank = +e.target.value;
       try{ localStorage.setItem("simFpRank_v1", String(simState.fpRank)); }catch(err){}
       renderSim(); // la ventilation par rang est déjà en cache : aucun rechargement réseau
+    };
+    document.getElementById("simFpMin").onchange = e => {
+      simState.fpMin = +e.target.value;
+      try{ localStorage.setItem("simFpMin_v1", String(simState.fpMin)); }catch(err){}
+      renderSim();
     };
     document.getElementById("simSeason").onchange = e => {
       simState.season = +e.target.value;
@@ -3309,11 +3324,11 @@ async function renderSim(){
   if(fpMode){
     const fps = fpAggregate(await getFirstPickStats(), simState.fpRank);
     if(token !== simRenderToken) return;
-    // liste globale des first picks du rang choisi (même hors box). Seuil de 30 ouvertures :
-    // les paliers hauts sont bien moins peuplés que les bas, et exiger 100 y viderait la liste.
-    // Le classement reste sain car le tri applique shrink(), qui ramène vers 50 % les taux
-    // assis sur peu de parties.
-    fpGlobal = [...fps.entries()].filter(([id,e])=>e.n>=30)
+    // liste globale des first picks du rang choisi (même hors box), au-dessus du seuil
+    // d'ouvertures choisi en haut de page. Le tri applique shrink(), qui ramène vers 50 % les
+    // taux assis sur peu de parties : un seuil bas fait donc entrer des monstres rares dont le
+    // pourcentage affiché est surtout le produit de ce rétrécissement.
+    fpGlobal = [...fps.entries()].filter(([id,e])=>e.n>=simState.fpMin)
       .map(([id,e])=>({id, n:e.n, wr:e.w/e.n}))
       .sort((a,b)=> shrink(b.wr,b.n)-shrink(a.wr,a.n) || b.n-a.n).slice(0,20);
     await preloadMonsters(fpGlobal.map(x=>x.id));
@@ -3469,8 +3484,8 @@ async function renderSim(){
     }
   }
   $s.innerHTML = (fpMode ? `
-    <h2>First picks - ${fpRankLabel(simState.fpRank)} <span class="muted" style="font-size:12px;font-weight:400">(min. 30 ouvertures)</span>
-      <span style="color:var(--accent2);cursor:help;font-size:15px" title="Comment c'est calculé ? L'app balaie tout l'historique de saison des 600 premiers du classement - aucun plafond de combats par joueur, qui biaiserait l'échantillon vers les plus gros joueurs. Dans chaque combat elle repère qui avait le first pick, note SON rang, quel monstre il a posé en premier et s'il a gagné. Le sélecteur « First picks » en haut de page choisit le rang MINIMUM retenu : seules les ouvertures faites à ce niveau ou au-dessus sont comptées. Le % = victoires / ouvertures. Seuls les monstres ouverts au moins 30 fois au rang choisi sont affichés. Recalculé une fois par jour.">*</span></h2>
+    <h2>First picks - ${fpRankLabel(simState.fpRank)} <span class="muted" style="font-size:12px;font-weight:400">(min. ${simState.fpMin} ouvertures)</span>
+      <span style="color:var(--accent2);cursor:help;font-size:15px" title="Comment c'est calculé ? L'app balaie tout l'historique de saison des 600 premiers du classement - aucun plafond de combats par joueur, qui biaiserait l'échantillon vers les plus gros joueurs. Dans chaque combat elle repère qui avait le first pick, note SON rang, quel monstre il a posé en premier et s'il a gagné. Le sélecteur « First picks » en haut de page choisit le rang MINIMUM retenu : seules les ouvertures faites à ce niveau ou au-dessus sont comptées. Le % = victoires / ouvertures. Le sélecteur « min. » fixe le nombre d'ouvertures exigé pour entrer au classement. Recalculé une fois par jour.">*</span></h2>
     <div class="panel">${fpGlobal.length ? fpGlobal.map((f,i)=>{
         const fm = monCache.get(f.id)||{};
         return `<div class="sugg" draggable="true" data-drag-id="${f.id}" onclick="simPick(${f.id},'A')">
