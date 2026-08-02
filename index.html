@@ -1764,12 +1764,14 @@ async function camStart(){
   const t = document.createElement("canvas"); t.width = 16; t.height = 16;
   cam.tctx = t.getContext("2d", {willReadFrequently:true});
   cam.stream.getVideoTracks()[0].addEventListener("ended", liveOff);
-  // préchauffage OCR : script + worker + langue latine chargés pendant qu'on attend une draft
-  // (le 1er essai réel part à chaud au lieu de payer 1-3 s de mise en route)
+  // préchauffage OCR : script + LES DEUX workers chargés pendant qu'on attend une draft, pour que
+  // le 1er essai réel parte à chaud. Le worker CJC pèse plusieurs Mo de données de langue : le
+  // charger ici plutôt qu'au premier pseudo japonais évite d'attendre en pleine draft.
   loadLexicon(); // lexique des pseudos en parallèle du préchauffage OCR
-  loadOCR().then(async ok => {
-    if(!ok || cam.ocrW) return;
-    try{ cam.ocrW = { w: await Tesseract.createWorker("eng"), langs: "eng" }; }catch(e){}
+  loadOCR().then(ok => {
+    if(!ok) return;
+    ocrWorker(OCR_LATIN).catch(()=>{});
+    ocrWorker(OCR_CJK).catch(()=>{});
   });
   const key = cam.video.videoWidth + "x" + cam.video.videoHeight;
   let saved = {};
@@ -1779,7 +1781,9 @@ async function camStart(){
 }
 function camStop(){
   clearInterval(cam.timer); cam.timer = null;
-  if(cam.ocrW){ try{ cam.ocrW.w.terminate(); }catch(e){} cam.ocrW = null; }
+  // libère tout le pool : les workers survivent d'une draft à l'autre, mais pas à l'arrêt de la capture
+  for(const p of ocrPool.values()) p.then(w => { try{ w.terminate(); }catch(e){} }).catch(()=>{});
+  ocrPool.clear();
   if(cam.stream) cam.stream.getTracks().forEach(t=>t.stop());
   cam.stream = null; cam.video = null; cam.boxes = null; cam.manualBoxes = false;
   document.getElementById("camOverlay")?.remove();
@@ -2932,14 +2936,29 @@ function guessScript(im){
 /* worker Tesseract réutilisé : PSM 7 (« une seule ligne de texte », bien plus fiable qu'une
    page auto) + whitelist stricte sur les essais latin pur (élimine les « | 「 » parasites).
    Les données de langue sont mises en cache par le navigateur (IndexedDB). */
+/* POOL de workers Tesseract, un par jeu de langues, gardés en vie.
+   Avant, chaque changement de langue terminait le worker et en recréait un : le chargement des
+   données de langue — plusieurs Mo pour le japonais ou le chinois — était donc repayé à chaque
+   essai, et la rotation sur 5 jeux de langues le refaisait jusqu'à 8 fois par combat. C'est là
+   que partait l'essentiel du temps, pas dans la reconnaissance elle-même.
+   Deux workers distincts = deux web workers = vrai parallélisme, ce dont on profite ci-dessous. */
+const OCR_LATIN = "eng", OCR_CJK = "jpn+kor+chi_sim+chi_tra";
+const ocrPool = new Map(); // langs -> Promise<worker>
+function ocrWorker(langs){
+  let p = ocrPool.get(langs);
+  if(!p){
+    p = Tesseract.createWorker(langs).catch(e => { ocrPool.delete(langs); throw e; });
+    ocrPool.set(langs, p);
+  }
+  return p;
+}
 async function ocrRecognize(canvas, langs){
-  if(cam.ocrW && cam.ocrW.langs !== langs){ try{ await cam.ocrW.w.terminate(); }catch(e){} cam.ocrW = null; }
-  if(!cam.ocrW) cam.ocrW = { w: await Tesseract.createWorker(langs), langs };
-  await cam.ocrW.w.setParameters({
+  const w = await ocrWorker(langs);
+  await w.setParameters({
     tessedit_pageseg_mode: "7",
-    tessedit_char_whitelist: langs === "eng" ? "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-. '" : ""
+    tessedit_char_whitelist: langs === OCR_LATIN ? "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-. '" : ""
   });
-  return await cam.ocrW.w.recognize(canvas);
+  return await w.recognize(canvas);
 }
 async function camFindOpponent(){
   try{
@@ -3017,6 +3036,8 @@ async function camFindOpponent(){
     const cx = c.getContext("2d");
     cx.drawImage(cam.det.c, sx, band.y0, sw, bh, 0, 0, c.width, c.height);
     const srcIm = cx.getImageData(0, 0, c.width, c.height);
+    // chaque rendu produit SON canvas : deux reconnaissances peuvent alors tourner en parallèle
+    // sans se marcher dessus (avant, les deux modes réécrivaient le même canvas)
     const render = mode => {
       const im = new ImageData(new Uint8ClampedArray(srcIm.data), srcIm.width, srcIm.height);
       for(let i=0; i<im.data.length; i+=4){
@@ -3024,28 +3045,36 @@ async function camFindOpponent(){
         const v = mode === "bin" ? (l > 120 ? 0 : 255) : Math.max(0, Math.min(255, Math.round(255 - l*1.4)));
         im.data[i] = im.data[i+1] = im.data[i+2] = v;
       }
-      cx.putImageData(im, 0, 0);
-      return im;
+      const cc = document.createElement("canvas");
+      cc.width = srcIm.width; cc.height = srcIm.height;
+      cc.getContext("2d").putImageData(im, 0, 0);
+      return {canvas: cc, im};
     };
-    // rotation de langues : latin pur (whitelist stricte), jeux multilingues, et jeux CJC PURS
-    // (sans biais latin : « 哩歐歐 » se lit bien mieux en chi_tra seul qu'en mélange à 4 langues)
-    // détection de SCRIPT sur le crop binarisé : les 2 premiers essais chargent directement
-    // la bonne famille de langues ; la rotation complète ne sert plus que de secours
-    const binIm = render("bin");
-    const script = guessScript(binIm);
-    const LANG_SETS = ["eng", "eng+jpn+kor+chi_sim", "chi_sim+chi_tra", "eng+chi_tra+rus+tha", "jpn+kor"];
+    /* Les DEUX familles de langues sont lues en parallèle sur la même image, au lieu d'une seule
+       par essai. La rotation sur 5 jeux de langues coûtait un tick entier (2,5 à 5 s) par jeu et
+       rechargeait les données de langue à chaque fois : jusqu'à ~50 s pour aboutir. Ici les deux
+       workers travaillent simultanément, on a les deux lectures en une passe.
+       La détection de script ne sert donc plus à CHOISIR la langue — elle n'est gardée que pour
+       le journal, où elle reste utile au diagnostic (elle s'est trompée sur ちゃんぐりーん). */
+    const bin = render("bin");
+    const script = guessScript(bin.im);
     const nTry = cam.oppTry?.n || 1;
-    const langs = nTry <= 2
-      ? (script === "cjk" ? "jpn+kor+chi_sim+chi_tra" : "eng")
-      : LANG_SETS[(nTry - 1) % LANG_SETS.length];
-    let txt = "";
-    for(const mode of ["bin", "gray"]){
-      if(mode !== "bin") render(mode); // le rendu binarisé est déjà sur le canvas
-      const res = await ocrRecognize(c, langs);
-      txt = (res?.data?.text || "").split("\n").map(x=>x.trim()).sort((a,b)=>b.length-a.length)[0] || "";
-      if(txt.length >= 2) break;
+    const line = r => (r?.data?.text || "").split("\n").map(x=>x.trim()).sort((a,b)=>b.length-a.length)[0] || "";
+    let reads = (await Promise.all([
+      ocrRecognize(bin.canvas, OCR_LATIN).catch(()=>null),
+      ocrRecognize(bin.canvas, OCR_CJK).catch(()=>null)
+    ])).map(line).filter(t => t.length >= 2);
+    if(!reads.length){
+      // rien en binarisé : les traits fins des idéogrammes survivent mieux en niveaux de gris
+      const gray = render("gray");
+      reads = (await Promise.all([
+        ocrRecognize(gray.canvas, OCR_LATIN).catch(()=>null),
+        ocrRecognize(gray.canvas, OCR_CJK).catch(()=>null)
+      ])).map(line).filter(t => t.length >= 2);
     }
-    camLog(`🔎 OCR pseudo adverse (essai ${nTry}, ${script}, ${langs.split("+").length} langue(s)) : « ${txt || "—"} »`);
+    // on retient la lecture qui tombe sur un joueur connu ; à défaut, la plus longue
+    const txt = reads.find(t => lexMatch(t)) || reads.sort((a,b)=>b.length-a.length)[0] || "";
+    camLog(`🔎 OCR pseudo adverse (essai ${nTry}, script vu ${script}, ${reads.length} lecture(s)) : « ${txt || "—"} »${reads.length > 1 ? ` [autres : ${reads.filter(t=>t!==txt).map(t=>`« ${t} »`).join(" ")}]` : ""}`);
     if(txt.length < 2) return;
     const cands = [...new Set([
       txt,
