@@ -3327,7 +3327,7 @@ async function renderSim(){
     const fps = fpAggregate(await getFirstPickStats(), simState.fpRank);
     if(token !== simRenderToken) return;
     // liste globale des first picks du rang choisi (même hors box), au-dessus du seuil
-    // d'ouvertures choisi en haut de page. Le tri applique shrink(), qui ramène vers 50 % les
+    // d'ouvertures choisi dans l'en-tête. Le tri applique shrink(), qui ramène vers 50 % les
     // taux assis sur peu de parties : un seuil bas fait donc entrer des monstres rares dont le
     // pourcentage affiché est surtout le produit de ce rétrécissement.
     fpGlobal = [...fps.entries()].filter(([id,e])=>e.n>=simState.fpMin)
