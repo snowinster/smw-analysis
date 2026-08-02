@@ -2278,11 +2278,26 @@ const camGain = () => Math.min(2.2, Math.max(1, GOLD_REF / (cam.goldLum || GOLD_
 const baseName = n => (n||"").split(" (")[0];
 /* base restreinte aux monstres de la box du joueur (discrimination bien meilleure, surtout côté sombre) */
 /* « box méta » : joueur non identifié → on restreint quand même les candidats aux monstres les
-   plus joués de la saison, au lieu de trancher d'emblée parmi les 882 icônes.
-   150 et non 50 : mesuré sur les S37 et S38, le top 50 ne couvre que 66 % des picks réels — un
-   pick sur trois serait hors du filet, avec des seuils de luminosité assouplis, donc identifié
-   à tort sur un sosie. Le top 150 en couvre 91 %, tout en divisant les candidats par 6. */
-const META_DB_N = 150;
+   plus joués de la saison, au lieu de trancher d'emblée parmi les 884 icônes.
+
+   50 et pas davantage. La couverture des picks progresse avec la taille du filet (66 % à 50,
+   91 % à 150), mais la QUALITÉ de reconnaissance se dégrade plus vite qu'elle ne progresse.
+   Mesuré sur les signatures réelles, en appliquant la règle de camMatchSig — la marge de
+   confiance se calcule contre le plus proche monstre d'une AUTRE FAMILLE, les variantes
+   élémentaires étant tranchées séparément par la teinte :
+
+     filet    marge médiane    marge trop serrée    hors filet mal identifié
+       30         1.23               9 %                    13 %
+       50         1.27              11 %                    16 %
+      150         0.81              43 %                     7 %
+      884         0.38              64 %                     0 %
+
+   Un filet large rapproche mécaniquement les candidats : à 150 la marge médiane est divisée par
+   1,6 et 43 % des picks n'ont plus de quoi encaisser le bruit d'un crop sombre. Un filet étroit
+   laisse plus de monstres dehors, mais ceux-là ne sont pas perdus : camMatch2 les rattrape sur
+   la base complète, exactement comme avant l'ajout de ce filet. Le gain se concentre donc là où
+   il compte, sur les monstres réellement joués. */
+const META_DB_N = 50;
 function camMetaDb(){
   if(!cam.db) return null;
   const s = simState.season;
@@ -2563,8 +2578,9 @@ async function camTick(){
     const sdb = takenIds.size ? sdbAll.filter(e=>!takenIds.has(e.id)) : sdbAll;
     const fdb = fromBox && takenIds.size ? cam.db.filter(e=>!takenIds.has(e.id)) : null;
     const g = gain * sg[s.side]; // compensation totale : fenêtre grisée x côté assombri
-    // base restreinte → cases plus sombres lisibles, mais la box MÉTA n'est qu'un pari (9 % des
-    // picks lui échappent) : seuil intermédiaire, pour ne pas coller un sosie sur un crop sombre
+    // base restreinte → cases plus sombres lisibles, mais la box MÉTA n'est qu'un pari : un tiers
+    // des picks lui échappe, et 16 % d'entre eux ont un sosie dedans. Seuil intermédiaire, pour
+    // ne pas coller ce sosie sur un crop sombre — là où une vraie box est un filet quasi sûr.
     const lumMin = tier === "box" ? 33 : tier === "meta" ? 44 : 55;
     for(const cv of SIG_CROPS){
       const {v, lum, std, hue, hue4} = cropSig(s.box, cv);
