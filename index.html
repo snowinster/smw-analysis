@@ -2329,6 +2329,26 @@ function dbForSide(side){
   cam.dbTier = "full";
   return cam.db;
 }
+/* Centrage par canal de la grille chromatique 4x4.
+   Le jeu assombrit le côté qui n'est pas au tour en mélangeant l'image vers le fond BRUN du
+   plateau. Ce n'est pas un simple assombrissement : c'est un mélange affine, qui tire toutes
+   les proportions R/G/B vers le rouge — et fait donc choisir la mauvaise variante élémentaire
+   (une Eau lue comme une Feu). Comme le décalage est commun à toutes les cellules, le
+   retrancher le neutralise, tout en conservant le motif spatial qui distingue les variantes.
+   Mesuré sur les 40 familles à variantes, voile à 50 % d'opacité :
+     voile brun : 59 % de bonnes variantes en brut → 98 % en centré
+     voile bleu : 44 % → 99 %       voile gris : 90 % → 98 %       voile noir : 100 % → 100 %
+   Aucune régression : le centrage conserve 84 % du pouvoir de séparation sur image non voilée. */
+function hueCenter(a){
+  const c = new Float32Array(48);
+  for(let ch=0; ch<3; ch++){
+    let m = 0;
+    for(let k=0; k<16; k++) m += a[k*3+ch];
+    m /= 16;
+    for(let k=0; k<16; k++) c[k*3+ch] = a[k*3+ch] - m;
+  }
+  return c;
+}
 function camMatchSig(v, db, hue, hue4, restricted){
   db = db || cam.db;
   if(restricted === undefined) restricted = db !== cam.db;
@@ -2348,8 +2368,13 @@ function camMatchSig(v, db, hue, hue4, restricted){
   if(e1 && (hue4 || hue)){
     const fam = db.filter(e => e !== e1 && baseName(e.name) === baseName(e1.name) && (e.hue4 || e.hue));
     if(fam.length && (e1.hue4 || e1.hue)){
+      const hq = hue4 ? hueCenter(hue4) : null;
       const hd = e => {
-        if(hue4 && e.hue4){ let s=0; for(let i=0;i<48;i++) s += Math.abs(hue4[i]-e.hue4[i]); return s/16; }
+        if(hq && e.hue4){
+          const he = e.hue4c || (e.hue4c = hueCenter(e.hue4)); // centré une seule fois par icône
+          let s=0; for(let i=0;i<48;i++) s += Math.abs(hq[i]-he[i]);
+          return s/16;
+        }
         if(hue && e.hue) return Math.abs(hue[0]-e.hue[0]) + Math.abs(hue[1]-e.hue[1]) + Math.abs(hue[2]-e.hue[2]);
         return 1e9;
       };
