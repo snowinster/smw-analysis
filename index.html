@@ -1161,12 +1161,13 @@ const simState = { a:null, b:null, fp:"A", picksA:[], picksB:[], boxA:null, boxB
   fpMin:  (()=>{ try{ return parseInt(localStorage.getItem("simFpMin_v1"), 10) || 100; }catch(e){ return 100; } })(),
   // conseils limités aux monstres que tu possèdes, ou meilleurs choix THÉORIQUES tous monstres
   boxOnly: (()=>{ try{ return localStorage.getItem("simBoxOnly_v1") !== "false"; }catch(e){ return true; } })(),
-  ldMode:  (()=>{ try{ return localStorage.getItem("simLdMode_v1") || "all"; }catch(e){ return "all"; } })() };
-/* filtre Lumière/Ténèbres des conseils. « mine » est le mode utile quand « Limiter à ma box »
-   est décoché : sans lui, le classement théorique se remplit de LD que tu ne possèdes pas et
-   n'obtiendras sans doute jamais, ce qui noie les conseils réellement jouables — mais on garde
-   ceux de ta box, qui eux sont de vrais choix. En mode box, « mine » équivaut à « all ». */
-const LD_MODES = [["all","LD : tous"],["mine","LD : seulement les miens"],["none","LD : exclus"]];
+  // toute valeur héritée (dont l'ancien « all ») retombe sur « mine », le défaut
+  ldMode:  (()=>{ try{ return localStorage.getItem("simLdMode_v1") === "none" ? "none" : "mine"; }catch(e){ return "mine"; } })() };
+/* filtre Lumière/Ténèbres des conseils. « mine » (défaut) écarte les LD que tu ne possèdes pas :
+   sans lui, le classement théorique se remplit de monstres hors de portée qui noient les conseils
+   réellement jouables — mais il garde ceux de ta box, qui eux sont de vrais choix. Il n'agit donc
+   que lorsque « Limiter à ma box » est décoché ; en mode box, tout est déjà à toi. */
+const LD_MODES = [["mine","LD : seulement les miens"],["none","LD : exclus"]];
 /* paliers de rang RTA, tels que l'API les expose dans last_rating_id du first picker.
    Vérifié sur 197 000 lignes de replays S38 : 35xx = Conquérant, 40xx = Guardian, le dernier
    chiffre donne le sous-rang, et le score médian croît bien dans cet ordre (1080 → 1278).
@@ -3380,10 +3381,9 @@ async function renderSim(){
   const pickedIds = new Set([...myPicks, ...enemyPicks].map(p=>p.id));
   const isLD = el => el==="Light" || el==="Dark";
   const inBox = id => my.list.some(x=>x.unit_master_id===id);
-  // filtre Lumière/Ténèbres : « mine » ne garde que les LD de ta box, les autres éléments
-  // passent toujours. Un élément inconnu (monCache incomplet) n'est jamais écarté.
-  const keepLD = (id, element) => !isLD(element) || simState.ldMode === "all"
-    || (simState.ldMode === "mine" && inBox(id));
+  // filtre Lumière/Ténèbres : « mine » ne garde que les LD de ta box, « none » les écarte tous.
+  // Les autres éléments passent toujours, et un élément inconnu n'est jamais écarté.
+  const keepLD = (id, element) => !isLD(element) || (simState.ldMode === "mine" && inBox(id));
   // stats méta de la saison (ban rate, seuils)
   const meta = await getMetaStats();
   if(token !== simRenderToken) return;
