@@ -3789,6 +3789,16 @@ function fitAnonGrid(){
   const GAP = 8;
   const rowH = cell.getBoundingClientRect().height + GAP;
   if(rowH < 20) return; // pas encore mis en page : le resize repassera
+  /* alignement vertical sur la grille de TA box : le panneau de gauche porte un bouton
+     « Modifier la box » que le panneau adverse n'a pas, ce qui décalait les deux grilles.
+     On mesure l'écart au lieu de le coder en dur (il dépend des polices et de la fenêtre),
+     et on l'ajoute à la marge courante — l'opération est idempotente, un 2e passage mesure 0. */
+  const mine = [...document.querySelectorAll(".sim-side .picks")].find(el => el !== g);
+  if(mine){
+    const cur = parseFloat(g.style.marginTop) || 0;
+    const delta = mine.getBoundingClientRect().top - g.getBoundingClientRect().top;
+    if(Math.abs(delta) > 1) g.style.marginTop = Math.max(0, cur + delta) + "px";
+  }
   const side = g.closest(".sim-side");
   const free = side ? side.getBoundingClientRect().bottom - g.getBoundingClientRect().top - 14 : 0;
   const rows = Math.min(8, Math.max(3, Math.floor((Math.max(free, 0) + GAP) / rowH)));
