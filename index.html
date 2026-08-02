@@ -1518,9 +1518,9 @@ async function viewSimulator(){
         <div class="cmp-pick"><input id="simInB" placeholder="🔍 Adversaire (joueur B)…" autocomplete="off"><div class="cmp-results" id="simResB" style="display:none"></div></div>
       </div>
       <div class="row panel fp-radio" style="gap:20px">
-        <span class="muted">First pick :</span>
-        <label><input type="radio" name="simfp" value="A" ${simState.fp==="A"?"checked":""}> Joueur A</label>
-        <label><input type="radio" name="simfp" value="B" ${simState.fp==="B"?"checked":""}> Joueur B</label>
+        <label class="switch" title="Coché : c'est TOI qui ouvres la draft, tu poses le premier monstre. Décoché : c'est l'adversaire qui ouvre. Toute la séquence de picks 1-2-2-2-2-1 en découle, donc aussi les tours où tu dois en poser deux.">
+          <input type="checkbox" id="simFpMine" ${simState.fp==="A"?"checked":""}><span class="tk"></span><span>⭐ J'ai le first pick</span>
+        </label>
         <label class="switch" title="Partage la fenêtre du jeu : les picks sont reconnus à l'écran et posés automatiquement. Lecture d'écran uniquement, comme un partage Discord.">
           <input type="checkbox" id="simLive" ${simState.live?"checked":""}><span class="tk"></span><span>🎥 Capture en direct</span>
         </label>
@@ -1539,7 +1539,7 @@ async function viewSimulator(){
       <div id="simBoard"><div class="panel muted">Choisis les deux joueurs pour commencer. Les suggestions se basent sur la box RTA cumulée de chacun et les stats de matchups (Guardian+, saison ${simState.season}).</div></div>`;
     attachCmpPicker("simInA","simResA", id=>setSimA(id));
     attachCmpPicker("simInB","simResB", async id=>{ simState.b=id; simState.boxB=null; renderSim(); simState.boxB = await loadSimBox(id); renderSim(); });
-    document.querySelectorAll('[name="simfp"]').forEach(r => r.onchange = e => { simState.fp = e.target.value; renderSim(); });
+    document.getElementById("simFpMine").onchange = e => { simState.fp = e.target.checked ? "A" : "B"; renderSim(); };
     document.getElementById("simLive").onchange = e => { simState.live = e.target.checked; liveToggle(); };
     document.getElementById("simBoxOnly").onchange = e => {
       simState.boxOnly = e.target.checked;
@@ -2154,7 +2154,8 @@ function camSetFP(side){
   cam.fpSet = true;
   if(simState.fp !== side){
     simState.fp = side;
-    document.querySelectorAll("input[name=simfp]").forEach(r=>{ r.checked = (r.value===side); });
+    const el = document.getElementById("simFpMine"); // la capture a détecté qui ouvre : on suit
+    if(el) el.checked = (side === "A");
     renderSim();
   }
 }
