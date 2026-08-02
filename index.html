@@ -80,6 +80,69 @@ tr.clickable:hover{background:var(--card2)}
 .rank-badge{display:inline-block;min-width:30px;text-align:center;font-weight:700;color:var(--muted)}
 .rank-badge.top1{color:var(--gold)} .rank-badge.top2{color:#c8d2e8} .rank-badge.top3{color:#d49a6a}
 
+/* ---------- Accueil (refonte) ---------- */
+@keyframes hmIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+.hm-fade{animation:hmIn .5s ease both}
+.hero{position:relative;overflow:hidden;border-radius:22px;border:1px solid var(--border);
+  background:radial-gradient(760px 360px at 88% -12%, rgba(124,108,240,.22), transparent 62%),
+             radial-gradient(620px 320px at -6% 112%, rgba(78,161,255,.14), transparent 60%),
+             linear-gradient(180deg, var(--card), var(--bg2));
+  padding:40px 36px 30px;margin-bottom:20px}
+.hero .kicker{font-size:12px;letter-spacing:.16em;text-transform:uppercase;color:var(--accent2);font-weight:700;margin-bottom:10px}
+.hero h1{font-size:clamp(26px,3.6vw,40px);line-height:1.12;margin:0 0 10px;
+  background:linear-gradient(92deg,#fff 15%,#c3ceff 55%,#7fb7ff);-webkit-background-clip:text;background-clip:text;color:transparent}
+.hero .sub{color:var(--muted);font-size:15px;max-width:660px;line-height:1.6}
+.hero-stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-top:26px}
+.hstat{display:flex;gap:13px;align-items:center;background:rgba(13,17,23,.5);border:1px solid rgba(43,53,80,.85);
+  border-radius:14px;padding:13px 16px;backdrop-filter:blur(6px)}
+.hstat .ic{width:40px;height:40px;border-radius:11px;display:flex;align-items:center;justify-content:center;font-size:19px;flex-shrink:0;
+  background:linear-gradient(135deg,rgba(124,108,240,.38),rgba(78,161,255,.18));border:1px solid rgba(124,108,240,.4)}
+.hstat .v{font-size:21px;font-weight:800;font-variant-numeric:tabular-nums;line-height:1.15}
+.hstat .l{font-size:11.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.07em}
+.hm-tools{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px;margin-bottom:6px}
+.tool{position:relative;display:block;background:var(--card);border:1px solid var(--border);border-radius:16px;padding:18px 18px 16px;
+  transition:transform .16s,border-color .16s,box-shadow .16s}
+.tool:hover{transform:translateY(-3px);border-color:var(--accent);box-shadow:0 14px 34px rgba(0,0,0,.4)}
+.tool .t-ic{width:44px;height:44px;border-radius:12px;font-size:21px;display:flex;align-items:center;justify-content:center;margin-bottom:12px;border:1px solid var(--border)}
+.tool.sim .t-ic{background:linear-gradient(135deg,rgba(124,108,240,.4),rgba(124,108,240,.08));border-color:rgba(124,108,240,.45)}
+.tool.mon .t-ic{background:linear-gradient(135deg,rgba(78,161,255,.38),rgba(78,161,255,.08));border-color:rgba(78,161,255,.45)}
+.tool.add .t-ic{background:linear-gradient(135deg,rgba(63,202,124,.35),rgba(63,202,124,.07));border-color:rgba(63,202,124,.4)}
+.tool b{font-size:15.5px}
+.tool p{color:var(--muted);font-size:13px;margin-top:5px;line-height:1.5}
+.tool .go{position:absolute;top:16px;right:16px;color:var(--muted);font-size:17px;transition:transform .16s,color .16s}
+.tool:hover .go{color:var(--accent2);transform:translateX(3px)}
+.hm-sec{display:flex;align-items:center;gap:12px;margin:28px 0 14px;flex-wrap:wrap}
+.hm-sec h2{margin:0}
+.hm-sec .ln{flex:1;height:1px;min-width:40px;background:linear-gradient(90deg,var(--border),transparent)}
+.hm-grid{display:grid;grid-template-columns:1.3fr 1fr;gap:18px;align-items:start}
+@media(max-width:980px){.hm-grid{grid-template-columns:1fr}}
+.podium{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:12px}
+.pod{position:relative;text-align:center;background:var(--card);border:1px solid var(--border);border-radius:16px;padding:18px 10px 13px;cursor:pointer;
+  transition:transform .15s,border-color .15s}
+.pod:hover{transform:translateY(-3px);border-color:var(--accent)}
+.pod.p1{order:2;background:linear-gradient(180deg,rgba(242,193,78,.10),var(--card) 60%);border-color:rgba(242,193,78,.45)}
+.pod.p2{order:1;margin-top:16px}
+.pod.p3{order:3;margin-top:16px}
+.pod .medal{position:absolute;top:10px;left:12px;font-size:17px}
+.pod img.pp{width:56px;height:56px;border-radius:14px;object-fit:cover;background:var(--bg2);border:2px solid var(--border)}
+.pod.p1 img.pp{width:68px;height:68px;border-color:rgba(242,193,78,.6)}
+.pod .pn{font-weight:700;font-size:13.5px;margin-top:8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding:0 4px}
+.pod .ps{font-size:20px;font-weight:800;margin-top:2px;font-variant-numeric:tabular-nums}
+.pod.p1 .ps{color:var(--gold)}
+.pod .pw{font-size:11.5px;color:var(--muted);margin-top:2px}
+.hm-mons{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:14px}
+.mcard{background:var(--card);border:1px solid var(--border);border-radius:16px;padding:15px;cursor:pointer;transition:transform .15s,border-color .15s}
+.mcard:hover{transform:translateY(-3px);border-color:var(--accent)}
+.mcard .mh{display:flex;gap:12px;align-items:center;margin-bottom:10px}
+.mcard .mh img{width:52px;height:52px;border-radius:12px;background:var(--bg2);border:2px solid var(--border)}
+.mcard .mn{font-weight:700;font-size:14.5px}
+.mcard .ms{font-size:12px;color:var(--muted);margin-top:1px}
+.mbar{display:grid;grid-template-columns:56px 1fr 48px;gap:8px;align-items:center;font-size:11.5px;color:var(--muted);margin-top:6px}
+.mbar .tr{height:7px;border-radius:4px;background:var(--bg2);overflow:hidden}
+.mbar .fl{height:100%;border-radius:4px}
+.mbar .pv{text-align:right;font-weight:700;color:var(--text);font-variant-numeric:tabular-nums}
+@media (prefers-reduced-motion:reduce){.hm-fade{animation:none}.tool,.pod,.mcard{transition:none}}
+
 /* ---------- Player page ---------- */
 .player-head{display:flex;gap:20px;align-items:center;flex-wrap:wrap;margin-bottom:20px}
 .player-head img.pfp{width:84px;height:84px;border-radius:16px;object-fit:cover;background:var(--card2);border:2px solid var(--border)}
@@ -472,35 +535,132 @@ async function viewHome(){
     const [stats, seasons] = await Promise.all([api("/general/stats"), getSeasons()]);
     if(!homeState.season || !seasons.includes(homeState.season)) homeState.season = seasons[0]; // défaut : saison en cours
     $app.innerHTML = `
-      <h1>Statistiques RTA - Summoners War</h1>
-      <div class="cards">
-        <div class="card"><div class="lbl">Joueurs suivis</div><div class="big">${num(stats.wizards_count)}</div></div>
-        <div class="card"><div class="lbl">Combats analysés</div><div class="big">${num(stats.battles_count)}</div></div>
-        <div class="card"><div class="lbl">Saisons couvertes</div><div class="big">${seasons.length} <span class="muted" style="font-size:14px">(S${seasons[seasons.length-1]}–S${seasons[0]})</span></div></div>
+      <div class="hero hm-fade">
+        <div class="kicker">Summoners War · Arène World (RTA)</div>
+        <h1>Analyse le ladder,<br>domine ta draft.</h1>
+        <p class="sub">Stats de méta saison par saison, classement mondial, et un simulateur de draft qui lit ton écran, identifie l'adversaire et conseille chaque pick sur les vrais matchups Guardian+.</p>
+        <div class="hero-stats">
+          <div class="hstat"><div class="ic">🧙</div><div><div class="v" data-count="${stats.wizards_count||0}">0</div><div class="l">joueurs suivis</div></div></div>
+          <div class="hstat"><div class="ic">⚔️</div><div><div class="v" data-count="${stats.battles_count||0}">0</div><div class="l">combats analysés</div></div></div>
+          <div class="hstat"><div class="ic">🗓️</div><div><div class="v">${seasons.length}</div><div class="l">saisons · S${seasons[seasons.length-1]} → S${seasons[0]}</div></div></div>
+        </div>
       </div>
-      <h2>Top joueurs -
-        <select id="homeSeason" style="font-size:14px">${seasons.map(s=>`<option value="${s}" ${s===homeState.season?"selected":""}>Saison ${s}</option>`).join("")}</select>
-        <a class="btn" style="margin-left:10px;font-size:12px" href="#/players">Voir le classement complet →</a></h2>
-      <div class="panel tbl-wrap" id="homeTopPlayers"><div class="loading">Chargement…</div></div>
-      <h2>Monstres les plus joués <a class="btn" style="margin-left:10px;font-size:12px" href="#/monsters">Voir tous les monstres →</a></h2>
-      <div class="panel tbl-wrap" id="homeTopMons"><div class="loading">Chargement…</div></div>
+      <div class="hm-tools">
+        <a class="tool sim hm-fade" style="animation-delay:.06s" href="#/simulator"><span class="go">→</span><div class="t-ic">🎯</div><b>Simulateur de draft</b><p>Conseils de picks en direct : capture d'écran, lecture du pseudo adverse, counters et duos calculés sur les vrais matchups.</p></a>
+        <a class="tool mon hm-fade" style="animation-delay:.12s" href="#/monsters"><span class="go">→</span><div class="t-ic">📊</div><b>Monstres & méta</b><p>Winrate, pick rate, ban rate, synergies et counters de chaque monstre — avec la tendance sur la saison.</p></a>
+        <a class="tool add hm-fade" style="animation-delay:.18s" href="#/tools/add"><span class="go">→</span><div class="t-ic">🧮</div><b>ADD Calc</b><p>Le calculateur d'attaque/défense pour optimiser tes runes sans sortir la calculatrice.</p></a>
+      </div>
+      <div class="hm-sec hm-fade" style="animation-delay:.2s"><h2>Le ladder en ce moment</h2>
+        <select id="homeSeason">${seasons.map(s=>`<option value="${s}" ${s===homeState.season?"selected":""}>Saison ${s}</option>`).join("")}</select>
+        <div class="ln"></div></div>
+      <div class="hm-grid">
+        <div>
+          <div class="row" style="justify-content:space-between;margin-bottom:10px"><b>🏆 Top joueurs</b><a class="btn" style="font-size:12px" href="#/players">Classement complet →</a></div>
+          <div id="homeTopPlayers"><div class="loading">Chargement…</div></div>
+        </div>
+        <div>
+          <div class="row" style="margin-bottom:10px"><b>⭐ First picks gagnants</b><span class="muted" style="font-size:12px">ouvertures Guardian 3+, WR ajusté au volume</span></div>
+          <div class="panel" id="homeFp" style="padding:10px;margin-bottom:0"><div class="loading">Chargement…</div></div>
+        </div>
+      </div>
+      <div class="hm-sec"><h2>Méta du moment</h2><a class="btn" style="font-size:12px" href="#/monsters">Tous les monstres →</a><div class="ln"></div></div>
+      <div class="hm-mons" id="homeTopMons"><div class="loading">Chargement…</div></div>
 `;
+    // compteurs animés du hero (dégradé cubique, ~1 s)
+    document.querySelectorAll("#app [data-count]").forEach(el=>{
+      const target = +el.dataset.count, t0 = performance.now(), D = 950;
+      const tick = t => {
+        const k = Math.min(1, (t-t0)/D), e2 = 1 - Math.pow(1-k, 3);
+        el.textContent = num(Math.round(target*e2));
+        if(k < 1) requestAnimationFrame(tick);
+      };
+      requestAnimationFrame(tick);
+    });
     document.getElementById("homeSeason").onchange = e => { homeState.season = +e.target.value; loadHomeTops(); };
     loadHomeTops();
   }catch(e){ fail(e); }
 }
 async function loadHomeTops(){
   const s = homeState.season;
-  const $p = document.getElementById("homeTopPlayers"), $m = document.getElementById("homeTopMons");
-  if($p) $p.innerHTML = '<div class="loading">Chargement…</div>';
-  if($m) $m.innerHTML = '<div class="loading">Chargement…</div>';
-  const [p, m] = await Promise.all([
-    api(`/players?season=${s}&isSL=false&limit=5&offset=0`).catch(()=>({data:null})),
-    api(`/monsters?season=${s}&isG3=false&isSL=false&played=0&orderBy=played&orderDirection=DESC&limit=6&offset=0`).catch(()=>({data:null}))
+  const $p = document.getElementById("homeTopPlayers"), $m = document.getElementById("homeTopMons"), $f = document.getElementById("homeFp");
+  for(const el of [$p, $m, $f]) if(el) el.innerHTML = '<div class="loading">Chargement…</div>';
+  // méta et first picks : nos fichiers statiques d'abord (élément inclus, pas de plafond) ; les
+  // saisons anciennes n'en ont pas → repli sur l'API live (sans élément) et section FP masquée
+  const [p, metaFile, fpFile] = await Promise.all([
+    api(`/players?season=${s}&isSL=false&limit=8&offset=0`).catch(()=>({data:null})),
+    fetch(`api/meta-s${s}.json`, {cache:"no-cache"}).then(r=>r.ok?r.json():null).catch(()=>null),
+    fetch(`api/firstpicks-s${s}.json`, {cache:"no-cache"}).then(r=>r.ok?r.json():null).catch(()=>null)
   ]);
   if(s !== homeState.season) return; // l'utilisateur a rechangé entre-temps
-  if($p) $p.innerHTML = p.data?.length ? playersTable(p.data, 0) : '<div class="muted" style="padding:8px">Aucune donnée pour cette saison.</div>';
-  if($m) $m.innerHTML = m.data?.length ? monstersTable(m.data) : '<div class="muted" style="padding:8px">Aucune donnée pour cette saison.</div>';
+  // ---- top joueurs : podium 1-2-3 + lignes 4-8 ----
+  if($p){
+    const rows = p.data || [];
+    if(!rows.length) $p.innerHTML = '<div class="panel muted" style="padding:14px">Aucune donnée pour cette saison.</div>';
+    else{
+      const wrOf = x => x.wizard_battles ? x.wizard_wins/x.wizard_battles : null;
+      const pod = rows.slice(0,3).map((x,i)=>`
+        <div class="pod p${i+1} hm-fade" style="animation-delay:${.05*i}s" onclick="location.hash='#/player/${x.wizard_id}'">
+          <span class="medal">${["🥇","🥈","🥉"][i]}</span>
+          <img class="pp" src="${esc(x.wizard_picture||'')}" onerror="this.style.visibility='hidden'">
+          <div class="pn">${flag(x.wizard_country)} ${esc(x.wizard_name)}</div>
+          <div class="ps">${num(x.last_score)}</div>
+          <div class="pw">${pct(wrOf(x))} de wins · ${num(x.wizard_battles)} combats</div>
+        </div>`).join("");
+      const rest = rows.slice(3).map((x,i)=>`
+        <div class="sugg" onclick="location.hash='#/player/${x.wizard_id}'">
+          <span class="rank-badge">${i+4}</span>
+          <img src="${esc(x.wizard_picture||'')}" onerror="this.style.visibility='hidden'" style="border-radius:8px">
+          <div class="sg-n">${flag(x.wizard_country)} ${esc(x.wizard_name)}<div class="sub">${pct(wrOf(x))} de wins · ${num(x.wizard_battles)} combats</div></div>
+          <span class="sg-wr">${num(x.last_score)}</span>
+        </div>`).join("");
+      $p.innerHTML = `<div class="podium">${pod}</div>` + (rest ? `<div class="panel" style="padding:8px;margin-bottom:0">${rest}</div>` : "");
+    }
+  }
+  // ---- first picks G3+ : top 6, même règle que le simulateur (agrégation + shrink) ----
+  if($f){
+    const nm = metaFile?.monsters?.length ? new Map(metaFile.monsters.map(m=>[m.monster_id, m])) : null;
+    if(!fpFile?.stats?.length || !nm){
+      $f.innerHTML = '<div class="muted" style="padding:6px">Pas de données de first pick pour cette saison.</div>';
+    }else{
+      const agg = [];
+      for(const st of fpFile.stats){
+        let n = 0, w = 0;
+        if(st.by) for(const k in st.by){ if(+k === 0 || +k >= 4003){ n += st.by[k][0]; w += st.by[k][1]; } }
+        else { n = st.openings; w = st.wins; }
+        if(n >= 100) agg.push({id: st.monster_id, n, wr: w/n});
+      }
+      agg.sort((a,b)=> shrink(b.wr,b.n)-shrink(a.wr,a.n) || b.n-a.n);
+      $f.innerHTML = agg.slice(0,6).map((x,i)=>{
+        const m = nm.get(x.id) || {};
+        return `<div class="sugg" onclick="location.hash='#/monster/${x.id}'">
+          <span class="rank-badge ${i<3?"top"+(i+1):""}">${i+1}</span>
+          <img src="${monImg(m.image_filename)}" loading="lazy">
+          <div class="sg-n">${esc(m.name||x.id)}<div class="sub">${m.element?elemTag(m.element)+" · ":""}ouvert ${num(x.n)} fois</div></div>
+          <span class="sg-wr" style="color:${x.wr>=0.5?'var(--win)':'var(--lose)'}">${pct(x.wr)}</span>
+        </div>`;
+      }).join("") || '<div class="muted" style="padding:6px">Pas assez d\'ouvertures mesurées.</div>';
+    }
+  }
+  // ---- méta du moment : cartes visuelles avec barres WR / pick / ban ----
+  if($m){
+    let mons = metaFile?.monsters?.length
+      ? [...metaFile.monsters].sort((a,b)=>(b.played||0)-(a.played||0)).slice(0,8)
+      : null;
+    if(!mons){
+      const r = await api(`/monsters?season=${s}&isG3=false&isSL=false&played=0&orderBy=played&orderDirection=DESC&limit=8&offset=0`).catch(()=>({data:null}));
+      if(s !== homeState.season) return;
+      mons = r.data || [];
+    }
+    const mbar = (l,v,c) => `<div class="mbar"><span>${l}</span><div class="tr"><div class="fl" style="width:${Math.min(100,(v||0)*100).toFixed(1)}%;background:${c}"></div></div><span class="pv">${pct(v)}</span></div>`;
+    $m.innerHTML = mons.length ? mons.map((m,i)=>`
+      <div class="mcard hm-fade" style="animation-delay:${(.04*i).toFixed(2)}s" onclick="location.hash='#/monster/${m.monster_id}'">
+        <div class="mh"><img src="${monImg(m.image_filename)}" loading="lazy" style="${m.element?`border-color:${ELEM_COLOR[m.element]||"var(--border)"}`:""}">
+          <div><div class="mn">${esc(m.name)}</div><div class="ms">${m.element?elemTag(m.element)+" · ":""}${num(m.played)} parties</div></div></div>
+        ${mbar("Winrate", m.win_rate, "var(--win)")}
+        ${mbar("Pick", m.pick_rate, "var(--accent2)")}
+        ${mbar("Ban", m.ban_rate, "var(--lose)")}
+      </div>`).join("") : '<div class="panel muted" style="padding:14px">Aucune donnée pour cette saison.</div>';
+  }
 }
 
 /* ================= LEADERBOARD ================= */
