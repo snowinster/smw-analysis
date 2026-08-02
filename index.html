@@ -293,6 +293,18 @@ td.best{color:var(--win);font-weight:800}
 .cam-preview{position:fixed;right:14px;bottom:14px;z-index:120;border:1px solid var(--border);border-radius:10px;background:var(--card);padding:6px;box-shadow:0 10px 30px rgba(0,0,0,.5)}
 .cam-preview canvas{display:block;border-radius:6px;max-width:300px}
 .cam-preview .row{margin-top:5px;gap:6px;font-size:11px}
+/* Artifact Calculator : lignes fluides à la place d'un tableau 5 colonnes, qui débordait ou se
+   compressait illisiblement sur téléphone. Une ligne = libellé + roll à gauche, valeurs à droite,
+   barre en dessous — ça se replie proprement à toutes les largeurs. */
+.add-row{padding:11px 2px;border-bottom:1px solid rgba(43,53,80,.5)}
+.add-row:last-of-type{border-bottom:none}
+.add-row .ar-top{display:flex;justify-content:space-between;align-items:baseline;gap:6px 14px;flex-wrap:wrap;font-size:13.5px}
+.add-row .ar-vals{display:flex;gap:16px;white-space:nowrap;font-variant-numeric:tabular-nums;font-size:13.5px}
+.add-row .ar-vals i{font-style:normal;color:var(--muted);font-size:11.5px}
+/* styles de barre POSÉS ICI : ceux de .rr-bar sont scopés sous .rune-row (page monstre) et ne
+   s'appliquaient pas — les barres de l'ancien tableau ne se sont d'ailleurs jamais affichées */
+.add-row .rr-bar{margin-top:8px;height:8px;border-radius:5px;background:var(--bg2);overflow:hidden}
+.add-row .rr-fill{height:100%;border-radius:5px;background:linear-gradient(90deg,var(--accent),var(--accent2))}
 .rune-row{margin-bottom:8px}
 .rune-row .rr-label{display:flex;justify-content:space-between;font-size:13.5px;margin-bottom:3px}
 .rune-row .rr-bar{height:8px;border-radius:5px;background:var(--bg2);overflow:hidden}
@@ -383,7 +395,7 @@ td.best{color:var(--win);font-weight:800}
   <div class="navlinks" id="navLinks">
     <a class="navlink" href="#/monsters" data-nav="monsters">Monstres</a>
     <a class="navlink" href="#/simulator" data-nav="sim">Simulateur</a>
-    <a class="navlink" href="#/tools/add" data-nav="addcalc">ADD Calc</a>
+    <a class="navlink" href="#/tools/add" data-nav="addcalc">Artifact Calculator</a>
   </div>
   <div class="searchwrap">
     <input id="search" type="text" placeholder="Rechercher un joueur ou un monstre…" autocomplete="off">
@@ -562,7 +574,7 @@ async function viewHome(){
           <polygon points="14.5,11.5 9.5,10.5 10.5,15.5 14.5,15" fill="#ffc23d"/>
           <path d="M16 16.5 l1.4 2.8 h-2.8 Z" fill="#3f1408"/>
         </svg></div><b>Monstres & méta</b><p>Winrate, pick rate, ban rate, synergies et counters de chaque monstre — avec la tendance sur la saison.</p></a>
-        <a class="tool add hm-fade" style="animation-delay:.18s" href="#/tools/add"><span class="go">→</span><div class="t-ic">🧮</div><b>ADD Calc</b><p>Le calculateur d'attaque/défense pour optimiser tes runes sans sortir la calculatrice.</p></a>
+        <a class="tool add hm-fade" style="animation-delay:.18s" href="#/tools/add"><span class="go">→</span><div class="t-ic">🧮</div><b>Artifact Calculator</b><p>Dégâts additionnels des artefacts : quelle substat rapporte le plus sur TON monstre, et ce que tes artefacts actuels ajoutent par coup.</p></a>
       </div>
       <div class="hm-sec hm-fade" style="animation-delay:.2s"><h2>Le ladder en ce moment</h2>
         <select id="homeSeason">${seasons.map(s=>`<option value="${s}" ${s===homeState.season?"selected":""}>Saison ${s}</option>`).join("")}</select>
@@ -1245,7 +1257,7 @@ function saveAddCalc(s){ try{ localStorage.setItem("addCalc_v1", JSON.stringify(
 function viewAddCalc(){
   const s = addCalcState();
   $app.innerHTML = `
-    <h1>Artifact ADD Calculator <span class="muted" style="font-size:13px;font-weight:400">- dégâts additionnels des artefacts</span></h1>
+    <h1>Artifact Calculator <span class="muted" style="font-size:13px;font-weight:400">- dégâts additionnels des artefacts</span></h1>
     <div class="panel">
       <h3>1 · Stats finales de ton monstre (runes incluses)</h3>
       <div class="cards">
@@ -1256,11 +1268,8 @@ function viewAddCalc(){
       </div>
     </div>
     <h2>Rendement par type de substat</h2>
-    <div class="panel tbl-wrap">
-      <table>
-        <thead><tr><th>Substat</th><th>Roll</th><th>Dégâts / roll moyen</th><th>Dégâts au max total</th><th></th></tr></thead>
-        <tbody id="addTable"></tbody>
-      </table>
+    <div class="panel">
+      <div id="addTable"></div>
       <div class="note">« Max total » = substat montée au maximum réaliste (quadroll) : 1,5 % PV · 20 % ATK · 20 % DEF · 200 % VIT. Les dégâts sont plats, ajoutés à chaque coup, calculés sur la stat finale, et ne sont pas amplifiés par les artefacts de dégâts élémentaires.</div>
     </div>
     <h2>2 · Tes artefacts actuels</h2>
@@ -1287,11 +1296,14 @@ function viewAddCalc(){
     }));
     const best = Math.max(...rows.map(r=>r.atMax));
     document.getElementById("addTable").innerHTML = rows.map(r=>`
-      <tr><td><b>${r.d.label}</b> <span class="muted">(${num(statOf[r.d.key])} ${r.d.stat})</span></td>
-        <td class="muted">${r.d.roll}</td>
-        <td>${num(r.perRoll)}</td>
-        <td><b style="color:${r.atMax===best?'var(--win)':'var(--text)'}">${num(r.atMax)}</b>${r.atMax===best?' <span class="inbox-badge">meilleur</span>':""}</td>
-        <td><div class="rr-bar" style="min-width:90px"><div class="rr-fill" style="width:${best?Math.round(100*r.atMax/best):0}%"></div></div></td></tr>`).join("");
+      <div class="add-row">
+        <div class="ar-top">
+          <span><b>${r.d.label}</b> <span class="muted">(${num(statOf[r.d.key])} ${r.d.stat})</span> <span class="muted">· roll ${r.d.roll}</span></span>
+          <span class="ar-vals"><span>${num(r.perRoll)} <i>/ roll moyen</i></span>
+            <span><b style="color:${r.atMax===best?'var(--win)':'var(--text)'}">${num(r.atMax)}</b> <i>au max</i></span>${r.atMax===best?' <span class="inbox-badge">meilleur</span>':""}</span>
+        </div>
+        <div class="rr-bar"><div class="rr-fill" style="width:${best?Math.round(100*r.atMax/best):0}%"></div></div>
+      </div>`).join("");
     const parts = ADD_DEFS.map(d=>({d, dmg: Math.floor(statOf[d.key] * v["r"+d.key]/100)})).filter(x=>x.dmg>0);
     const total = parts.reduce((a,x)=>a+x.dmg, 0);
     document.getElementById("addTotal").innerHTML = total
