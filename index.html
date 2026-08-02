@@ -233,6 +233,10 @@ td.best{color:var(--win);font-weight:800}
   #simSugg{position:absolute;right:20px;top:340px;width:430px;z-index:40;scrollbar-width:thin;scrollbar-color:var(--border) transparent;
     background:var(--bg2);border:1px solid var(--border);border-radius:14px;padding:10px;box-shadow:0 10px 34px rgba(0,0,0,.55)}
   #simSugg .panel{margin-bottom:10px;max-height:352px;overflow-y:auto;overflow-x:hidden;scrollbar-width:thin;scrollbar-color:var(--border) transparent}
+  /* le panneau First picks est SEUL dans la colonne (pas de duos sous lui) : il peut descendre
+     jusqu'en bas du plateau adverse. Les 352px des autres restent nécessaires, eux s'empilent
+     à deux. Le min() évite qu'il dépasse l'écran sur une fenêtre courte. */
+  #simSugg .panel.fp-panel{max-height:min(560px, calc(100vh - 230px))}
   #simBoard{margin-right:446px}
   /* colonne étroite : les deux sections s'EMPILENT au lieu d'être côte à côte */
   #simSugg .two-col{grid-template-columns:1fr;gap:12px}
@@ -3346,7 +3350,7 @@ async function renderSim(){
   const turn = simTurn();
   // TOI toujours à gauche, l'adversaire à droite (l'ordre de remplissage FP/SP reste géré par slot)
   let html = `<div class="vs-wrap">${simSideHTML("A",false)}<div class="vs-mid">VS</div>${simSideHTML("B",true)}</div>`;
-  if(!simState.b) html += '<div class="note" style="margin-bottom:12px">💡 Adversaire non renseigné : les recommandations sont théoriques (méta globale). Pose ses picks avec le champ 🔍 de son côté - ou renseigne son pseudo pour activer sa box et les badges « dans sa box ».</div>';
+  if(!simState.b) html += '<div class="note" style="margin-bottom:12px">💡 Adversaire non renseigné : conseils théoriques (méta globale). Renseigne son pseudo, ou pose ses picks avec le champ 🔍.</div>';
   if(!simState.a){
     $b.innerHTML = html + '<div class="panel muted">👉 Choisis ton compte (joueur A) ou clique une puce « Mes comptes ».</div>';
     wireSimAdd(); return;
@@ -3601,7 +3605,7 @@ async function renderSim(){
   $s.innerHTML = (fpMode ? `
     <h2 style="display:flex;align-items:center;gap:7px;flex-wrap:wrap">First picks ${fpFilterHTML()}
       <span style="color:var(--accent2);cursor:help;font-size:15px" title="Comment c'est calculé ? On balaie tout l'historique de saison des 600 premiers du classement, sans plafond par joueur. Dans chaque combat : qui avait le first pick, son rang, le monstre posé en premier, et s'il a gagné. Le % = victoires / ouvertures. Recalculé chaque nuit. (Les deux menus ci-contre ont leur propre explication au survol.)">*</span></h2>
-    <div class="panel">${fpGlobal.length ? fpGlobal.map((f,i)=>{
+    <div class="panel fp-panel">${fpGlobal.length ? fpGlobal.map((f,i)=>{
         const fm = monCache.get(f.id)||{};
         return `<div class="sugg" draggable="true" data-drag-id="${f.id}" onclick="simPick(${f.id},'A')">
           <img src="${monImg(fm.image_filename)}" loading="lazy">
@@ -3637,7 +3641,7 @@ async function renderSim(){
         : '<div class="muted">Pas assez de données pour former des duos fiables contre ces picks.</div>'}</div>
     </div>`}
   </div>`)
-  + `<div class="note">Les conseils sont calculés pour <b>toi (joueur A)</b> uniquement - un clic sur une suggestion la picke dans ton équipe. Pose les picks adverses avec le champ 🔍 ou la box 📦 de son côté. Les scores sont <b>ajustés au volume</b> (un 70 % sur 30 parties pèse moins qu'un 60 % sur 700), intègrent la synergie avec tes picks déjà posés et une pénalité pour les monstres très bannis - survole une ligne pour le détail. Données Guardian+ S${simState.season}, ce n'est pas une prédiction exacte du combat.</div>`;
+  + `<div class="note">Conseils pour <b>toi (joueur A)</b> : clique une suggestion pour la picker. Scores <b>ajustés au volume</b>, synergie et ban rate compris - survole une ligne pour le détail. Guardian+ S${simState.season}.</div>`;
   wireSimAdd();
 }
 /* indice de confiance de victoire après la draft complète (AVANT bans) :
