@@ -2277,16 +2277,42 @@ const GOLD_REF = 168;
 const camGain = () => Math.min(2.2, Math.max(1, GOLD_REF / (cam.goldLum || GOLD_REF)));
 const baseName = n => (n||"").split(" (")[0];
 /* base restreinte aux monstres de la box du joueur (discrimination bien meilleure, surtout côté sombre) */
+/* « box méta » : joueur non identifié → on restreint quand même les candidats aux monstres les
+   plus joués de la saison, au lieu de trancher d'emblée parmi les 882 icônes.
+   150 et non 50 : mesuré sur les S37 et S38, le top 50 ne couvre que 66 % des picks réels — un
+   pick sur trois serait hors du filet, avec des seuils de luminosité assouplis, donc identifié
+   à tort sur un sosie. Le top 150 en couvre 91 %, tout en divisant les candidats par 6. */
+const META_DB_N = 150;
+function camMetaDb(){
+  if(!cam.db) return null;
+  const s = simState.season;
+  if(cam.metaDb?.season === s) return cam.metaDb.arr;
+  const meta = metaCache.get(s); // rempli par getMetaStats au rendu du simulateur
+  if(!meta) return null;
+  const ids = new Set([...meta.values()].sort((a,b)=>(b.picks||0)-(a.picks||0))
+    .slice(0, META_DB_N).map(m=>m.monster_id));
+  const arr = cam.db.filter(e=>ids.has(e.id));
+  cam.metaDb = {season: s, arr: arr.length >= 40 ? arr : null};
+  if(cam.metaDb.arr) camLog(`🎯 box méta : top ${META_DB_N} de la S${s} (${arr.length} icônes) — joueur non identifié, candidats restreints quand même`);
+  return cam.metaDb.arr;
+}
+/* Renseigne cam.dbTier ("box" | "meta" | "full") : les seuils de luminosité en dépendent.
+   Une VRAIE box est un filet quasi sûr (le monstre y est), la box méta reste un pari. */
 function dbForSide(side){
   const box = side==="A" ? simState.boxA : simState.boxB;
-  if(!cam.db || !box || !box.list?.length) return cam.db;
-  const key = side + ":" + box.list.length;
-  cam.dbSub = cam.dbSub || {};
-  if(cam.dbSub[side]?.key !== key){
-    const ids = new Set(box.list.map(x=>x.unit_master_id));
-    cam.dbSub[side] = { key, arr: cam.db.filter(e=>ids.has(e.id)) };
+  if(cam.db && box && box.list?.length){
+    const key = side + ":" + box.list.length;
+    cam.dbSub = cam.dbSub || {};
+    if(cam.dbSub[side]?.key !== key){
+      const ids = new Set(box.list.map(x=>x.unit_master_id));
+      cam.dbSub[side] = { key, arr: cam.db.filter(e=>ids.has(e.id)) };
+    }
+    if(cam.dbSub[side].arr.length){ cam.dbTier = "box"; return cam.dbSub[side].arr; }
   }
-  return cam.dbSub[side].arr.length ? cam.dbSub[side].arr : cam.db;
+  const md = camMetaDb();
+  if(md){ cam.dbTier = "meta"; return md; }
+  cam.dbTier = "full";
+  return cam.db;
 }
 function camMatchSig(v, db, hue, hue4, restricted){
   db = db || cam.db;
@@ -2532,11 +2558,14 @@ async function camTick(){
     for(const o of cam.slots) if(o !== s && o.id) takenIds.add(o.id);
     takenIds.delete(s.id);
     const sdbAll = dbForSide(s.side);
+    const tier = cam.dbTier; // "box" (vraie box) | "meta" (top 150 de la saison) | "full"
     const fromBox = sdbAll !== cam.db;
     const sdb = takenIds.size ? sdbAll.filter(e=>!takenIds.has(e.id)) : sdbAll;
     const fdb = fromBox && takenIds.size ? cam.db.filter(e=>!takenIds.has(e.id)) : null;
     const g = gain * sg[s.side]; // compensation totale : fenêtre grisée x côté assombri
-    const lumMin = fromBox ? 33 : 55; // base restreinte à la box → cases plus sombres lisibles
+    // base restreinte → cases plus sombres lisibles, mais la box MÉTA n'est qu'un pari (9 % des
+    // picks lui échappent) : seuil intermédiaire, pour ne pas coller un sosie sur un crop sombre
+    const lumMin = tier === "box" ? 33 : tier === "meta" ? 44 : 55;
     for(const cv of SIG_CROPS){
       const {v, lum, std, hue, hue4} = cropSig(s.box, cv);
       dEmpty = Math.min(dEmpty, sigDist(v, EMPTY_SIG), cam.emptyLearned ? sigDist(v, cam.emptyLearned) : 1e9); // ressemblance au crâne (référence + modèle appris)
@@ -2594,7 +2623,7 @@ async function camTick(){
     // (côté grisé) matche « confiant » mais FAUX contre les 882 icônes de la base complète
     // (cas Hanra/Hrungnir) → ❓ en attendant que le côté se rallume ; la base restreinte à la
     // box adverse tolère bien plus sombre. Aucune pose/retrait/remplacement sur lecture sombre.
-    const trusted = best.lum >= ((fromBox && !m?.offBox) ? 30 : 50); // repli hors-box = décision à 882 candidats → vraie lumière exigée
+    const trusted = best.lum >= ((fromBox && !m?.offBox) ? (tier === "box" ? 30 : 42) : 50); // repli hors-box = décision à 882 candidats → vraie lumière exigée
     if(!trusted){
       if(!s.id){
         s.diag = {std:best.lum, txt:`🌒 trop sombre pour identifier${m.best?` (${m.best.name} ?)`:""} — clique le ❓ pour saisir`};
