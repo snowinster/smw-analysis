@@ -3487,7 +3487,7 @@ async function renderSim(){
   }
   $s.innerHTML = (fpMode ? `
     <h2 style="display:flex;align-items:center;gap:7px;flex-wrap:wrap">First picks ${fpFilterHTML()}
-      <span style="color:var(--accent2);cursor:help;font-size:15px" title="Comment c'est calculé ? L'app balaie tout l'historique de saison des 600 premiers du classement - aucun plafond de combats par joueur, qui biaiserait l'échantillon vers les plus gros joueurs. Dans chaque combat elle repère qui avait le first pick, note SON rang, quel monstre il a posé en premier et s'il a gagné. Le sélecteur « First picks » en haut de page choisit le rang MINIMUM retenu : seules les ouvertures faites à ce niveau ou au-dessus sont comptées. Le % = victoires / ouvertures. Le sélecteur « min. » fixe le nombre d'ouvertures exigé pour entrer au classement. Recalculé une fois par jour.">*</span></h2>
+      <span style="color:var(--accent2);cursor:help;font-size:15px" title="Comment c'est calculé ? On balaie tout l'historique de saison des 600 premiers du classement, sans plafond par joueur. Dans chaque combat : qui avait le first pick, son rang, le monstre posé en premier, et s'il a gagné. Le % = victoires / ouvertures. Recalculé chaque nuit. (Les deux menus ci-contre ont leur propre explication au survol.)">*</span></h2>
     <div class="panel">${fpGlobal.length ? fpGlobal.map((f,i)=>{
         const fm = monCache.get(f.id)||{};
         return `<div class="sugg" draggable="true" data-drag-id="${f.id}" onclick="simPick(${f.id},'A')">
