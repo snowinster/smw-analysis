@@ -837,11 +837,13 @@ async function goMonsterBySlug(slug){
 
 /* ================= FICHE MONSTRE ================= */
 const monState = { id:null, season:null, isG3:false, userChose:false, hist:null,
-  gran: (()=>{ try{ return localStorage.getItem("monGran_v1") || "semaine"; }catch(e){ return "semaine"; } })() };
-/* granularité du graphe de tendance. Défaut « semaine » : en quotidien, certains jours ne
-   pèsent qu'un ou deux combats et le winrate saute de 0 à 100 % (amplitude mesurée sur Angela
-   en S38 : 100 points, contre 8 en hebdomadaire). Le mensuel lisse encore plus mais une saison
-   dure ~1 mois — il ne resterait que 2 points de mesure, soit un segment, plus une tendance. */
+  gran: (()=>{ try{ return localStorage.getItem("monGran_v1") || "jour"; }catch(e){ return "jour"; } })() };
+/* granularité du graphe de tendance. Défaut « jour » : c'est la vue la plus détaillée, celle
+   qui montre les décrochages ponctuels. Garder en tête que les jours creux ne pèsent parfois
+   qu'un ou deux combats, où le winrate saute mécaniquement à 0 ou 100 % — l'infobulle donne le
+   nombre de combats du point pour le repérer. « Semaine » ramène cette amplitude de 100 à 8
+   points (mesuré sur Angela, S38) ; « mois » lisse encore plus, mais une saison durant ~1 mois
+   il n'y reste que 2 points de mesure, soit un segment plutôt qu'une tendance. */
 const MON_GRANS = [["jour","Par jour"],["semaine","Par semaine"],["mois","Par mois"]];
 function setMonGran(v){
   monState.gran = v;
