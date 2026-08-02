@@ -1132,13 +1132,31 @@ const FP_RANKS = [
   {r:4002, l:"Guardian 2+"},
   {r:4003, l:"Guardian 3+"}
 ];
-const fpRankLabel = r => (FP_RANKS.find(x=>x.r===r) || FP_RANKS.at(-1)).l;
 /* nombre minimum d'ouvertures pour qu'un monstre entre au classement des first picks.
    Défaut 100 : mesuré sur la S38 en Guardian 3+, il laisse 38 candidats (pour 15 affichés) et
    93 % des ouvertures, tout en garantissant que le taux montré colle à la réalité observée —
    la correction de shrink() y plafonne à ~4 points, contre 21 points à un seuil de 10, où le
    pourcentage affiché est presque entièrement fabriqué par le rétrécissement. */
 const FP_MIN_OPTIONS = [10, 25, 50, 100, 250, 500];
+/* les deux filtres vivent dans l'en-tête du panneau First picks, qui est réécrit à chaque
+   renderSim() : leurs gestionnaires sont donc posés en attribut (comme ailleurs dans la page)
+   plutôt que rattachés une fois, sinon ils sauteraient au premier re-rendu.
+   Aucun appel réseau au changement : la ventilation par rang est déjà en cache. */
+function setFpRank(v){
+  simState.fpRank = +v;
+  try{ localStorage.setItem("simFpRank_v1", String(simState.fpRank)); }catch(e){}
+  renderSim();
+}
+function setFpMin(v){
+  simState.fpMin = +v;
+  try{ localStorage.setItem("simFpMin_v1", String(simState.fpMin)); }catch(e){}
+  renderSim();
+}
+const fpFilterHTML = () =>
+  `<select onchange="setFpRank(this.value)" style="font-size:12.5px;padding:3px 8px;font-weight:400" title="Niveau minimum du joueur qui a ouvert la draft : seules les ouvertures faites à ce rang ou au-dessus sont comptées. « Guardian 3+ » inclut donc la Légende.">${
+      FP_RANKS.map(x=>`<option value="${x.r}" ${x.r===simState.fpRank?"selected":""}>${x.l}</option>`).join("")}</select>
+   <select onchange="setFpMin(this.value)" style="font-size:12.5px;padding:3px 8px;font-weight:400" title="Nombre minimum d'ouvertures pour entrer au classement. Plus le seuil est bas, plus tu vois de monstres rares - mais leur pourcentage repose sur peu de parties et se retrouve fortement corrigé vers 50 %.">${
+      FP_MIN_OPTIONS.map(x=>`<option value="${x}" ${x===simState.fpMin?"selected":""}>min. ${x} ouvertures</option>`).join("")}</select>`;
 const ELEM_ORDER = {Fire:0, Water:1, Wind:2, Light:3, Dark:4};
 
 /* ----- personnalisation de la box (suppressions/ajouts), persistée par compte ----- */
@@ -1460,13 +1478,7 @@ async function viewSimulator(){
           <input type="checkbox" id="simLive" ${simState.live?"checked":""}><span class="tk"></span><span>🎥 Capture en direct</span>
         </label>
         <span id="liveStatus" class="muted" style="font-size:12px"></span>
-        <label class="muted" style="margin-left:auto" title="Niveau minimum du joueur qui a ouvert la draft. Les recommandations de first pick ne comptent que les ouvertures faites à ce rang ou au-dessus - « Guardian 3+ » inclut donc la Légende.">First picks
-          <select id="simFpRank">${FP_RANKS.map(x=>`<option value="${x.r}" ${x.r===simState.fpRank?"selected":""}>${x.l}</option>`).join("")}</select>
-        </label>
-        <label class="muted" title="Nombre minimum d'ouvertures pour qu'un monstre entre au classement. Plus le seuil est bas, plus on voit de monstres rares - mais leur pourcentage repose sur peu de parties et se retrouve fortement corrigé vers 50 %.">min.
-          <select id="simFpMin">${FP_MIN_OPTIONS.map(x=>`<option value="${x}" ${x===simState.fpMin?"selected":""}>${x} ouvertures</option>`).join("")}</select>
-        </label>
-        <label class="muted">Stats basées sur
+        <label class="muted" style="margin-left:auto">Stats basées sur
           <select id="simSeason">${seasons.map(x=>`<option value="${x}" ${x===simState.season?"selected":""}>Saison ${x}</option>`).join("")}</select>
         </label>
         <button class="btn" id="simUndo">↩ Annuler dernier pick</button>
@@ -1478,16 +1490,6 @@ async function viewSimulator(){
     document.querySelectorAll('[name="simfp"]').forEach(r => r.onchange = e => { simState.fp = e.target.value; renderSim(); });
     document.getElementById("simLive").onchange = e => { simState.live = e.target.checked; liveToggle(); };
     if(simState.live){ if(cam.stream) liveStatus("🎥 capture active — les picks détectés se posent automatiquement", true); else camStart(); }
-    document.getElementById("simFpRank").onchange = e => {
-      simState.fpRank = +e.target.value;
-      try{ localStorage.setItem("simFpRank_v1", String(simState.fpRank)); }catch(err){}
-      renderSim(); // la ventilation par rang est déjà en cache : aucun rechargement réseau
-    };
-    document.getElementById("simFpMin").onchange = e => {
-      simState.fpMin = +e.target.value;
-      try{ localStorage.setItem("simFpMin_v1", String(simState.fpMin)); }catch(err){}
-      renderSim();
-    };
     document.getElementById("simSeason").onchange = e => {
       simState.season = +e.target.value;
       simState.anonBox = null; // la grille "tous les monstres" dépend de la saison de stats → on la reconstruit
@@ -3484,7 +3486,7 @@ async function renderSim(){
     }
   }
   $s.innerHTML = (fpMode ? `
-    <h2>First picks - ${fpRankLabel(simState.fpRank)} <span class="muted" style="font-size:12px;font-weight:400">(min. ${simState.fpMin} ouvertures)</span>
+    <h2 style="display:flex;align-items:center;gap:7px;flex-wrap:wrap">First picks ${fpFilterHTML()}
       <span style="color:var(--accent2);cursor:help;font-size:15px" title="Comment c'est calculé ? L'app balaie tout l'historique de saison des 600 premiers du classement - aucun plafond de combats par joueur, qui biaiserait l'échantillon vers les plus gros joueurs. Dans chaque combat elle repère qui avait le first pick, note SON rang, quel monstre il a posé en premier et s'il a gagné. Le sélecteur « First picks » en haut de page choisit le rang MINIMUM retenu : seules les ouvertures faites à ce niveau ou au-dessus sont comptées. Le % = victoires / ouvertures. Le sélecteur « min. » fixe le nombre d'ouvertures exigé pour entrer au classement. Recalculé une fois par jour.">*</span></h2>
     <div class="panel">${fpGlobal.length ? fpGlobal.map((f,i)=>{
         const fm = monCache.get(f.id)||{};
