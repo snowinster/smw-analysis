@@ -836,7 +836,20 @@ async function goMonsterBySlug(slug){
 }
 
 /* ================= FICHE MONSTRE ================= */
-const monState = { id:null, season:null, isG3:false, userChose:false };
+const monState = { id:null, season:null, isG3:false, userChose:false, hist:null,
+  gran: (()=>{ try{ return localStorage.getItem("monGran_v1") || "semaine"; }catch(e){ return "semaine"; } })() };
+/* granularité du graphe de tendance. Défaut « semaine » : en quotidien, certains jours ne
+   pèsent qu'un ou deux combats et le winrate saute de 0 à 100 % (amplitude mesurée sur Angela
+   en S38 : 100 points, contre 8 en hebdomadaire). Le mensuel lisse encore plus mais une saison
+   dure ~1 mois — il ne resterait que 2 points de mesure, soit un segment, plus une tendance. */
+const MON_GRANS = [["jour","Par jour"],["semaine","Par semaine"],["mois","Par mois"]];
+function setMonGran(v){
+  monState.gran = v;
+  try{ localStorage.setItem("monGran_v1", v); }catch(e){}
+  const el = document.getElementById("chartPanel");
+  // seul le contenu est réécrit : les écouteurs d'infobulle sont posés sur le panneau lui-même
+  if(el && monState.hist) el.innerHTML = chartPanelHTML(monState.hist);
+}
 async function viewMonster(id){
   $app.innerHTML = '<div class="loading">Chargement de la fiche monstre…</div>';
   try{
@@ -864,6 +877,7 @@ async function viewMonster(id){
     const s = sumR.data || {};
     const det = detR.data;
     const hist = histR.data || [];
+    monState.hist = hist; // gardé pour que changer de granularité ne relance aucune requête
 
     const baseStats = det ? `<div class="basestats">
         ${det.natural_stars ? `<span style="color:var(--gold)">${"★".repeat(det.natural_stars)}</span>` : ""}
@@ -930,9 +944,10 @@ async function viewMonster(id){
           ${ring("small","🚫","Ban rate", s.ban_rate, "var(--lose)", num(s.bans)+" bans")}
         </div>`;
       })() : `<div class="panel muted">Pas de statistiques pour la saison ${monState.season}.</div>`}
-      ${hist.length>2 ? `<h2>Tendance - Saison ${monState.season}</h2><div class="panel chart-wrap" id="chartPanel">
-        <div class="legend"><span><span class="dot" style="background:var(--accent2)"></span>Popularité (% des combats)</span><span><span class="dot" style="background:var(--win)"></span>Winrate (%)</span></div>
-        ${dualChart(hist)}</div>` : ""}
+      ${hist.length>2 ? `<h2 style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">Tendance - Saison ${monState.season}
+        <select onchange="setMonGran(this.value)" style="font-size:12.5px;padding:3px 8px;font-weight:400" title="Regroupement des points. En quotidien, un jour à un ou deux combats fait sauter le winrate à 0 ou 100 % : le regroupement additionne les combats avant de calculer le pourcentage. Le mensuel est le plus stable mais une saison dure environ un mois, il n'y reste que 2 ou 3 points.">${
+          MON_GRANS.map(([v,l])=>`<option value="${v}" ${v===monState.gran?"selected":""}>${l}</option>`).join("")}</select></h2>
+        <div class="panel chart-wrap" id="chartPanel">${chartPanelHTML(hist)}</div>` : ""}
       <div class="two-col">
         <div><h2>Meilleures synergies <span class="muted" style="font-size:12px;font-weight:400">(Guardian+)</span></h2><div class="panel tbl-wrap">${pairTable(togR.data,"total_played_together","win_together_rate",false,"WR ensemble")}</div></div>
         <div><h2>Pires matchups <span class="muted" style="font-size:12px;font-weight:400">(il perd contre)</span></h2><div class="panel tbl-wrap">${pairTable(agR.data,"total_played_against","win_against_rate",true,"WR contre")}</div></div>
@@ -944,40 +959,58 @@ async function viewMonster(id){
   }catch(e){ fail(e); }
 }
 
-/* graphe double : popularité + winrate quotidiens - pleine largeur, courbes lissées, repères par semaine */
-function dualChart(hist){
-  const pts = hist.filter(h=>h.total_battles>0).map(h=>({
-    d:h.battle_date, pop:100*h.monster_battles/h.total_battles,
-    wr:h.monster_battles ? 100*h.monster_wins/h.monster_battles : null, n:h.monster_battles }));
-  if(pts.length<2) return '<div class="muted">Pas assez de données.</div>';
+// contenu du panneau de tendance : légende + courbes, réécrit seul quand on change de granularité
+const chartPanelHTML = hist =>
+  `<div class="legend"><span><span class="dot" style="background:var(--accent2)"></span>Popularité (% des combats)</span><span><span class="dot" style="background:var(--win)"></span>Winrate (%)</span></div>`
+  + dualChart(hist, monState.gran);
+const weekOf = ds => {
+  const d = new Date(ds+"T00:00:00"), t = new Date(d);
+  t.setDate(d.getDate() + 4 - (d.getDay()||7));
+  return Math.ceil((((t - new Date(t.getFullYear(),0,1))/864e5) + 1) / 7);
+};
+/* graphe double : popularité + winrate - pleine largeur, courbes lissées.
+   Les points sont AGRÉGÉS selon la granularité : popularité = combats du monstre / combats
+   totaux du seau, winrate = victoires / combats du monstre sur le seau entier. Agréger les
+   totaux (et non moyenner des pourcentages quotidiens) est ce qui supprime les pics : un jour
+   à 1 combat gagné ne vaut plus 100 %, il pèse 1 combat dans sa semaine. */
+function dualChart(hist, gran){
+  const keyOf = { jour: d=>d, semaine: d=>weekOf(d)+"@"+d.slice(0,4), mois: d=>d.slice(0,7) }[gran] || (d=>weekOf(d)+"@"+d.slice(0,4));
+  const agg = new Map();
+  for(const h of hist){
+    if(!(h.total_battles > 0)) continue;
+    const k = keyOf(h.battle_date);
+    let a = agg.get(k);
+    if(!a) agg.set(k, a = {d0:h.battle_date, d1:h.battle_date, tot:0, n:0, w:0});
+    if(h.battle_date < a.d0) a.d0 = h.battle_date;
+    if(h.battle_date > a.d1) a.d1 = h.battle_date;
+    a.tot += h.total_battles; a.n += h.monster_battles; a.w += h.monster_wins;
+  }
+  const label = a => gran === "mois"
+      ? new Date(a.d0+"T00:00:00").toLocaleDateString("fr-FR", {month:"short", year:"2-digit"})
+      : gran === "jour" ? a.d0.slice(8,10)+"/"+a.d0.slice(5,7)
+      : "Sem. " + weekOf(a.d0);
+  const pts = [...agg.values()].sort((x,y)=> x.d0 < y.d0 ? -1 : 1).map(a=>({
+    ...a, lbl: label(a), pop: 100*a.n/a.tot, wr: a.n ? 100*a.w/a.n : null }));
+  if(pts.length<2) return '<div class="muted">Pas assez de données sur cette granularité.</div>';
   const W = 1000, H = 320, P = {l:48, r:48, t:14, b:36};
   const maxPop = Math.max(...pts.map(p=>p.pop), 1) * 1.08;
   const X  = i => P.l + i*(W-P.l-P.r)/(pts.length-1);
   const Yp = v => H-P.b - (v/maxPop)*(H-P.t-P.b);
   const Yw = v => H-P.b - (v/100)*(H-P.t-P.b);
-  const weekOf = ds => {
-    const d = new Date(ds+"T00:00:00"), t = new Date(d);
-    t.setDate(d.getDate() + 4 - (d.getDay()||7));
-    return Math.ceil((((t - new Date(t.getFullYear(),0,1))/864e5) + 1) / 7);
-  };
   const grid = [0,.25,.5,.75,1].map(f=>{
     const y = H-P.b - f*(H-P.t-P.b);
     return `<line x1="${P.l}" y1="${y}" x2="${W-P.r}" y2="${y}" stroke="#2b3550" stroke-dasharray="3 4"/>
       <text x="${P.l-8}" y="${y+4}" fill="#4ea1ff" font-size="11" text-anchor="end">${(f*maxPop).toFixed(0)}%</text>
       <text x="${W-P.r+8}" y="${y+4}" fill="#3fca7c" font-size="11">${Math.round(f*100)}%</text>`;
   }).join("");
-  // repères verticaux au début de chaque semaine
-  let weekMarks = "", lastWk = null, lastLblX = -100;
+  // un repère vertical par point ; l'étiquette n'est posée que s'il reste la place
+  let weekMarks = "", lastLblX = -100;
   pts.forEach((p,i)=>{
-    const wk = weekOf(p.d);
-    if(wk !== lastWk){
-      lastWk = wk;
-      const x = X(i);
-      weekMarks += `<line x1="${x.toFixed(1)}" y1="${P.t}" x2="${x.toFixed(1)}" y2="${H-P.b}" stroke="#2b3550" stroke-width="1"/>`;
-      if(x - lastLblX > 62){
-        weekMarks += `<text x="${(x+4).toFixed(1)}" y="${H-P.b+20}" fill="#8b95ab" font-size="11.5">Sem. ${wk}</text>`;
-        lastLblX = x;
-      }
+    const x = X(i);
+    weekMarks += `<line x1="${x.toFixed(1)}" y1="${P.t}" x2="${x.toFixed(1)}" y2="${H-P.b}" stroke="#2b3550" stroke-width="1"/>`;
+    if(x - lastLblX > 62){
+      weekMarks += `<text x="${(x+4).toFixed(1)}" y="${H-P.b+20}" fill="#8b95ab" font-size="11.5">${esc(p.lbl)}</text>`;
+      lastLblX = x;
     }
   });
   // courbe lissée (Catmull-Rom → Bézier)
@@ -995,7 +1028,7 @@ function dualChart(hist){
   const area = smooth(popXY) + ` L${popXY[popXY.length-1][0].toFixed(1)},${H-P.b} L${popXY[0][0].toFixed(1)},${H-P.b} Z`;
   const dots = pts.map((p,i)=>
     `<circle cx="${X(i).toFixed(1)}" cy="${Yp(p.pop).toFixed(1)}" r="3.5" fill="#4ea1ff" stroke="#0d1117" stroke-width="1.2"
-      data-tip="Sem. ${weekOf(p.d)} · ${esc(p.d)} - popularité ${p.pop.toFixed(1)} % · winrate ${p.wr==null?"-":p.wr.toFixed(1)+" %"} · ${num(p.n)} combats"/>`).join("");
+      data-tip="${esc(p.lbl)}${p.d0===p.d1 ? "" : ` (${esc(p.d0)} → ${esc(p.d1)})`} - popularité ${p.pop.toFixed(1)} % · winrate ${p.wr==null?"-":p.wr.toFixed(1)+" %"} · ${num(p.n)} combats"/>`).join("");
   return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;display:block">
     <defs><linearGradient id="gpop" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0" stop-color="#4ea1ff" stop-opacity=".22"/><stop offset="1" stop-color="#4ea1ff" stop-opacity="0"/>
