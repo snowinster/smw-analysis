@@ -2712,7 +2712,12 @@ function loadOCR(){
 const FOLD = {"Ξ":"e","∃":"e","€":"e","Ø":"o","ø":"o","Ө":"o","Δ":"a","Λ":"a","⍺":"a","α":"a","И":"n","Я":"r","$":"s","§":"s","⚝":"","☆":"","★":"","✩":"","×":"x",
       // petites capitales (Tᴇqтᴇq), homoglyphes cyrilliques et grecs (⍴ρ, т, с…)
       "ᴀ":"a","ʙ":"b","ᴄ":"c","ᴅ":"d","ᴇ":"e","ꜰ":"f","ɢ":"g","ʜ":"h","ɪ":"i","ᴊ":"j","ᴋ":"k","ʟ":"l","ᴍ":"m","ɴ":"n","ᴏ":"o","ᴘ":"p","ǫ":"q","ʀ":"r","ꜱ":"s","ᴛ":"t","ᴜ":"u","ᴠ":"v","ᴡ":"w","ʏ":"y","ᴢ":"z",
-      "а":"a","е":"e","о":"o","р":"p","с":"c","у":"y","х":"x","т":"t","к":"k","в":"b","м":"m","н":"h","є":"e","Є":"e","і":"i","ї":"i","⍴":"p","ρ":"p"};
+      "а":"a","е":"e","о":"o","р":"p","с":"c","у":"y","х":"x","т":"t","к":"k","в":"b","м":"m","н":"h","є":"e","Є":"e","і":"i","ї":"i","⍴":"p","ρ":"p",
+      // ligatures et lettres barrées : NFKD ne les décompose PAS (ce ne sont pas des
+      // compatibilités), elles survivaient donc telles quelles et disparaissaient du noyau
+      // latin — « ゞJèæáメ » se réduisait à « jea », l'æ purement perdu
+      "æ":"ae","Æ":"ae","œ":"oe","Œ":"oe","ß":"ss","ĳ":"ij","Ĳ":"ij",
+      "đ":"d","Đ":"d","ð":"d","Ð":"d","þ":"th","Þ":"th","ł":"l","Ł":"l","ĸ":"k","ə":"e","Ə":"e","ƒ":"f","ı":"i","ȷ":"j"};
 /* symboles DÉCORATIFS que NFKD développerait en LETTRES parasites : « NiLziN™ » se pliait en
    « nllzlntm » (8) et ne ressemblait plus au « NiLziN » (6) lu à l'écran — 20% d'écart, donc
    au-dessus du plafond de lexMatch : le VRAI joueur était rejeté et l'API renvoyait un homonyme.
@@ -2754,6 +2759,13 @@ function loadLexicon(){
       // les doublons d'id quand il juge l'unicité d'un match.
       const f2 = foldName(e.n, true);
       if(f2 !== f && f2.length >= 2) addEntry(e, f2);
+      /* 3e graphie : le NOYAU LATIN. Beaucoup de pseudos encadrent un nom latin de décorations
+         kana ou de symboles (ゞJèæáメ, ꧁Judas꧂, 荒れ狂うKAME!). L'OCR tourne en mode latin sur ces
+         écrans : il ne lit QUE le noyau, jamais les décorations, et la distance au pseudo complet
+         explosait. Seuil à 4 caractères : en dessous (« ooo », « ool ») le noyau est trop pauvre
+         pour identifier quelqu'un. Même id que les autres graphies, donc l'unicité reste juste. */
+      const core = f.replace(/[^a-z0-9]/g, "");
+      if(core !== f && core.length >= 4) addEntry(e, core);
     }
     cam.lex = {entries, grams};
     camLog(`📚 lexique pseudos chargé : ${j.players.length} joueurs (${entries.length} graphies)`);
