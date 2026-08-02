@@ -1148,7 +1148,7 @@ function viewAddCalc(){
 }
 
 /* ================= SIMULATEUR DE DRAFT ================= */
-const simState = { a:null, b:null, fp:"A", lds:true, picksA:[], picksB:[], boxA:null, boxB:null, season:null, history:[], editBoxA:false, editBoxB:false, anonBox:null, anonFilter:"",
+const simState = { a:null, b:null, fp:"A", picksA:[], picksB:[], boxA:null, boxB:null, season:null, history:[], editBoxA:false, editBoxB:false, anonBox:null, anonFilter:"",
   anonSort:"played", live:false,
   // positions du plateau (.gi) modifiées À LA MAIN : la capture n'y écrit plus jamais
   giLock: {A:new Set(), B:new Set()},
@@ -1156,7 +1156,13 @@ const simState = { a:null, b:null, fp:"A", lds:true, picksA:[], picksB:[], boxA:
   fpRank: (()=>{ try{ return parseInt(localStorage.getItem("simFpRank_v1"), 10) || 4003; }catch(e){ return 4003; } })(),
   fpMin:  (()=>{ try{ return parseInt(localStorage.getItem("simFpMin_v1"), 10) || 100; }catch(e){ return 100; } })(),
   // conseils limités aux monstres que tu possèdes, ou meilleurs choix THÉORIQUES tous monstres
-  boxOnly: (()=>{ try{ return localStorage.getItem("simBoxOnly_v1") !== "false"; }catch(e){ return true; } })() };
+  boxOnly: (()=>{ try{ return localStorage.getItem("simBoxOnly_v1") !== "false"; }catch(e){ return true; } })(),
+  ldMode:  (()=>{ try{ return localStorage.getItem("simLdMode_v1") || "all"; }catch(e){ return "all"; } })() };
+/* filtre Lumière/Ténèbres des conseils. « mine » est le mode utile quand « Limiter à ma box »
+   est décoché : sans lui, le classement théorique se remplit de LD que tu ne possèdes pas et
+   n'obtiendras sans doute jamais, ce qui noie les conseils réellement jouables — mais on garde
+   ceux de ta box, qui eux sont de vrais choix. En mode box, « mine » équivaut à « all ». */
+const LD_MODES = [["all","LD : tous"],["mine","LD : seulement les miens"],["none","LD : exclus"]];
 /* paliers de rang RTA, tels que l'API les expose dans last_rating_id du first picker.
    Vérifié sur 197 000 lignes de replays S38 : 35xx = Conquérant, 40xx = Guardian, le dernier
    chiffre donne le sous-rang, et le score médian croît bien dans cet ordre (1080 → 1278).
@@ -1517,6 +1523,8 @@ async function viewSimulator(){
         <label class="switch" title="Coché : les conseils ne proposent que des monstres de TA box - ce que tu peux réellement jouer. Décoché : ils classent les meilleurs choix théoriques parmi tous les monstres qui counterent sa draft, possédés ou non, avec un badge sur ceux que tu as.">
           <input type="checkbox" id="simBoxOnly" ${simState.boxOnly?"checked":""}><span class="tk"></span><span>📦 Limiter à ma box</span>
         </label>
+        <select id="simLdMode" style="font-size:12.5px;padding:4px 8px" title="Filtre Lumière/Ténèbres des conseils. « Seulement les miens » est surtout utile quand « Limiter à ma box » est décoché : le classement théorique ne se remplit plus de LD que tu ne possèdes pas, mais garde ceux de ta box, qui sont de vrais choix.">${
+          LD_MODES.map(([v,l])=>`<option value="${v}" ${v===simState.ldMode?"selected":""}>${l}</option>`).join("")}</select>
         <span id="liveStatus" class="muted" style="font-size:12px"></span>
         <label class="muted" style="margin-left:auto">Stats basées sur
           <select id="simSeason">${seasons.map(x=>`<option value="${x}" ${x===simState.season?"selected":""}>Saison ${x}</option>`).join("")}</select>
@@ -1532,6 +1540,11 @@ async function viewSimulator(){
     document.getElementById("simBoxOnly").onchange = e => {
       simState.boxOnly = e.target.checked;
       try{ localStorage.setItem("simBoxOnly_v1", String(simState.boxOnly)); }catch(err){}
+      renderSim();
+    };
+    document.getElementById("simLdMode").onchange = e => {
+      simState.ldMode = e.target.value;
+      try{ localStorage.setItem("simLdMode_v1", simState.ldMode); }catch(err){}
       renderSim();
     };
     if(simState.live){ if(cam.stream) liveStatus("🎥 capture active — les picks détectés se posent automatiquement", true); else camStart(); }
@@ -3362,6 +3375,10 @@ async function renderSim(){
   const pickedIds = new Set([...myPicks, ...enemyPicks].map(p=>p.id));
   const isLD = el => el==="Light" || el==="Dark";
   const inBox = id => my.list.some(x=>x.unit_master_id===id);
+  // filtre Lumière/Ténèbres : « mine » ne garde que les LD de ta box, les autres éléments
+  // passent toujours. Un élément inconnu (monCache incomplet) n'est jamais écarté.
+  const keepLD = (id, element) => !isLD(element) || simState.ldMode === "all"
+    || (simState.ldMode === "mine" && inBox(id));
   // stats méta de la saison (ban rate, seuils)
   const meta = await getMetaStats();
   if(token !== simRenderToken) return;
@@ -3375,13 +3392,15 @@ async function renderSim(){
     // d'ouvertures choisi dans l'en-tête. Le tri applique shrink(), qui ramène vers 50 % les
     // taux assis sur peu de parties : un seuil bas fait donc entrer des monstres rares dont le
     // pourcentage affiché est surtout le produit de ce rétrécissement.
+    // le filtre LD passe AVANT la découpe : la méta porte l'élément de tous les monstres, donc
+    // aucun préchargement n'est nécessaire pour trancher. Filtrer après aurait laissé bien moins
+    // de 15 lignes — sur la S38, 10 des 15 meilleurs first picks sont des Lumière/Ténèbres.
     fpGlobal = [...fps.entries()].filter(([id,e])=>e.n>=simState.fpMin)
       .map(([id,e])=>({id, n:e.n, wr:e.w/e.n}))
-      .sort((a,b)=> shrink(b.wr,b.n)-shrink(a.wr,a.n) || b.n-a.n).slice(0,20);
+      .filter(x=>keepLD(x.id, meta.get(x.id)?.element))
+      .sort((a,b)=> shrink(b.wr,b.n)-shrink(a.wr,a.n) || b.n-a.n).slice(0,15);
     await preloadMonsters(fpGlobal.map(x=>x.id));
     if(token !== simRenderToken) return;
-    if(!simState.lds) fpGlobal = fpGlobal.filter(x=>!isLD(monCache.get(x.id)?.element));
-    fpGlobal = fpGlobal.slice(0,15);
   }
   // 2) counters des picks adverses (via stats de matchups) - alimente le panneau box et les duos
   let countersFull = [], boxVs = [];
@@ -3399,13 +3418,14 @@ async function renderSim(){
         c.sum += wrVs; c.cover++; c.det.push(`${Math.round(wrVs*100)}% vs ${e.name}`);
       }
     }
-    const countersAll = [...cand.values()].filter(c=>!pickedIds.has(c.id))
+    // filtre LD appliqué AVANT la découpe à 40, sur l'élément porté par la méta : sinon exclure
+    // les Lumière/Ténèbres réduirait le vivier bien en dessous de 40 au lieu de le décaler
+    const countersAll = [...cand.values()].filter(c=>!pickedIds.has(c.id) && keepLD(c.id, meta.get(c.id)?.element))
       .map(c=>({...c, avg:c.sum/c.cover}))
       .sort((a,b)=> b.cover-a.cover || b.avg-a.avg);
     countersFull = countersAll.slice(0, 40);
     await preloadMonsters(countersFull.map(c=>c.id));
     if(token !== simRenderToken) return;
-    if(!simState.lds) countersFull = countersFull.filter(c=>!isLD(monCache.get(c.id)?.element));
   }
   /* Candidats classés par WR RÉEL contre les picks adverses - couverture COMPLÈTE : on interroge
      les matchups de CHAQUE candidat (même les moins joués comme Misty), au lieu de dépendre des
@@ -3418,7 +3438,7 @@ async function renderSim(){
      Les deux passent ensuite par le MÊME calcul de score, seuls les candidats changent. */
   if(enemyPicks.length){
     const boxCandidates = simState.boxOnly
-      ? my.list.filter(x=>!pickedIds.has(x.unit_master_id) && (simState.lds || !isLD(x.element)))
+      ? my.list.filter(x=>!pickedIds.has(x.unit_master_id) && keepLD(x.unit_master_id, x.element))
       : countersFull.map(c=>{
           const mine = my.list.find(x=>x.unit_master_id===c.id); // garde tes stats perso si tu l'as
           return {unit_master_id:c.id, name:c.name, image_filename:c.img,
