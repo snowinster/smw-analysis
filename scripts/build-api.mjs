@@ -54,29 +54,50 @@ async function buildMeta(season){
   return rows;
 }
 
-// ---- vraies stats de first pick : replays d'un échantillon de joueurs à tous les niveaux ----
+/* ---- vraies stats de first pick, RESTREINTES aux ouvertures faites par un Guardian 3+ ----
+   Chaque joueur d'un replay porte son rang dans `last_rating_id` : 4xxx = Guardian et le dernier
+   chiffre est le sous-rang, donc 4003 = Guardian 3 et 4004 = Légende (5xxx = Légende aussi).
+   On ne répartit plus l'échantillon sur toute la profondeur du ladder : on balaie le HAUT du
+   classement, seul endroit où les G3 se trouvent, puis on ne garde que les combats dont le
+   FIRST PICKER est G3+. Rendement mesuré sur la S38 : ~27 000 combats balayés → ~4 200
+   ouvertures G3 sur 125 monstres (l'ancien échantillonnage tous rangs n'en collectait que ~2 000
+   au total, tous niveaux confondus). */
+const G3_MIN_RATING = 4003;
 async function buildFirstPicks(season){
-  const OFFSETS = [0, 500, 1500, 3000, 6000, 10000, 15000, 25000];
-  const pages = await Promise.all(OFFSETS.map(o =>
-    j(`/players?season=${season}&isSL=false&limit=10&offset=${o}`).catch(() => ({ data: [] }))));
-  const players = pages.flatMap(p => p.data || []);
-  const results = await Promise.all(players.map(p =>
-    j(`/player/${p.wizard_id}/last-battles?season=${season}&limit=50`).catch(() => ({ data: [] }))));
+  const players = [];
+  for(let off = 0; off < 600; off += 100){
+    const r = await j(`/players?season=${season}&isSL=false&limit=100&offset=${off}`).catch(() => ({ data: [] }));
+    const rows = r.data || [];
+    if(!rows.length) break;
+    players.push(...rows);
+  }
+  const results = [];
+  for(let i = 0; i < players.length; i += 8){ // par lots : 600 historiques, rythme doux pour l'API
+    results.push(...await Promise.all(players.slice(i, i + 8).map(p =>
+      j(`/player/${p.wizard_id}/last-battles?season=${season}&limit=50`).catch(() => ({ data: [] })))));
+    await new Promise(res => setTimeout(res, 100));
+  }
   const seen = new Set(), agg = new Map();
+  let kept = 0;
   for(const lb of results) for(const b of (lb.data || [])){
     const k = b.replay_rid_ref;
     if(!k || seen.has(k)) continue;
     seen.add(k);
     if(b.special_league) continue;
     const fp = Object.values(b.user_list || {}).find(u => u.is_first_pick === 1);
-    const u1 = fp?.pick_info?.unit_list?.find(x => x.pick_slot_id === 1);
+    if(!fp || (fp.last_rating_id || 0) < G3_MIN_RATING) continue; // ouverture sous G3 : écartée
+    const u1 = fp.pick_info?.unit_list?.find(x => x.pick_slot_id === 1);
     if(!u1) continue;
     const e = agg.get(u1.unit_master_id) || { n: 0, w: 0 };
     e.n++; if(fp.win_lose === 1) e.w++;
     agg.set(u1.unit_master_id, e);
+    kept++;
   }
   return {
-    battles_analyzed: seen.size,
+    rank_filter: "G3+",
+    min_rating_id: G3_MIN_RATING,
+    battles_scanned: seen.size,
+    openings_kept: kept,
     sample_players: players.length,
     stats: [...agg.entries()].map(([id, e]) => ({ monster_id: id, openings: e.n, wins: e.w }))
       .sort((a, b) => b.openings - a.openings)
@@ -187,7 +208,7 @@ await write("index.json", {
   global_stats: stats,
   endpoints: {
     "meta": "api/meta-s{season}.json - stats méta de tous les monstres (WR, pick, ban, lead)",
-    "firstpicks": "api/firstpicks-s{season}.json - vraies stats de first pick calculées sur ~4000 replays",
+    "firstpicks": "api/firstpicks-s{season}.json - vraies stats de first pick des joueurs Guardian 3+ (last_rating_id >= 4003)",
     "leaderboard": "api/leaderboard-s{season}.json - top 100 du ladder RTA"
   },
   note: "Données agrégées depuis api.swarena.gg (elles-mêmes issues des replays RTA de Com2uS ; données statiques des monstres via SWARFARM). Mise à jour quotidienne. Les saisons archivées sont conservées même après leur purge chez swarena."
