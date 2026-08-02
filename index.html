@@ -2578,9 +2578,16 @@ const FOLD = {"Ξ":"e","∃":"e","€":"e","Ø":"o","ø":"o","Ө":"o","Δ":"a","
       // petites capitales (Tᴇqтᴇq), homoglyphes cyrilliques et grecs (⍴ρ, т, с…)
       "ᴀ":"a","ʙ":"b","ᴄ":"c","ᴅ":"d","ᴇ":"e","ꜰ":"f","ɢ":"g","ʜ":"h","ɪ":"i","ᴊ":"j","ᴋ":"k","ʟ":"l","ᴍ":"m","ɴ":"n","ᴏ":"o","ᴘ":"p","ǫ":"q","ʀ":"r","ꜱ":"s","ᴛ":"t","ᴜ":"u","ᴠ":"v","ᴡ":"w","ʏ":"y","ᴢ":"z",
       "а":"a","е":"e","о":"o","р":"p","с":"c","у":"y","х":"x","т":"t","к":"k","в":"b","м":"m","н":"h","є":"e","Є":"e","і":"i","ї":"i","⍴":"p","ρ":"p"};
-function foldName(x){
-  return (x||"").normalize("NFKD").replace(/[̀-ͯ]/g, "")
-    .replace(/./g, ch => FOLD[ch] ?? ch)
+/* symboles DÉCORATIFS que NFKD développerait en LETTRES parasites : « NiLziN™ » se pliait en
+   « nllzlntm » (8) et ne ressemblait plus au « NiLziN » (6) lu à l'écran — 20% d'écart, donc
+   au-dessus du plafond de lexMatch : le VRAI joueur était rejeté et l'API renvoyait un homonyme.
+   419 joueurs du lexique portent un « ™ ». Les lettres CERCLÉES (Ⓐ ⓝ…) ne sont volontairement
+   pas ici : NFKD les rend en A/n, ce qui est exactement ce que l'OCR lit. */
+const DECOR = /[™℠℡℻℅℗®©㈀-㏿]/g; // marques + formes CJC encadrées/compatibilité (㈱ ㍿ ㋡…)
+function foldName(x, keepDecor){
+  const s = keepDecor ? (x||"") : (x||"").replace(DECOR, "");
+  return s.normalize("NFKD").replace(/[̀-ͯ]/g, "")
+    .replace(/./gu, ch => FOLD[ch] ?? ch)
     .toLowerCase().replace(/[il1|!]/g, "l").replace(/[o0]/g, "o").replace(/[^\p{L}\p{N}]/gu, "");
 }
 /* ---- lexique local des pseudos du ladder (api/player-names.json, ~25k joueurs, nightly).
@@ -2592,9 +2599,7 @@ function loadLexicon(){
   fetch("api/player-names.json").then(r => r.ok ? r.json() : null).then(j => {
     if(!j?.players?.length) return;
     const entries = [], grams = new Map();
-    for(const e of j.players){
-      const f = foldName(e.n);
-      if(f.length < 2) continue;
+    const addEntry = (e, f) => {
       const idx = entries.length;
       entries.push({n: e.n, i: e.i, f});
       const seen = new Set();
@@ -2605,9 +2610,18 @@ function loadLexicon(){
         let a = grams.get(g); if(!a) grams.set(g, a = []);
         a.push(idx);
       }
+    };
+    for(const e of j.players){
+      const f = foldName(e.n);
+      if(f.length >= 2) addEntry(e, f);
+      // 2e graphie du MÊME joueur : décorations lues comme des lettres (Tesseract rend parfois
+      // le « ™ » en « TM »). Les deux orthographes pointent sur le même id — lexMatch ignore
+      // les doublons d'id quand il juge l'unicité d'un match.
+      const f2 = foldName(e.n, true);
+      if(f2 !== f && f2.length >= 2) addEntry(e, f2);
     }
     cam.lex = {entries, grams};
-    camLog(`📚 lexique pseudos chargé : ${entries.length} joueurs`);
+    camLog(`📚 lexique pseudos chargé : ${j.players.length} joueurs (${entries.length} graphies)`);
   }).catch(()=>{});
 }
 /* distance de Damerau-Levenshtein plafonnée (early-exit) */
@@ -2650,9 +2664,14 @@ function lexMatch(raw){
     const dd = damLev(q, e.f, 2);
     if(dd < 0) continue;
     const cand = {e, d: dd, nd: dd / Math.max(q.length, e.f.length)};
-    if(!best || cand.nd < best.nd){ second = best; best = cand; }
-    else if(!second || cand.nd < second.nd) second = cand;
+    // « second » ne retient qu'un joueur DIFFÉRENT : les 2 graphies d'un même pseudo décoré
+    // ne doivent pas se concurrencer et faire perdre l'unicité (donc le verrouillage direct)
+    if(!best || cand.nd < best.nd){
+      if(best && best.e.i !== cand.e.i) second = best;
+      best = cand;
+    }else if(cand.e.i !== best.e.i && (!second || cand.nd < second.nd)) second = cand;
   }
+  if(second && best && second.e.i === best.e.i) second = null;
   // toute distance > 0 exige un texte assez long (≥ 5 plié) ET ≤ 20% d'erreur :
   // « py N j » plié en « pynj » (4 lettres) ne peut plus matcher PYNK à distance 1
   if(!best || (best.d > 0 && (q.length < 5 || best.nd > 0.2))) return null;
@@ -2817,15 +2836,18 @@ async function camFindOpponent(){
     // (« 240% » lu dans un popup de stats passait la recherche et verrouillait un mauvais joueur)
     // confirmation sur 2 lectures OCR distinctes : un texte transitoire (popup, animation)
     // ne peut pas verrouiller un mauvais joueur ; le vrai pseudo, lui, se relit à l'identique
-    const accept = async (p, instant) => {
+    // « why » : provenance du verrouillage, tracée dans le journal — sans elle un mauvais
+    // adversaire posé par une correspondance APPROCHÉE de l'API est indiscernable d'une
+    // lecture exacte, et le diagnostic est impossible après coup
+    const accept = async (p, instant, why) => {
       if(!instant && cam.oppCand !== p.id){
         cam.oppCand = p.id;
-        camLog(`🕐 candidat adversaire : ${p.wizard_name} (confirmation 1/2)`);
+        camLog(`🕐 candidat adversaire : ${p.wizard_name} (confirmation 1/2${why ? " — " + why : ""})`);
         if(cam.oppTry) cam.oppTry.t = 0; // re-vérification immédiate au prochain tick
         return;
       }
       liveStatus("🎯 adversaire identifié : " + p.wizard_name, true);
-      camLog(`🎯 adversaire identifié : ${p.wizard_name} → box restreinte activée (essai ${cam.oppTry?.n || 1})`);
+      camLog(`🎯 adversaire identifié : ${p.wizard_name} → box restreinte activée (essai ${cam.oppTry?.n || 1}${why ? ", " + why : ""})`);
       cam.ocrSetB = true; // posé par l'OCR : sera remis à zéro au prochain combat
       simState.b = p.id; simState.boxB = null;
       renderSim();
@@ -2851,10 +2873,26 @@ async function camFindOpponent(){
     // un résultat n'est accepté que s'il RESSEMBLE vraiment à ce que l'OCR a lu — la recherche
     // « Bows » renvoie « Bowser26 » : sans ce filtre on pouvait verrouiller un inconnu
     const refsN = [...new Set(variants.map(norm))].filter(x=>x.length >= 2);
-    const goodHit = list => (list||[]).slice(0, 6).find(p => {
-      const pn = norm(p.wizard_name);
-      return refsN.some(cn => pn === cn || (cn.length >= 4 && Math.abs(pn.length - cn.length) <= 2 && (pn.includes(cn) || cn.includes(pn))));
-    });
+    // les résultats acceptables sont CLASSÉS, pas pris dans l'ordre de l'API : une correspondance
+    // EXACTE l'emporte toujours sur une inclusion, et l'inclusion la plus serrée sur la plus lâche.
+    // Sans ça « NiLziN » verrouillait « NiLziNxD » (inclusion, 2 lettres en trop) alors que
+    // « NiLziN™ » était exact mais plus loin dans la liste renvoyée par l'API.
+    let hitWhy = "";
+    const goodHit = list => {
+      let bestP = null, bestS = 99;
+      for(const p of (list||[]).slice(0, 6)){
+        const pn = norm(p.wizard_name);
+        let s = 99;
+        for(const cn of refsN){
+          if(pn === cn){ s = 0; break; }
+          if(cn.length >= 4 && Math.abs(pn.length - cn.length) <= 2 && (pn.includes(cn) || cn.includes(pn)))
+            s = Math.min(s, 1 + Math.abs(pn.length - cn.length));
+        }
+        if(s < bestS){ bestS = s; bestP = p; }
+      }
+      hitWhy = !bestP ? "" : bestS === 0 ? "API, lecture exacte" : `API, correspondance APPROCHÉE (${bestS - 1} caractère(s) d'écart)`;
+      return bestP;
+    };
     // mode VÉRIFICATION : un adversaire posé par l'OCR est re-contrôlé par les lectures
     // suivantes — seule une correspondance EXACTE et unique peut le confirmer ou le corriger
     if(simState.b){
@@ -2885,21 +2923,22 @@ async function camFindOpponent(){
         camLog(`📚 lexique : « ${q} » → ${hit.name} (distance ${hit.d}${hit.unique ? ", unique" : ""})`);
         // verrouillage sur UNE lecture RÉSERVÉ aux correspondances EXACTES et uniques ;
         // le flou (d ≥ 1) repasse toujours par la confirmation x2
-        await accept({id: hit.id, wizard_name: hit.name}, hit.unique && hit.d === 0 && hit.qlen >= 4);
+        await accept({id: hit.id, wizard_name: hit.name}, hit.unique && hit.d === 0 && hit.qlen >= 4,
+                     `lexique, distance ${hit.d}${hit.unique ? "" : ", NON unique"}`);
         return;
       }
     }
     const frag = lexFragment(txt);
     if(frag){
       camLog(`📚 lexique (fragment idéogrammes) : « ${txt} » → ${frag.name}`);
-      await accept({id: frag.id, wizard_name: frag.name});
+      await accept({id: frag.id, wizard_name: frag.name}, false, "lexique, fragment idéogrammes");
       return;
     }
     // 2) repli API (joueur hors lexique, plafond ~10 résultats inchangé) : cascade existante
     const rs = await Promise.all(variants.map(q => api("/player/search/" + encodeURIComponent(q)).catch(()=>({data:[]}))));
     for(const r of rs){
       const hit = goodHit(r.data);
-      if(hit){ await accept(hit); return; }
+      if(hit){ await accept(hit, false, hitWhy); return; }
     }
     // repli : recherche par PRÉFIXE (accents et décorations sont surtout en fin de pseudo)
     const base = cands[0];
@@ -2909,7 +2948,7 @@ async function camFindOpponent(){
         if(q.length < 3 || !/\p{L}/u.test(q)) continue;
         const r = await api("/player/search/" + encodeURIComponent(q)).catch(()=>({data:[]}));
         const hit = goodHit(r.data);
-        if(hit){ await accept(hit); return; }
+        if(hit){ await accept(hit, false, `${hitWhy}, sur préfixe « ${q} »`); return; }
       }
     }
     // pseudo IDÉOGRAMMES + chiffres (零式100) : les idéogrammes sont souvent mal lus mais les
@@ -2924,7 +2963,7 @@ async function camFindOpponent(){
         const r = await api("/player/search/" + encodeURIComponent(run)).catch(()=>({data:[]}));
         const hit = (r.data||[]).find(p => CJK.test(p.wizard_name) && p.wizard_name.includes(run)
           && Math.abs(p.wizard_name.length - tlen) <= 2);
-        if(hit){ await accept(hit); return; }
+        if(hit){ await accept(hit, false, `API, fragment latin « ${run} » d'un pseudo idéogrammes`); return; }
       }
     }
     camLog(`🚫 « ${txt} » introuvable dans les données — tape le pseudo dans le champ Adversaire si besoin`);
