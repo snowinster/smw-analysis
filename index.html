@@ -195,6 +195,14 @@ tr.clickable:hover{background:var(--card2)}
 .chart-tip{position:fixed;pointer-events:none;background:#0009;backdrop-filter:blur(4px);border:1px solid var(--border);border-radius:8px;padding:7px 10px;font-size:12.5px;z-index:100;display:none;white-space:nowrap}
 
 .pager{display:flex;gap:8px;align-items:center;justify-content:center;margin-top:14px}
+/* pagination complète : « Par page », « x–y sur z », |< ‹ › >| */
+.pager2{display:flex;align-items:center;justify-content:flex-end;gap:16px;flex-wrap:wrap;margin:12px 2px;font-size:13px;color:var(--muted)}
+.pager2 select{padding:5px 9px;font-size:13px}
+.pager2 .pgbtns{display:flex;gap:6px}
+.pager2 .pgbtns button{width:34px;height:32px;border-radius:8px;background:var(--card2);border:1px solid var(--border);color:var(--text);cursor:pointer;font-size:14px;line-height:1}
+.pager2 .pgbtns button:hover:not(:disabled){border-color:var(--accent)}
+.pager2 .pgbtns button:disabled{opacity:.32;cursor:default}
+@media (max-width:700px){ .pager2{justify-content:center} }
 
 /* ---------- fiche monstre / comparateur / tendances ---------- */
 .two-col{display:grid;grid-template-columns:1fr 1fr;gap:22px}
@@ -661,8 +669,39 @@ async function loadHomeTops(){
   }
 }
 
+/* ---- pagination réutilisable : « Par page [n] · x–y sur z · |< ‹ › >| » ----
+   total peut être null (endpoint sans count, ex. /players) : on masque alors « sur z » et le
+   saut en dernière page, et « suivant » se désactive quand la page revient incomplète.
+   DOIT être déclaré AVANT les sections qui posent pagers.lb / pagers.mo au chargement,
+   sinon zone morte temporelle → le script entier meurt à l'évaluation. */
+const pagers = {}; // key -> {go(page), setLimit(limit)} posé par chaque vue
+function pagerHTML(key, {page, limit, total, shown}){
+  const from = shown ? (page-1)*limit + 1 : 0;
+  const to = (page-1)*limit + shown;
+  const last = total != null ? Math.max(1, Math.ceil(total/limit)) : null;
+  const canNext = last != null ? page < last : shown === limit;
+  const b = (sym, target, on, title) =>
+    `<button ${on?"":"disabled"} title="${title}" onclick="pagers['${key}'].go(${target})">${sym}</button>`;
+  return `<div class="pager2">
+    <label>Par page <select onchange="pagers['${key}'].setLimit(+this.value)">${
+      [10,20,25,50,100].map(x=>`<option value="${x}" ${x===limit?"selected":""}>${x}</option>`).join("")}</select></label>
+    <span>${from ? `${num(from)}–${num(to)}` : "0"}${total != null ? ` sur ${num(total)}` : ""}</span>
+    <div class="pgbtns">
+      ${b("«", 1, page > 1, "Première page")}
+      ${b("‹", page-1, page > 1, "Page précédente")}
+      ${b("›", page+1, canNext, "Page suivante")}
+      ${last != null ? b("»", last, page < last, "Dernière page") : ""}
+    </div>
+  </div>`;
+}
+
 /* ================= LEADERBOARD ================= */
-const lbState = { season:null, page:1, limit:25 };
+const lbState = { season:null, page:1,
+  limit: (()=>{ try{ return parseInt(localStorage.getItem("lbLimit_v1"), 10) || 25; }catch(e){ return 25; } })() };
+pagers.lb = {
+  go(p){ lbState.page = Math.max(1, p); loadLb(); },
+  setLimit(l){ lbState.limit = l; lbState.page = 1; try{ localStorage.setItem("lbLimit_v1", String(l)); }catch(e){} loadLb(); }
+};
 async function viewLeaderboard(){
   $app.innerHTML = '<div class="loading">Chargement…</div>';
   try{
@@ -675,25 +714,22 @@ async function viewLeaderboard(){
         <select id="lbSeason">${seasons.map(s=>`<option value="${s}" ${s===lbState.season?"selected":""}>Saison ${s}</option>`).join("")}</select>
       </div>
       <div class="panel tbl-wrap" id="lbTable"><div class="loading">Chargement…</div></div>
-      <div class="pager">
-        <button class="btn" id="lbPrev">← Précédent</button>
-        <span class="muted" id="lbPage"></span>
-        <button class="btn" id="lbNext">Suivant →</button>
-      </div>`;
+      <div id="lbPager"></div>`;
     document.getElementById("lbSeason").onchange = e => { lbState.season = +e.target.value; lbState.page = 1; loadLb(); };
-    document.getElementById("lbPrev").onclick = () => { if(lbState.page>1){ lbState.page--; loadLb(); } };
-    document.getElementById("lbNext").onclick = () => { lbState.page++; loadLb(); };
     loadLb();
   }catch(e){ fail(e); }
 }
 async function loadLb(){
   const $t = document.getElementById("lbTable");
   $t.innerHTML = '<div class="loading">Chargement…</div>';
-  document.getElementById("lbPage").textContent = "Page " + lbState.page;
   try{
     const off = (lbState.page-1)*lbState.limit;
     const r = await api(`/players?season=${lbState.season}&isSL=false&limit=${lbState.limit}&offset=${off}`);
-    $t.innerHTML = (r.data && r.data.length) ? playersTable(r.data, off) : '<div class="loading">Aucune donnée pour cette saison.</div>';
+    const rows = r.data || [];
+    // /players ne renvoie pas de count : total null → pas de « sur z » ni de saut en fin
+    const pg = document.getElementById("lbPager");
+    if(pg) pg.innerHTML = pagerHTML("lb", {page: lbState.page, limit: lbState.limit, total: null, shown: rows.length});
+    $t.innerHTML = rows.length ? playersTable(rows, off) : '<div class="loading">Aucune donnée pour cette saison.</div>';
   }catch(e){ $t.innerHTML = `<div class="error-box">${esc(e.message)}</div>`; }
 }
 function playersTable(rows, offset){
@@ -713,7 +749,12 @@ function playersTable(rows, offset){
 }
 
 /* ================= MONSTRES ================= */
-const moState = { season:null, page:1, limit:20, orderBy:"played", dir:"DESC", isG3:false };
+const moState = { season:null, page:1, orderBy:"played", dir:"DESC", isG3:false,
+  limit: (()=>{ try{ return parseInt(localStorage.getItem("moLimit_v1"), 10) || 20; }catch(e){ return 20; } })() };
+pagers.mo = {
+  go(p){ moState.page = Math.max(1, p); loadMo(); },
+  setLimit(l){ moState.limit = l; moState.page = 1; try{ localStorage.setItem("moLimit_v1", String(l)); }catch(e){} loadMo(); }
+};
 async function viewMonsters(){
   $app.innerHTML = '<div class="loading">Chargement…</div>';
   try{
@@ -727,15 +768,9 @@ async function viewMonsters(){
         <label class="switch"><input type="checkbox" id="moG3" ${moState.isG3?"checked":""}><span class="tk"></span><span>Guardian 3+ uniquement</span></label>
       </div>
       <div class="panel tbl-wrap" id="moTable"><div class="loading">Chargement…</div></div>
-      <div class="pager">
-        <button class="btn" id="moPrev">← Précédent</button>
-        <span class="muted" id="moPage"></span>
-        <button class="btn" id="moNext">Suivant →</button>
-      </div>`;
+      <div id="moPager"></div>`;
     document.getElementById("moSeason").onchange = e => { moState.season = +e.target.value; moState.page=1; loadMo(); };
     document.getElementById("moG3").onchange = e => { moState.isG3 = e.target.checked; moState.page=1; loadMo(); };
-    document.getElementById("moPrev").onclick = () => { if(moState.page>1){ moState.page--; loadMo(); } };
-    document.getElementById("moNext").onclick = () => { moState.page++; loadMo(); };
     loadMo();
   }catch(e){ fail(e); }
 }
@@ -751,9 +786,10 @@ async function loadMo(){
     const off = (moState.page-1)*moState.limit;
     const q = `season=${moState.season}&isG3=${moState.isG3}&isSL=false&played=0&orderBy=${moState.orderBy}&orderDirection=${moState.dir}&limit=${moState.limit}&offset=${off}`;
     const r = await api("/monsters?" + q);
-    const total = r.count || 0;
-    document.getElementById("moPage").textContent = `Page ${moState.page} / ${Math.max(1, Math.ceil(total/moState.limit))} · ${num(total)} monstres`;
-    $t.innerHTML = (r.data && r.data.length) ? monstersTable(r.data, off, true) : '<div class="loading">Aucune donnée.</div>';
+    const rows = r.data || [];
+    const pg = document.getElementById("moPager");
+    if(pg) pg.innerHTML = pagerHTML("mo", {page: moState.page, limit: moState.limit, total: r.count || 0, shown: rows.length});
+    $t.innerHTML = rows.length ? monstersTable(rows, off, true) : '<div class="loading">Aucune donnée.</div>';
   }catch(e){ $t.innerHTML = `<div class="error-box">${esc(e.message)}</div>`; }
 }
 function monstersTable(rows, offset=0, sortable=false){
