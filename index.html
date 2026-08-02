@@ -3496,12 +3496,23 @@ async function renderSim(){
     boxVs.sort((a,b)=> b.avg-a.avg || b.cover-a.cover);
     boxVs = boxVs.slice(0,15);
   }
+  const lastPick = !fpMode && simState.picksA.length === 4;
+  /* Combien d'emplacements consécutifs me restent dans CE tour, et suis-je en train de compléter
+     une paire ? La séquence RTA 1-2-2-2-2-1 donne des tours à deux picks : dès que le premier
+     des deux est posé, il ne reste qu'UN emplacement, et proposer des paires devient absurde
+     puisqu'aucune n'est jouable. On bascule alors sur le meilleur PARTENAIRE du monstre
+     qu'on vient de poser. Côté second pick, le dernier pick est solo (le « 1 » final) et non
+     une fin de paire : le test sur seq[t-1] fait bien la différence. */
+  const seqNow = simSeq(), tNow = simState.picksA.length + simState.picksB.length;
+  let slotsNow = 0;
+  for(let k = tNow; k < 10 && seqNow[k] === "A"; k++) slotsNow++;
+  const partner = (!fpMode && slotsNow === 1 && tNow > 0 && seqNow[tNow-1] === "A" && simState.picksA.length)
+    ? simState.picksA[simState.picksA.length-1] : null;
   // 3) duos conseillés : paires du même vivier que le panneau ci-dessus (ta box, ou tous les
   // monstres si le filtre est décoché) qui counterent les picks adverses ET synergisent
-  // (inutile au dernier pick : il ne reste qu'un seul slot)
-  const lastPick = !fpMode && simState.picksA.length === 4;
+  // (inutile au dernier pick, ou en cours de paire : il ne reste qu'un seul slot)
   let duos = [], duosFromBox = simState.boxOnly;
-  if(countersFull.length >= 2 && !lastPick){
+  if(countersFull.length >= 2 && !lastPick && !partner){
     let base = boxVs;
     if(base.length < 2){ duosFromBox = false; base = countersFull; }
     base = base.slice(0, 12);
@@ -3521,6 +3532,25 @@ async function renderSim(){
     }
     duos.sort((a,b)=>b.score-a.score);
     duos = duos.slice(0,15);
+  }
+  /* paire en cours : un seul côté reste à choisir, on classe les partenaires du monstre déjà
+     posé. Même formule que les duos, mais la synergie mesurée est celle avec CE monstre
+     précisément, au lieu de la moyenne de la paire. */
+  let pairWith = [];
+  if(partner && boxVs.length){
+    await getPairsTogether(partner.id);
+    if(token !== simRenderToken) return;
+    const rows = cachedPairs(partner.id, "total_played_together");
+    for(const c of boxVs){
+      const row = rows.find(r=>r.b_monster_id===c.id);
+      if(!row || row.total_played_together < 20) continue;
+      const togAdj = shrink(row.win_together_rate, row.total_played_together);
+      const score = c.myFit!=null ? 0.45*c.vsScore + 0.35*togAdj + 0.20*c.myFit
+                                  : 0.55*c.vsScore + 0.45*togAdj;
+      pairWith.push({c, tog:row.win_together_rate, nTog:row.total_played_together, score});
+    }
+    pairWith.sort((a,b)=>b.score-a.score);
+    pairWith = pairWith.slice(0,15);
   }
   const $s = document.getElementById("simSugg");
   if(!$s || token !== simRenderToken) return;
@@ -3573,14 +3603,24 @@ async function renderSim(){
           <div class="sg-n">${esc(fm.name||f.id)} ${inBox(f.id)?'<span class="inbox-badge">dans ta box</span>':""}<div class="sub">${elemTag(fm.element)} · ouvert ${f.n} fois en FP1</div></div>
           <span class="sg-wr" style="color:${f.wr>=0.5?'var(--win)':'var(--lose)'}">${pct(f.wr)}</span></div>`;
       }).join("") : '<div class="muted">Analyse des replays en cours ou pas assez de données pour cette saison.</div>'}</div>`
-  : lastPick ? `<div><h2>${boxPanelTitle}</h2>
+  : (lastPick && !partner) ? `<div><h2>${boxPanelTitle}</h2>
       <div class="panel">${boxPanelRows}</div>
     </div>`
   : `<div class="two-col">
     <div><h2>${boxPanelTitle}</h2>
       <div class="panel">${boxPanelRows}</div>
     </div>
-    <div><h2>${(()=>{const t=simState.picksA.length+simState.picksB.length; const q=simSeq(); return q[t]==="A"&&q[t+1]==="A" ? "🎯 Tu dois picker 2 - duos conseillés" : "Duos conseillés";})()} <span class="muted" style="font-size:12px;font-weight:400">(meilleure chance de win : counter + synergie${duosFromBox ? ", pris dans ta box" : simState.boxOnly ? " - box trop limitée, duos globaux" : " - tous monstres, possédés ou non"})</span></h2>
+    ${partner ? `<div><h2>🎯 Complète ta paire avec ${esc(partner.name)} <span class="muted" style="font-size:12px;font-weight:400">(il te reste 1 seul pick dans ce tour - classement par counter + synergie AVEC ${esc(partner.name)})</span></h2>
+      <div class="panel">${pairWith.length ? pairWith.map(p=>
+        `<div class="sugg" draggable="true" data-drag-id="${p.c.id}" onclick="simPick(${p.c.id},'A')"
+          title="${pct(p.c.vsScore)} vs picks adverses · ${pct(p.tog)} avec ${esc(partner.name)} (${num(p.nTog)} parties)">
+          <img src="${monImg(p.c.img)}" loading="lazy">
+          <div class="sg-n">${esc(p.c.name)} ${!simState.boxOnly && inBox(p.c.id) ? '<span class="inbox-badge">dans ta box</span>' : ""}${p.c.banRate!=null && p.c.banRate>=0.15 ? ` <span class="ban-badge">🚫 souvent banni (${pct(p.c.banRate,0)})</span>` : ""}
+            <div class="sub">${pct(p.tog)} avec ${esc(partner.name)} (${num(p.nTog)} parties) · ${pct(p.c.vsScore)} vs sa draft</div></div>
+          <span class="sg-wr" style="color:${p.score>=0.5?'var(--win)':'var(--lose)'}">${pct(p.score)}</span></div>`).join("")
+        : `<div class="muted">Aucune synergie mesurée avec ${esc(partner.name)} (moins de 20 parties ensemble) - fie-toi au classement de gauche.</div>`}</div>
+    </div>`
+    : `<div><h2>${(()=>{const t=simState.picksA.length+simState.picksB.length; const q=simSeq(); return q[t]==="A"&&q[t+1]==="A" ? "🎯 Tu dois picker 2 - duos conseillés" : "Duos conseillés";})()} <span class="muted" style="font-size:12px;font-weight:400">(meilleure chance de win : counter + synergie${duosFromBox ? ", pris dans ta box" : simState.boxOnly ? " - box trop limitée, duos globaux" : " - tous monstres, possédés ou non"})</span></h2>
       <div class="panel">${duos.length ? duos.map((d,i)=>
         `<div class="sugg" onclick="simPickDuo(${d.c1.id},${d.c2.id})" title="Picker les deux · ${pct(d.vs)} vs picks adverses · ${pct(d.tog)} ensemble (${num(d.nTog)} parties)">
           <img src="${monImg(d.c1.img)}" loading="lazy" class="mon-click" draggable="true" data-drag-id="${d.c1.id}" title="Picker uniquement ${esc(d.c1.name)}" onclick="event.stopPropagation();simPick(${d.c1.id},'A')">
@@ -3590,7 +3630,7 @@ async function renderSim(){
             <div class="sub">${pct(d.vs)} vs picks adverses · ${pct(d.tog)} ensemble (${num(d.nTog)} parties)${d.myFit!=null?` · synergie avec tes picks ${pct(d.myFit)}`:""}</div></div>
           <span class="sg-wr" style="color:${d.score>=0.5?'var(--win)':'var(--lose)'}">${pct(d.score)}</span></div>`).join("")
         : '<div class="muted">Pas assez de données pour former des duos fiables contre ces picks.</div>'}</div>
-    </div>
+    </div>`}
   </div>`)
   + `<div class="note">Les conseils sont calculés pour <b>toi (joueur A)</b> uniquement - un clic sur une suggestion la picke dans ton équipe. Pose les picks adverses avec le champ 🔍 ou la box 📦 de son côté. Les scores sont <b>ajustés au volume</b> (un 70 % sur 30 parties pèse moins qu'un 60 % sur 700), intègrent la synergie avec tes picks déjà posés et une pénalité pour les monstres très bannis - survole une ligne pour le détail. Données Guardian+ S${simState.season}, ce n'est pas une prédiction exacte du combat.</div>`;
   wireSimAdd();
