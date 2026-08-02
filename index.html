@@ -559,7 +559,7 @@ async function viewHome(){
           <div id="homeTopPlayers"><div class="loading">Chargement…</div></div>
         </div>
         <div>
-          <div class="row" style="margin-bottom:10px"><b>⭐ First picks gagnants</b><span class="muted" style="font-size:12px">ouvertures Guardian 3+, WR ajusté au volume</span></div>
+          <div class="row" style="margin-bottom:10px"><b>⭐ First picks gagnants — Guardian 3+</b><span class="muted" style="font-size:12px">min. 500 ouvertures · WR ajusté au volume</span></div>
           <div class="panel" id="homeFp" style="padding:10px;margin-bottom:0"><div class="loading">Chargement…</div></div>
         </div>
       </div>
@@ -627,7 +627,7 @@ async function loadHomeTops(){
         let n = 0, w = 0;
         if(st.by) for(const k in st.by){ if(+k === 0 || +k >= 4003){ n += st.by[k][0]; w += st.by[k][1]; } }
         else { n = st.openings; w = st.wins; }
-        if(n >= 100) agg.push({id: st.monster_id, n, wr: w/n});
+        if(n >= 500) agg.push({id: st.monster_id, n, wr: w/n}); // même exigence que le réglage « min. 500 » du simulateur
       }
       agg.sort((a,b)=> shrink(b.wr,b.n)-shrink(a.wr,a.n) || b.n-a.n);
       $f.innerHTML = agg.slice(0,6).map((x,i)=>{
