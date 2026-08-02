@@ -41,7 +41,7 @@ nav a.navlink:hover,nav a.navlink.active{color:var(--text);background:var(--card
 .search-results img{width:30px;height:30px;border-radius:6px;object-fit:cover;background:var(--bg2)}
 
 /* ---------- Layout ---------- */
-main{max-width:1750px;margin:0 auto;padding:28px 20px 80px;position:relative}
+main{max-width:1750px;margin:0 auto;padding:28px 20px 28px;position:relative}
 h1{font-size:26px;margin-bottom:18px}
 h2{font-size:18px;margin:26px 0 12px;color:var(--text)}
 .muted{color:var(--muted)}
@@ -3194,12 +3194,12 @@ function anonGridHTML(){
 function simAnonFilter(v){
   simState.anonFilter = v;
   const g = document.getElementById("anonGrid");
-  if(g) g.innerHTML = anonGridHTML(); // re-rend uniquement la grille : le champ garde le focus
+  if(g){ g.innerHTML = anonGridHTML(); fitAnonGrid(); } // re-rend uniquement la grille : le champ garde le focus
 }
 function simAnonSortChange(v){
   simState.anonSort = v;
   const g = document.getElementById("anonGrid");
-  if(g) g.innerHTML = anonGridHTML();
+  if(g){ g.innerHTML = anonGridHTML(); fitAnonGrid(); }
 }
 function simRemove(side, i){
   const arr = side==="A"?simState.picksA:simState.picksB;
@@ -3350,7 +3350,6 @@ async function renderSim(){
   const turn = simTurn();
   // TOI toujours à gauche, l'adversaire à droite (l'ordre de remplissage FP/SP reste géré par slot)
   let html = `<div class="vs-wrap">${simSideHTML("A",false)}<div class="vs-mid">VS</div>${simSideHTML("B",true)}</div>`;
-  if(!simState.b) html += '<div class="note" style="margin-bottom:12px">💡 Adversaire non renseigné : conseils théoriques (méta globale). Renseigne son pseudo, ou pose ses picks avec le champ 🔍.</div>';
   if(!simState.a){
     $b.innerHTML = html + '<div class="panel muted">👉 Choisis ton compte (joueur A) ou clique une puce « Mes comptes ».</div>';
     wireSimAdd(); return;
@@ -3641,7 +3640,7 @@ async function renderSim(){
         : '<div class="muted">Pas assez de données pour former des duos fiables contre ces picks.</div>'}</div>
     </div>`}
   </div>`)
-  + `<div class="note">Conseils pour <b>toi (joueur A)</b> : clique une suggestion pour la picker. Scores <b>ajustés au volume</b>, synergie et ban rate compris - survole une ligne pour le détail. Guardian+ S${simState.season}.</div>`;
+;
   wireSimAdd();
 }
 /* indice de confiance de victoire après la draft complète (AVANT bans) :
@@ -3771,7 +3770,31 @@ function wireSimAdd(){
   attachMonSearch("simAddB","simAddResB", id=>simPick(id,"B"));
   attachMonSearch("simBoxAddA","simBoxAddResA", id=>simBoxAdd("A",id));
   attachMonSearch("simBoxAddB","simBoxAddResB", id=>simBoxAdd("B",id));
+  fitAnonGrid();
 }
+/* La grille « tous les monstres » est fluide (8 colonnes en 1fr) : la taille d'une vignette
+   dépend donc de la largeur de la fenêtre. Une hauteur maximale FIXE tombait fatalement au
+   milieu d'une rangée sur la plupart des écrans — d'où les monstres coupés en deux.
+   On mesure une vignette après rendu et on cale la hauteur sur un nombre ENTIER de rangées,
+   en occupant l'espace libre restant sous la grille (le panneau est étiré à la hauteur de son
+   voisin, cet espace était perdu).
+   La hauteur de départ posée en HTML doit rester bornée : c'est elle qui rend la mesure de
+   l'espace libre fiable. Sans elle, le premier rendu déroule les ~400 monstres de la méta et
+   l'espace « libre » mesuré n'a plus aucun sens. */
+function fitAnonGrid(){
+  const g = document.getElementById("anonGrid");
+  if(!g) return;
+  const cell = g.querySelector(".pick");
+  if(!cell) return;
+  const GAP = 8;
+  const rowH = cell.getBoundingClientRect().height + GAP;
+  if(rowH < 20) return; // pas encore mis en page : le resize repassera
+  const side = g.closest(".sim-side");
+  const free = side ? side.getBoundingClientRect().bottom - g.getBoundingClientRect().top - 14 : 0;
+  const rows = Math.min(8, Math.max(3, Math.floor((Math.max(free, 0) + GAP) / rowH)));
+  g.style.maxHeight = (rows * rowH - GAP) + "px";
+}
+addEventListener("resize", ()=>{ clearTimeout(fitAnonGrid.t); fitAnonGrid.t = setTimeout(fitAnonGrid, 120); });
 function attachMonSearch(inputId, listId, onPick){
   const $in = document.getElementById(inputId), $list = document.getElementById(listId);
   if(!$in || $in.dataset.wired) return;
