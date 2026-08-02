@@ -1117,7 +1117,21 @@ const simState = { a:null, b:null, fp:"A", lds:true, picksA:[], picksB:[], boxA:
   anonSort:"played", live:false,
   // positions du plateau (.gi) modifiées À LA MAIN : la capture n'y écrit plus jamais
   giLock: {A:new Set(), B:new Set()},
-  boxSort: (()=>{ try{ return localStorage.getItem("simBoxSort_v2") || "element"; }catch(e){ return "element"; } })() };
+  boxSort: (()=>{ try{ return localStorage.getItem("simBoxSort_v2") || "element"; }catch(e){ return "element"; } })(),
+  fpRank: (()=>{ try{ return parseInt(localStorage.getItem("simFpRank_v1"), 10) || 4003; }catch(e){ return 4003; } })() };
+/* paliers de rang RTA, tels que l'API les expose dans last_rating_id du first picker.
+   Vérifié sur 197 000 lignes de replays S38 : 35xx = Conquérant, 40xx = Guardian, le dernier
+   chiffre donne le sous-rang, et le score médian croît bien dans cet ordre (1080 → 1278).
+   Le filtre est un rang MINIMUM : « Guardian 3+ » inclut donc aussi la Légende (4004). */
+const FP_RANKS = [
+  {r:3501, l:"Conquérant 1+"},
+  {r:3502, l:"Conquérant 2+"},
+  {r:3503, l:"Conquérant 3+"},
+  {r:4001, l:"Guardian 1+"},
+  {r:4002, l:"Guardian 2+"},
+  {r:4003, l:"Guardian 3+"}
+];
+const fpRankLabel = r => (FP_RANKS.find(x=>x.r===r) || FP_RANKS.at(-1)).l;
 const ELEM_ORDER = {Fire:0, Water:1, Wind:2, Light:3, Dark:4};
 
 /* ----- personnalisation de la box (suppressions/ajouts), persistée par compte ----- */
@@ -1242,14 +1256,15 @@ async function getMetaStats(){
   metaCache.set(s, map);
   return map;
 }
-/* VRAIES stats de first pick, restreintes aux ouvertures faites par un GUARDIAN 3+ :
-   dans chaque replay on repère qui avait le first pick (is_first_pick), on vérifie son rang
-   (last_rating_id >= 4003 : 4xxx = Guardian, dernier chiffre = sous-rang, 4004 = Légende),
-   puis quel monstre il a ouvert (pick_slot_id = 1) et s'il a gagné.
-   Plus d'échantillonnage réparti sur la profondeur du ladder : on balaie le HAUT du classement,
-   seul endroit où les G3 se trouvent. Ce repli navigateur reste volontairement plus léger que
-   le calcul nightly (api/firstpicks-s{N}.json) : 200 joueurs au lieu de 600. */
-const G3_MIN_RATING = 4003;
+/* VRAIES stats de first pick, VENTILÉES PAR RANG du first picker : dans chaque replay on repère
+   qui avait le first pick (is_first_pick), on note son rang (last_rating_id), quel monstre il a
+   ouvert (pick_slot_id = 1) et s'il a gagné. Rien n'est agrégé ici : le filtre de rang de l'app
+   somme ensuite les paliers voulus (voir fpAggregate).
+   Aucun plafond de combats par joueur — un plafond bas biaisait l'échantillon vers les gros
+   grinders. Ce repli navigateur reste plus léger que le calcul nightly : 200 joueurs au lieu
+   de 600 (api/firstpicks-s{N}.json fait le travail complet).
+   Renvoie Map(monster_id -> {rating_id: [ouvertures, victoires]}). */
+const FP_MIN_RATING = 3501; // Conquérant 1 : en dessous, codes résiduels de placement
 const fpStatsCache = new Map();
 async function getFirstPickStats(){
   const season = simState.season;
@@ -1260,14 +1275,16 @@ async function getFirstPickStats(){
     if(r.ok){
       const own = await r.json();
       if(own.stats?.length){
-        const m = new Map(own.stats.map(x=>[x.monster_id, {n:x.openings, w:x.wins}]));
+        // tolère un fichier de l'ancien format (total sans ventilation) : rangé sous la clé 0,
+        // que fpAggregate compte quel que soit le rang demandé plutôt que d'afficher une page vide
+        const m = new Map(own.stats.map(x=>[x.monster_id, x.by || {0:[x.openings, x.wins]}]));
         fpStatsCache.set(season, m);
         return m;
       }
     }
   }catch(e){}
   // 2) repli : calcul en direct dans le navigateur
-  const LS_KEY = "fpStats_v5g3_" + season; // v5 : jeu de données G3+ — invalide les caches « tous rangs »
+  const LS_KEY = "fpStats_v6rank_" + season; // v6 : ventilé par rang — invalide les caches agrégés
   try{
     const s = JSON.parse(localStorage.getItem(LS_KEY));
     if(s && Date.now()-s.t < 86400e3){ const m = new Map(s.list); fpStatsCache.set(season, m); return m; }
@@ -1282,7 +1299,7 @@ async function getFirstPickStats(){
   const results = [];
   for(let i = 0; i < players.length; i += 8){ // par lots : évite 200 requêtes simultanées
     results.push(...await Promise.all(players.slice(i, i+8).map(p =>
-      api(`/player/${p.wizard_id}/last-battles?season=${season}&limit=50`).catch(()=>({data:[]})))));
+      api(`/player/${p.wizard_id}/last-battles?season=${season}&limit=500`).catch(()=>({data:[]})))));
   }
   const seen = new Set(), agg = new Map();
   for(const lb of results) for(const b of (lb.data||[])){
@@ -1291,16 +1308,30 @@ async function getFirstPickStats(){
     seen.add(key);
     if(b.special_league) continue;
     const fp = Object.values(b.user_list||{}).find(u=>u.is_first_pick===1);
-    if(!fp || (fp.last_rating_id||0) < G3_MIN_RATING) continue; // ouverture sous G3 : écartée
+    const rank = fp?.last_rating_id || 0;
+    if(rank < FP_MIN_RATING) continue; // sous Conquérant 1 : code résiduel, écarté
     const u1 = fp.pick_info?.unit_list?.find(x=>x.pick_slot_id===1);
     if(!u1) continue;
-    const e = agg.get(u1.unit_master_id) || {n:0, w:0};
-    e.n++; if(fp.win_lose===1) e.w++;
-    agg.set(u1.unit_master_id, e);
+    let by = agg.get(u1.unit_master_id);
+    if(!by) agg.set(u1.unit_master_id, by = {});
+    const c = by[rank] || (by[rank] = [0, 0]);
+    c[0]++; if(fp.win_lose===1) c[1]++;
   }
   fpStatsCache.set(season, agg);
   try{ localStorage.setItem(LS_KEY, JSON.stringify({t:Date.now(), list:[...agg.entries()]})); }catch(e){}
   return agg;
+}
+/* somme les paliers de rang >= minRating → Map(monster_id -> {n, w}).
+   La clé 0 vient d'un fichier de l'ancien format (non ventilé) : on la compte toujours,
+   sinon un déploiement à moitié propagé afficherait une liste vide. */
+function fpAggregate(fps, minRating){
+  const out = new Map();
+  for(const [id, by] of fps){
+    let n = 0, w = 0;
+    for(const k in by){ if(+k === 0 || +k >= minRating){ n += by[k][0]; w += by[k][1]; } }
+    if(n) out.set(id, {n, w});
+  }
+  return out;
 }
 const ELEM_FR = {Fire:"Feu", Water:"Eau", Wind:"Vent", Light:"Lumière", Dark:"Ténèbres"};
 const ELEM_COLOR = {Fire:"#ff6b5e", Water:"#4ea1ff", Wind:"#f2c14e", Light:"#e8ecf5", Dark:"#b06bf0"};
@@ -1422,7 +1453,10 @@ async function viewSimulator(){
           <input type="checkbox" id="simLive" ${simState.live?"checked":""}><span class="tk"></span><span>🎥 Capture en direct</span>
         </label>
         <span id="liveStatus" class="muted" style="font-size:12px"></span>
-        <label class="muted" style="margin-left:auto">Stats basées sur
+        <label class="muted" style="margin-left:auto" title="Niveau minimum du joueur qui a ouvert la draft. Les recommandations de first pick ne comptent que les ouvertures faites à ce rang ou au-dessus - « Guardian 3+ » inclut donc la Légende.">First picks
+          <select id="simFpRank">${FP_RANKS.map(x=>`<option value="${x.r}" ${x.r===simState.fpRank?"selected":""}>${x.l}</option>`).join("")}</select>
+        </label>
+        <label class="muted">Stats basées sur
           <select id="simSeason">${seasons.map(x=>`<option value="${x}" ${x===simState.season?"selected":""}>Saison ${x}</option>`).join("")}</select>
         </label>
         <button class="btn" id="simUndo">↩ Annuler dernier pick</button>
@@ -1434,6 +1468,11 @@ async function viewSimulator(){
     document.querySelectorAll('[name="simfp"]').forEach(r => r.onchange = e => { simState.fp = e.target.value; renderSim(); });
     document.getElementById("simLive").onchange = e => { simState.live = e.target.checked; liveToggle(); };
     if(simState.live){ if(cam.stream) liveStatus("🎥 capture active — les picks détectés se posent automatiquement", true); else camStart(); }
+    document.getElementById("simFpRank").onchange = e => {
+      simState.fpRank = +e.target.value;
+      try{ localStorage.setItem("simFpRank_v1", String(simState.fpRank)); }catch(err){}
+      renderSim(); // la ventilation par rang est déjà en cache : aucun rechargement réseau
+    };
     document.getElementById("simSeason").onchange = e => {
       simState.season = +e.target.value;
       simState.anonBox = null; // la grille "tous les monstres" dépend de la saison de stats → on la reconstruit
@@ -3268,12 +3307,12 @@ async function renderSim(){
   const fpMode = !simState.picksB.length;
   let fpGlobal = [];
   if(fpMode){
-    const fps = await getFirstPickStats();
+    const fps = fpAggregate(await getFirstPickStats(), simState.fpRank);
     if(token !== simRenderToken) return;
-    // liste globale des first picks du top ladder (même hors box)
-    // seuil abaissé à 30 avec le jeu G3+ : il est ~6x plus petit que l'ancien « tous rangs »
-    // (30 monstres passent 30 ouvertures, seulement 10 en passent 100). Le classement reste sain
-    // car le tri applique shrink(), qui ramène vers 50 % les taux assis sur peu de parties.
+    // liste globale des first picks du rang choisi (même hors box). Seuil de 30 ouvertures :
+    // les paliers hauts sont bien moins peuplés que les bas, et exiger 100 y viderait la liste.
+    // Le classement reste sain car le tri applique shrink(), qui ramène vers 50 % les taux
+    // assis sur peu de parties.
     fpGlobal = [...fps.entries()].filter(([id,e])=>e.n>=30)
       .map(([id,e])=>({id, n:e.n, wr:e.w/e.n}))
       .sort((a,b)=> shrink(b.wr,b.n)-shrink(a.wr,a.n) || b.n-a.n).slice(0,20);
@@ -3430,8 +3469,8 @@ async function renderSim(){
     }
   }
   $s.innerHTML = (fpMode ? `
-    <h2>First picks - Guardian 3+ <span class="muted" style="font-size:12px;font-weight:400">(min. 30 ouvertures)</span>
-      <span style="color:var(--accent2);cursor:help;font-size:15px" title="Comment c'est calculé ? L'app balaie les replays récents du haut du classement (600 joueurs), puis ne garde QUE les combats dont le first pick a été fait par un joueur Guardian 3 ou plus (Guardian 3, Guardian 4/Légende). Aucun échantillonnage sur les rangs inférieurs. Dans chaque combat retenu, elle regarde quel monstre le first picker a posé en premier et s'il a gagné. Le % = victoires / ouvertures. Seuls les monstres ouverts au moins 30 fois par un G3+ sont affichés. Recalculé une fois par jour.">*</span></h2>
+    <h2>First picks - ${fpRankLabel(simState.fpRank)} <span class="muted" style="font-size:12px;font-weight:400">(min. 30 ouvertures)</span>
+      <span style="color:var(--accent2);cursor:help;font-size:15px" title="Comment c'est calculé ? L'app balaie tout l'historique de saison des 600 premiers du classement - aucun plafond de combats par joueur, qui biaiserait l'échantillon vers les plus gros joueurs. Dans chaque combat elle repère qui avait le first pick, note SON rang, quel monstre il a posé en premier et s'il a gagné. Le sélecteur « First picks » en haut de page choisit le rang MINIMUM retenu : seules les ouvertures faites à ce niveau ou au-dessus sont comptées. Le % = victoires / ouvertures. Seuls les monstres ouverts au moins 30 fois au rang choisi sont affichés. Recalculé une fois par jour.">*</span></h2>
     <div class="panel">${fpGlobal.length ? fpGlobal.map((f,i)=>{
         const fm = monCache.get(f.id)||{};
         return `<div class="sugg" draggable="true" data-drag-id="${f.id}" onclick="simPick(${f.id},'A')">

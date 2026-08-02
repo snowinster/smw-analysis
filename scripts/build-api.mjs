@@ -54,15 +54,18 @@ async function buildMeta(season){
   return rows;
 }
 
-/* ---- vraies stats de first pick, RESTREINTES aux ouvertures faites par un Guardian 3+ ----
-   Chaque joueur d'un replay porte son rang dans `last_rating_id` : 4xxx = Guardian et le dernier
-   chiffre est le sous-rang, donc 4003 = Guardian 3 et 4004 = Légende (5xxx = Légende aussi).
-   On ne répartit plus l'échantillon sur toute la profondeur du ladder : on balaie le HAUT du
-   classement, seul endroit où les G3 se trouvent, puis on ne garde que les combats dont le
-   FIRST PICKER est G3+. Rendement mesuré sur la S38 : ~27 000 combats balayés → ~4 200
-   ouvertures G3 sur 125 monstres (l'ancien échantillonnage tous rangs n'en collectait que ~2 000
-   au total, tous niveaux confondus). */
-const G3_MIN_RATING = 4003;
+/* ---- vraies stats de first pick, VENTILÉES PAR RANG du first picker ----
+   Chaque joueur d'un replay porte son rang dans `last_rating_id` : 35xx = Conquérant,
+   40xx = Guardian, le dernier chiffre est le sous-rang (4004 = Légende). Vérifié sur
+   197 000 lignes de replays S38, le score médian croît bien dans cet ordre.
+   On ne garde donc PAS un seul seuil figé : chaque monstre est compté palier par palier et
+   c'est l'app qui agrège les paliers >= au rang choisi dans son filtre. En dessous de
+   Conquérant 1 il ne reste que des codes résiduels de placement (< 1 %), écartés.
+   Deux partis pris de collecte : on balaie le HAUT du ladder (les rangs élevés n'existent
+   nulle part ailleurs) et on prend TOUT l'historique de saison de chaque joueur, sans
+   plafond par joueur — un plafond bas biaisait l'échantillon vers les gros grinders,
+   seuls capables d'enchaîner 50 combats dans la journée. */
+const FP_MIN_RATING = 3501; // Conquérant 1
 async function buildFirstPicks(season){
   const players = [];
   for(let off = 0; off < 600; off += 100){
@@ -74,10 +77,10 @@ async function buildFirstPicks(season){
   const results = [];
   for(let i = 0; i < players.length; i += 8){ // par lots : 600 historiques, rythme doux pour l'API
     results.push(...await Promise.all(players.slice(i, i + 8).map(p =>
-      j(`/player/${p.wizard_id}/last-battles?season=${season}&limit=50`).catch(() => ({ data: [] })))));
+      j(`/player/${p.wizard_id}/last-battles?season=${season}&limit=500`).catch(() => ({ data: [] })))));
     await new Promise(res => setTimeout(res, 100));
   }
-  const seen = new Set(), agg = new Map();
+  const seen = new Set(), agg = new Map(), byRank = new Map();
   let kept = 0;
   for(const lb of results) for(const b of (lb.data || [])){
     const k = b.replay_rid_ref;
@@ -85,21 +88,25 @@ async function buildFirstPicks(season){
     seen.add(k);
     if(b.special_league) continue;
     const fp = Object.values(b.user_list || {}).find(u => u.is_first_pick === 1);
-    if(!fp || (fp.last_rating_id || 0) < G3_MIN_RATING) continue; // ouverture sous G3 : écartée
+    const rank = fp?.last_rating_id || 0;
+    if(rank < FP_MIN_RATING) continue; // sous Conquérant 1 : code résiduel, écarté
     const u1 = fp.pick_info?.unit_list?.find(x => x.pick_slot_id === 1);
     if(!u1) continue;
-    const e = agg.get(u1.unit_master_id) || { n: 0, w: 0 };
-    e.n++; if(fp.win_lose === 1) e.w++;
-    agg.set(u1.unit_master_id, e);
+    let by = agg.get(u1.unit_master_id);
+    if(!by) agg.set(u1.unit_master_id, by = {});
+    const c = by[rank] || (by[rank] = [0, 0]);
+    c[0]++; if(fp.win_lose === 1) c[1]++;
+    byRank.set(rank, (byRank.get(rank) || 0) + 1);
     kept++;
   }
   return {
-    rank_filter: "G3+",
-    min_rating_id: G3_MIN_RATING,
+    min_rating_id: FP_MIN_RATING,
+    rank_buckets: [...byRank].sort((a, b) => a[0] - b[0]).map(([rating_id, openings]) => ({ rating_id, openings })),
     battles_scanned: seen.size,
     openings_kept: kept,
     sample_players: players.length,
-    stats: [...agg.entries()].map(([id, e]) => ({ monster_id: id, openings: e.n, wins: e.w }))
+    stats: [...agg.entries()]
+      .map(([id, by]) => ({ monster_id: id, openings: Object.values(by).reduce((s, c) => s + c[0], 0), by }))
       .sort((a, b) => b.openings - a.openings)
   };
 }
@@ -208,7 +215,7 @@ await write("index.json", {
   global_stats: stats,
   endpoints: {
     "meta": "api/meta-s{season}.json - stats méta de tous les monstres (WR, pick, ban, lead)",
-    "firstpicks": "api/firstpicks-s{season}.json - vraies stats de first pick des joueurs Guardian 3+ (last_rating_id >= 4003)",
+    "firstpicks": "api/firstpicks-s{season}.json - vraies stats de first pick ventilées par rang du first picker (stats[].by = {last_rating_id: [ouvertures, victoires]}, Conquérant 1 et au-dessus)",
     "leaderboard": "api/leaderboard-s{season}.json - top 100 du ladder RTA"
   },
   note: "Données agrégées depuis api.swarena.gg (elles-mêmes issues des replays RTA de Com2uS ; données statiques des monstres via SWARFARM). Mise à jour quotidienne. Les saisons archivées sont conservées même après leur purge chez swarena."
