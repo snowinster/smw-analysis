@@ -2280,6 +2280,19 @@ function sigDist(v, ref){
 const GOLD_REF = 168;
 const camGain = () => Math.min(2.2, Math.max(1, GOLD_REF / (cam.goldLum || GOLD_REF)));
 const baseName = n => (n||"").split(" (")[0];
+/* Deux icônes de la MÊME famille : même dessin recolloré, seule la couleur les distingue.
+   Summoners War code l'élément dans le DERNIER CHIFFRE de l'identifiant — 16611 Chow et 16615
+   Ragdoll sont le même monstre en Feu et en Ténèbres. Le regroupement par nom ne pouvait pas
+   les rapprocher, puisque le jeu donne un nom entièrement différent à chaque élément.
+   Conséquence mesurée sur la base d'icônes : le nom ne couvrait que 40 familles (126 monstres)
+   là où l'identifiant en couvre 130 (450 monstres), et 491 paires de sosies — Seara/Laima
+   (forme 0,45), Haegang/Cheongpung (0,15), Praha/Giana (0,17), Chow/Ragdoll (0,60), contre 1,91
+   entre deux monstres au hasard — n'étaient JAMAIS départagées par la couleur, alors que c'est
+   le seul indice qui les sépare.
+   On garde le nom en plus, pour les variantes éveillées (« Eshir » / « Eshir (2A) »), et parce
+   que l'identifiant reste valide même quand les noms ne sont pas encore chargés. */
+const famKey = e => Math.floor(e.id / 10);
+const sameFamily = (a, b) => famKey(a) === famKey(b) || baseName(a.name) === baseName(b.name);
 /* base restreinte aux monstres de la box du joueur (discrimination bien meilleure, surtout côté sombre) */
 /* « box méta » : joueur non identifié → on restreint quand même les candidats aux monstres les
    plus joués de la saison, au lieu de trancher d'emblée parmi les 884 icônes.
@@ -2362,15 +2375,15 @@ function camMatchSig(v, db, hue, hue4, restricted){
     const ev = e.v;
     for(let i=0;i<v.length;i++){ const dd = v[i] - ev[i]; s += dd*dd; }
     s /= v.length;
-    if(s < d1){ if(!e1 || baseName(e1.name) !== baseName(e.name)){ d2 = d1; e2 = e1; } d1 = s; e1 = e; }
-    else if(s < d2 && (!e1 || baseName(e.name) !== baseName(e1.name))){ d2 = s; e2 = e; }
+    if(s < d1){ if(!e1 || !sameFamily(e1, e)){ d2 = d1; e2 = e1; } d1 = s; e1 = e; }
+    else if(s < d2 && (!e1 || !sameFamily(e, e1))){ d2 = s; e2 = e; }
   }
   // départage des variantes élémentaires d'un même monstre par la COULEUR brute
   // (la normalisation par canal efface la couleur qui distingue les recolorations Feu/Eau/Ténèbres…)
   // : grille chromatique 4x4 en priorité — spatiale, elle voit OÙ est le rouge/vert (Stark feu vs
   // vent : 93,1% vs 87,3% mesurés par scripts/tune-family.mjs) — teinte moyenne globale en repli
   if(e1 && (hue4 || hue)){
-    const fam = db.filter(e => e !== e1 && baseName(e.name) === baseName(e1.name) && (e.hue4 || e.hue));
+    const fam = db.filter(e => e !== e1 && sameFamily(e, e1) && (e.hue4 || e.hue));
     if(fam.length && (e1.hue4 || e1.hue)){
       const hq = hue4 ? hueCenter(hue4) : null;
       const hd = e => {
