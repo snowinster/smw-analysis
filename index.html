@@ -119,9 +119,11 @@ tr.clickable:hover{background:var(--card2)}
 .hm-sec{display:flex;align-items:center;gap:12px;margin:28px 0 14px;flex-wrap:wrap}
 .hm-sec h2{margin:0}
 .hm-sec .ln{flex:1;height:1px;min-width:40px;background:linear-gradient(90deg,var(--border),transparent)}
-.hm-grid{display:grid;grid-template-columns:1.3fr 1fr;gap:18px;align-items:start}
-@media(max-width:980px){.hm-grid{grid-template-columns:1fr}}
-.podium{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:12px}
+/* minmax(0,…) partout : un pseudo long en nowrap (podium) gonflait sinon la largeur MINIMALE
+   des pistes de grille, et toute la colonne débordait de l'écran sur mobile (mesuré : +36px) */
+.hm-grid{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(0,1fr);gap:18px;align-items:start}
+@media(max-width:980px){.hm-grid{grid-template-columns:minmax(0,1fr)}}
+.podium{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin-bottom:12px}
 .pod{position:relative;text-align:center;background:var(--card);border:1px solid var(--border);border-radius:16px;padding:18px 10px 13px;cursor:pointer;
   transition:transform .15s,border-color .15s}
 .pod:hover{transform:translateY(-3px);border-color:var(--accent)}
@@ -410,7 +412,7 @@ async function api(path){
   if(j && j.error !== undefined) return { data: null };
   return j;
 }
-const pct = (x, d=1) => x==null||isNaN(x) ? "-" : (x*100).toFixed(d) + " %";
+const pct = (x, d=1) => x==null||isNaN(x) ? "-" : (x*100).toFixed(d) + " %"; // espace INSÉCABLE : sur mobile le % passait seul à la ligne (« 51 ⏎ % »)
 const num = x => x==null ? "-" : Number(x).toLocaleString("fr-FR");
 const esc = s => String(s??"").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 function flag(cc){
