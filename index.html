@@ -697,7 +697,7 @@ function pagerHTML(key, {page, limit, total, shown}){
 
 /* ================= LEADERBOARD ================= */
 const lbState = { season:null, page:1,
-  limit: (()=>{ try{ return parseInt(localStorage.getItem("lbLimit_v1"), 10) || 25; }catch(e){ return 25; } })() };
+  limit: (()=>{ try{ const v = parseInt(localStorage.getItem("lbLimit_v1"), 10); return [10,25,50,100].includes(v) ? v : 10; }catch(e){ return 10; } })() };
 pagers.lb = {
   go(p){ lbState.page = Math.max(1, p); loadLb(); },
   setLimit(l){ lbState.limit = l; lbState.page = 1; try{ localStorage.setItem("lbLimit_v1", String(l)); }catch(e){} loadLb(); }
@@ -750,7 +750,7 @@ function playersTable(rows, offset){
 
 /* ================= MONSTRES ================= */
 const moState = { season:null, page:1, orderBy:"played", dir:"DESC", isG3:false,
-  limit: (()=>{ try{ const v = parseInt(localStorage.getItem("moLimit_v1"), 10); return [10,25,50,100].includes(v) ? v : 25; }catch(e){ return 25; } })() };
+  limit: (()=>{ try{ const v = parseInt(localStorage.getItem("moLimit_v1"), 10); return [10,25,50,100].includes(v) ? v : 10; }catch(e){ return 10; } })() };
 pagers.mo = {
   go(p){ moState.page = Math.max(1, p); loadMo(); },
   setLimit(l){ moState.limit = l; moState.page = 1; try{ localStorage.setItem("moLimit_v1", String(l)); }catch(e){} loadMo(); }
