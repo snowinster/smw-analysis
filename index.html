@@ -1949,7 +1949,16 @@ async function camStart(){
     }
   }catch(e){ liveStatus("✖ base de reconnaissance inaccessible (" + (e?.message||e) + ") — réessaie dans 1 min", false); liveOff(); return; }
   try{
-    cam.stream = await navigator.mediaDevices.getDisplayMedia({video:{frameRate:5}, audio:false});
+    // displaySurface "window" : le sélecteur s'ouvre sur l'onglet FENÊTRE (partager la fenêtre du
+    // jeu est le cas idéal : la frame = le jeu seul, toutes les proportions sont justes) ;
+    // selfBrowserSurface "exclude" : notre propre onglet disparaît des choix (se partager
+    // soi-même n'a aucun sens ici — c'est le maximum que l'API permet pour l'onglet Chrome)
+    cam.stream = await navigator.mediaDevices.getDisplayMedia({
+      video: {frameRate: 5, displaySurface: "window"},
+      audio: false,
+      selfBrowserSurface: "exclude",
+      surfaceSwitching: "include"
+    });
   }catch(e){ liveStatus("✖ partage d'écran refusé", false); liveOff(); return; }
   cam.video = document.createElement("video");
   cam.video.srcObject = cam.stream;
@@ -2012,63 +2021,124 @@ function grabFrame(){
    focus (alt-tab) et l'or descend d'autant — la bande noire des pseudos reste le discriminant fort. */
 function onDraftScreen(f){
   const {d, W, H} = f;
-  let gold = 0, n = 0, sx = 0, gl = 0;
-  for(let y = Math.floor(H*0.15); y < H*0.55; y += 2) for(let x = Math.floor(W*0.42); x < W*0.58; x += 2){
+  /* fenêtre de scan de l'emblème VS élargie à [30 %, 70 %] : quand on partage l'ÉCRAN ENTIER
+     avec le jeu en fenêtre (au lieu de partager la fenêtre du jeu), le VS n'est plus au centre
+     de la frame — avec un jeu occupant les 2/3 gauches, il tombe vers 34 % et sortait de
+     l'ancienne fenêtre [42 %, 58 %]. Le seuil de densité est rapporté à l'ancienne surface
+     pour ne pas diluer la détection. */
+  let gold = 0, sx = 0, gl = 0;
+  const gxs = [], gys = [];
+  for(let y = Math.floor(H*0.10); y < H*0.60; y += 2) for(let x = Math.floor(W*0.05); x < W*0.95; x += 2){
     const i = (y*W+x)*4, R = d[i], G = d[i+1], B = d[i+2];
     if(R>95 && G>65 && B<110 && R>G && G>B && (R-B)>34){ gold++; sx += x; gl += 0.3*R + 0.6*G + 0.1*B; }
-    n++;
   }
-  if(gold/n < 0.008) return false;
+  if(gold < 40) return false; // seuil ABSOLU : indépendant de la taille de la frame partagée
   cam.goldLum = gl/gold; // luminosité de l'emblème = référence d'EXPOSITION de la frame (nominal ≈ 168)
-  const midG = sx/gold;
-  // COMPTE À REBOURS blanc au-dessus du VS : présent pendant TOUTE la draft (picks et bans),
-  // absent de l'écran d'APPARIEMENT (2 pseudos + photos de profil) qui possède par ailleurs
-  // les mêmes ancres — c'était lui qui verrouillait des cadres et posait des picks fantômes
-  let tmr = 0;
-  for(let y = Math.floor(H*0.12); y < H*0.32; y += 2) for(let x = Math.floor(midG - W*0.055); x < midG + W*0.055; x += 2){
-    const i = (y*W+x)*4;
-    if(Math.min(d[i], d[i+1], d[i+2]) > 150 || (d[i] > 200 && d[i+1] < 120 && d[i+2] < 120)) tmr++; // chiffres blancs (ou rouges en fin de temps)
-  }
-  if(tmr < 12) return false;
-  // signature propre aux écrans de draft : la bande NOIRE des pseudos sous le plateau
-  // (absente du menu Arène World, des combats et des autres écrans dorés)
-  let stripFound = false;
-  for(let y = Math.floor(H*0.45); y < H*0.72 && !stripFound; y += 3){
-    let lum = 0, m2 = 0;
-    for(let x = Math.floor(W*0.12); x < W*0.88; x += 9){
+  const midG = sx/gold;  // centre APPROXIMATIF (le centroïde doré est biaisé par les dorures de la box)
+  /* BANDES SOMBRES candidates, validées une à une. La bande noire des pseudos ne peut pas être
+     cherchée dans une fenêtre verticale fixe de la frame : avec le jeu en fenêtre dans un écran
+     partagé entier, sa position dépend de l'endroit où est la fenêtre — et une fenêtre fixe
+     finissait par accrocher l'inter-rangées de la box (bande sombre aussi, mais plus large que
+     le jeu réel de 25 %). Chaque bande candidate propose donc SA géométrie (étendue → largeur
+     de jeu, centre), et n'est retenue que si les AUTRES ancres la confirment : épaisseur
+     plausible, compte à rebours au-dessus du centre proposé, panneau latéral sombre. */
+  const darkFrac = y => {
+    let dark = 0, m2 = 0;
+    for(let x = Math.max(0, Math.floor(midG - W*0.25)); x < Math.min(W, midG + W*0.25); x += 9){
       const i = (y*W+x)*4;
-      lum += 0.3*d[i] + 0.6*d[i+1] + 0.1*d[i+2]; m2++;
+      if(0.3*d[i] + 0.6*d[i+1] + 0.1*d[i+2] < 50) dark++;
+      m2++;
     }
-    if(lum/m2 < 38){ stripFound = true; cam.stripY = y; } // mémorisé : ancre de la bande des pseudos (OCR)
+    return dark/m2;
+  };
+  const rowMean15 = y => {
+    let s = 0, n = 0;
+    for(let x = Math.max(0, Math.floor(midG - W*0.15)); x < Math.min(W, midG + W*0.15); x += 9){
+      const i = (y*W+x)*4; s += 0.3*d[i] + 0.6*d[i+1] + 0.1*d[i+2]; n++;
+    }
+    return s/n;
+  };
+  const bands = [];
+  let bd = null, gapN = 0;
+  for(let y = Math.floor(H*0.25); y < H*0.88; y += 3){
+    if(darkFrac(y) > 0.55){ if(!bd) bd = {top: y, bot: y}; bd.bot = y; gapN = 0; }
+    else if(bd && ++gapN >= 3){ bands.push(bd); bd = null; gapN = 0; }
   }
-  if(!stripFound) return false;
-  cam.midX = sx/gold; // centre réel du plateau (l'emblème VS), pas le milieu de l'écran partagé
-  let lum = 0, m = 0;
-  for(let y = Math.floor(H*0.2); y < H*0.5; y += 5) for(let x = Math.floor(W*0.15); x < W*0.35; x += 5){
-    const i = (y*W+x)*4;
-    lum += 0.3*d[i] + 0.6*d[i+1] + 0.1*d[i+2]; m++;
+  if(bd) bands.push(bd);
+  // itération de BAS EN HAUT : la bande des pseudos est la plus basse des bandes sombres larges
+  // du jeu — au-dessus d'elle il peut y avoir des bandes du plateau (cases vides en début de
+  // draft) qui partagent toutes ses autres propriétés, en dessous il n'y a que la box (claire)
+  bands.reverse();
+  for(const band of bands){
+    // rangée la plus noire de la bande → marche vers l'extérieur (moyenne locale sur 15 px,
+    // pour enjamber le texte des pseudos) jusqu'à s'éclaircir : on bute sur le cadre doré du
+    // JEU lui-même, quel que soit le bureau autour. Mesuré sur les 3 captures de référence :
+    // la bande couvre 78,0-78,6 % de la largeur du jeu, son centre est le centre du jeu à ±8 px.
+    let sy = band.top, syLum = 1e9;
+    for(let y = band.top; y <= band.bot; y += 2){
+      const v = rowMean15(y);
+      if(v < syLum){ syLum = v; sy = y; }
+    }
+    const local = x0 => {
+      let s = 0, n = 0;
+      for(let x = Math.max(0, x0-7); x <= Math.min(W-1, x0+7); x++){ const i = (sy*W+x)*4; s += 0.3*d[i] + 0.6*d[i+1] + 0.1*d[i+2]; n++; }
+      return s/n;
+    };
+    let L = Math.round(midG), R = L, miss = 0;
+    for(let x = L; x >= 0; x -= 5){ if(local(x) > 75){ if(++miss >= 2) break; } else { miss = 0; L = x; } }
+    miss = 0;
+    for(let x = R; x < W; x += 5){ if(local(x) > 75){ if(++miss >= 2) break; } else { miss = 0; R = x; } }
+    if(R - L < 200) continue;                       // bande trop étroite : pas un plateau
+    if(L <= 5 || R >= W - 6) continue;              // extension NON BORNÉE : la marche a couru sur un
+                                                    // bureau sombre sans jamais buter sur le cadre du
+                                                    // jeu — l'échelle mesurée ne veut rien dire
+    const gw2 = Math.min(W, Math.round((R - L) / 0.783));
+    if(band.bot - band.top + 3 < gw2*0.025) continue; // trop fine : inter-rangées de la box, pas la bande des pseudos
+        const mx2 = (L + R) / 2;
+    // COMPTE À REBOURS blanc au-dessus du centre proposé : présent pendant TOUTE la draft,
+    // absent de l'écran d'appariement — et il VALIDE la géométrie proposée par la bande
+    let tmr = 0;
+    for(let y = Math.floor(H*0.12); y < H*0.32; y += 2) for(let x = Math.max(0, Math.floor(mx2 - gw2*0.055)); x < Math.min(W, mx2 + gw2*0.055); x += 2){
+      const i = (y*W+x)*4;
+      if(Math.min(d[i], d[i+1], d[i+2]) > 150 || (d[i] > 200 && d[i+1] < 120 && d[i+2] < 120)) tmr++;
+    }
+    if(tmr < 12) continue;
+    // panneau latéral gauche sombre (dernière ancre)
+    let lum = 0, m = 0;
+    for(let y = Math.floor(H*0.2); y < H*0.5; y += 5) for(let x = Math.max(0, Math.floor(mx2 - gw2*0.35)); x < mx2 - gw2*0.15; x += 5){
+      const i = (y*W+x)*4;
+      lum += 0.3*d[i] + 0.6*d[i+1] + 0.1*d[i+2]; m++;
+    }
+    if(lum/m >= 110) continue;
+    cam.stripY = band.top; cam.gameW = gw2; cam.midX = mx2;
+    return true;
   }
-  return lum/m < 110;
+  return false;
 }
 /* écran d'APPARIEMENT (avant le plateau : 2 pseudos + photos de profil, grand VS doré sur
    fond presque noir, pas de compte à rebours). On n'y fait QUE l'OCR du pseudo adverse —
    aucune détection de cases — pour accrocher sa box avant même l'arrivée du plateau. */
 function onMatchupScreen(f){
   const {d, W, H} = f;
-  let gold = 0, n = 0;
-  for(let y = Math.floor(H*0.25); y < H*0.55; y += 3) for(let x = Math.floor(W*0.40); x < W*0.60; x += 3){
+  // scan élargi + centroïde mémorisé : mêmes raisons que onDraftScreen (jeu en fenêtre dans un
+  // écran partagé entier → le VS n'est pas au centre de la frame)
+  let gold = 0, n = 0, sx = 0;
+  for(let y = Math.floor(H*0.25); y < H*0.55; y += 3) for(let x = Math.floor(W*0.30); x < W*0.70; x += 3){
     const i = (y*W+x)*4, R = d[i], G = d[i+1], B = d[i+2];
-    if(R>95 && G>65 && B<110 && R>G && G>B && (R-B)>34) gold++;
+    if(R>95 && G>65 && B<110 && R>G && G>B && (R-B)>34){ gold++; sx += x; }
     n++;
   }
-  if(gold/n < 0.01) return false;
+  if(gold/(n*0.5) < 0.01) return false; // 0.5 = ratio ancienne fenêtre (20 %) / nouvelle (40 %)
+  const midG = sx/gold;
   // zone entre l'avatar gauche et le VS : quasi noire sur cet écran
   let lum = 0, m = 0;
-  for(let y = Math.floor(H*0.15); y < H*0.60; y += 5) for(let x = Math.floor(W*0.33); x < W*0.43; x += 5){
+  for(let y = Math.floor(H*0.15); y < H*0.60; y += 5) for(let x = Math.max(0, Math.floor(midG - W*0.17)); x < midG - W*0.07; x += 5){
     const i = (y*W+x)*4;
     lum += 0.3*d[i] + 0.6*d[i+1] + 0.1*d[i+2]; m++;
   }
-  return lum/m < 55;
+  if(lum/m >= 55) return false;
+  cam.midX = midG; // ancre pour la bande OCR : centre du JEU, pas de la frame
+  return true;
 }
 /* composantes connexes d'un masque binaire */
 function maskComponents(mask, W, H){
@@ -2101,12 +2171,12 @@ function detectHighlight(f){
   }
   let best = null;
   for(const c of maskComponents(mask, W, H)){
-    if(c.w < W*0.05 || c.w > W*0.16 || c.w < 36) continue;
+    if(c.w < (cam.gameW || W)*0.05 || c.w > (cam.gameW || W)*0.16 || c.w < 36) continue;
     const ratio = c.w/c.h;
     if(ratio < 0.86 || ratio > 1.16) continue;
     const fill = c.cnt/(c.w*c.h);
     if(fill < 0.05 || fill > 0.34) continue;
-    if(Math.abs(c.x + c.w/2 - (cam.midX || W/2)) < W*0.09) continue; // exclut compteur/VS au centre
+    if(Math.abs(c.x + c.w/2 - (cam.midX || W/2)) < (cam.gameW || W)*0.09) continue; // exclut compteur/VS au centre
     if(!best || c.cnt > best.cnt) best = c;
   }
   return best ? [best.x, best.y, best.w, best.h] : null;
@@ -2129,6 +2199,7 @@ function slotGeoRole(s){
 /* slots : carrés colorés (portraits) OU anneaux de cadre dans la zone du plateau */
 function detectPortraits(f){
   const {d, W, H} = f;
+  const GW = cam.gameW || W;
   const mask = new Uint8Array(W*H);
   const yMin = Math.floor(H*0.10), yMax = Math.floor(H*0.58);
   const xMin = Math.floor(W*0.08), xMax = Math.floor(W*0.92);
@@ -2139,12 +2210,12 @@ function detectPortraits(f){
   }
   const out = [];
   for(const c of maskComponents(mask, W, H)){
-    if(c.w < W*0.05 || c.w > W*0.16) continue;
+    if(c.w < GW*0.05 || c.w > GW*0.16) continue;
     const ratio = c.w/c.h;
     if(ratio < 0.8 || ratio > 1.25) continue;
     const fill = c.cnt/(c.w*c.h);
     if(fill < 0.10) continue; // portrait plein OU anneau de cadre
-    if(Math.abs(c.x + c.w/2 - W/2) < W*0.07) continue;
+    if(Math.abs(c.x + c.w/2 - (cam.midX || W/2)) < GW*0.07) continue;
     out.push([c.x, c.y, c.w, c.h]);
   }
   return out;
@@ -2156,6 +2227,7 @@ function detectPortraits(f){
    cases se confond avec le fond — ces cases-là sont reconstruites par miroir (completeSlots). */
 function detectEmptySlots(f){
   const {d, W, H} = f;
+  const GW = cam.gameW || W; // largeur du JEU auto-mesurée : toutes les tailles en dépendent
   const mid = cam.midX || W/2;
   const yMin = Math.floor(H*0.12), yMax = Math.floor(H*0.60);
   const xMin = Math.floor(W*0.06), xMax = Math.floor(W*0.94);
@@ -2163,22 +2235,22 @@ function detectEmptySlots(f){
   const ref = {};
   for(const side of [0,1]){
     const a = [];
-    const x0 = side===0 ? xMin : Math.ceil(mid + W*0.07);
-    const x1 = side===0 ? Math.floor(mid - W*0.07) : xMax;
+    const x0 = side===0 ? Math.max(xMin, Math.floor(mid - GW*0.47)) : Math.ceil(mid + GW*0.07);
+    const x1 = side===0 ? Math.floor(mid - GW*0.07) : Math.min(xMax, Math.floor(mid + GW*0.47));
     for(let y=yMin; y<yMax; y+=4) for(let x=x0; x<x1; x+=4) a.push(lumAt((y*W+x)*4));
     a.sort((p,q)=>p-q);
     ref[side] = a[Math.floor(a.length*0.8)] || 1;
   }
   const mask = new Uint8Array(W*H);
   for(let y=yMin;y<yMax;y++) for(let x=xMin;x<xMax;x++){
-    if(Math.abs(x-mid) < W*0.07) continue; // exclut compteur/VS au centre
+    if(Math.abs(x-mid) < GW*0.07) continue; // exclut compteur/VS au centre
     const i = (y*W+x)*4, R=d[i], G=d[i+1], B=d[i+2];
     if(Math.max(R,G,B)-Math.min(R,G,B) > 60) continue; // coloré = portrait (géré par detectPortraits)
     if(lumAt(i) < ref[x < mid ? 0 : 1]*0.72) mask[y*W+x] = 1;
   }
   const out = [];
   for(const c of maskComponents(mask, W, H)){
-    if(c.w < W*0.05 || c.w > W*0.16 || c.w < 36) continue;
+    if(c.w < GW*0.05 || c.w > GW*0.16 || c.w < 36) continue;
     const ratio = c.w/c.h;
     if(ratio < 0.8 || ratio > 1.25) continue;
     if(c.cnt < c.w*c.h*0.45) continue; // carré PLEIN sombre (pas un anneau ni une ombre diffuse)
@@ -2730,7 +2802,7 @@ async function camTick(){
     if(cam.lastHl) addSlot(cam.lastHl, f.W);
     completeSlots(f); // reconstruit les cases manquantes : miroir autour du VS + coins des carrés 2x2
     if(boardValid(f.W)){
-      cam.locked = true; cam.acqN = 0;
+      cam.locked = true; cam.acqN = 0; cam.acqLoops = 0;
       camLog("🔒 plateau verrouillé : 10 cases cohérentes (2x2 + isolée, symétriques)");
       // re-symétrisation : le centroïde doré (midX) peut être décalé de quelques pixels et les
       // cases B reconstruites par miroir héritent du biais (cadres adverses décalés → lectures
@@ -2763,7 +2835,14 @@ async function camTick(){
       }
     }else{
       cam.acqN = (cam.acqN||0) + 1;
-      if(cam.acqN >= 8){ cam.slots = []; cam.acqN = 0; camLog("↻ cadrage incohérent — nouvelle acquisition"); } // ~5 s sans converger : on repart de zéro
+      if(cam.acqN >= 8){
+        cam.slots = []; cam.acqN = 0;
+        cam.acqLoops = (cam.acqLoops || 0) + 1;
+        camLog("↻ cadrage incohérent — nouvelle acquisition");
+        // 3 acquisitions ratées de suite : le cas typique est un partage de l'ÉCRAN ENTIER avec
+        // le jeu en petite fenêtre dedans — le plateau devient trop petit pour être découpé
+        if(cam.acqLoops === 3) liveStatus("💡 plateau introuvable — partage plutôt la FENÊTRE du jeu (relance 🎥 et choisis l'onglet « Fenêtre »), ou agrandis le jeu", false);
+      } // ~5 s sans converger : on repart de zéro
       liveStatus(`🎥 page VS active — cadrage du plateau… ${cam.slots.length}/10 cases`);
       camPreview();
       return;
@@ -3192,15 +3271,20 @@ async function camFindOpponent(){
     const f = grabFrame();
     if(!f) return;
     const vw = f.W, vh = f.H;
-    let band = null, cx0 = Math.floor(vw*0.52), cx1 = Math.floor(vw*0.87);
+    // toutes les bornes horizontales sont posées AUTOUR DU CENTRE DU JEU (l'emblème VS) et non
+    // en proportions de la frame : avec le jeu en fenêtre dans un écran partagé entier, les
+    // anciennes bornes absolues tombaient sur le bureau et l'OCR lisait n'importe quoi
+    const gcx = cam.midX || vw/2; // centre du JEU (emblème VS), pas de la frame
+    const GW = cam.gameW || vw;   // largeur du JEU auto-mesurée
+    let band = null, cx0 = Math.max(0, Math.floor(gcx + GW*0.02)), cx1 = Math.min(vw, Math.floor(gcx + GW*0.37));
     if(cam.page === "ACTIVE"){
       // plateau : bande des pseudos ancrée sur la porte de page (sombre des DEUX côtés),
       // étendue vers le haut, puis hauteur proportionnelle FIXE
       if(cam.stripY == null) return;
       const rowMean = y => {
         let l1 = 0, n1 = 0, l2 = 0, n2 = 0;
-        for(let x = Math.floor(vw*0.12); x < vw*0.46; x += 9){ const i = (y*vw+x)*4; l1 += 0.3*f.d[i] + 0.6*f.d[i+1] + 0.1*f.d[i+2]; n1++; }
-        for(let x = Math.floor(vw*0.54); x < vw*0.88; x += 9){ const i = (y*vw+x)*4; l2 += 0.3*f.d[i] + 0.6*f.d[i+1] + 0.1*f.d[i+2]; n2++; }
+        for(let x = Math.max(0, Math.floor(gcx - GW*0.38)); x < gcx - GW*0.04; x += 9){ const i = (y*vw+x)*4; l1 += 0.3*f.d[i] + 0.6*f.d[i+1] + 0.1*f.d[i+2]; n1++; }
+        for(let x = Math.floor(gcx + GW*0.04); x < Math.min(vw, gcx + GW*0.38); x += 9){ const i = (y*vw+x)*4; l2 += 0.3*f.d[i] + 0.6*f.d[i+1] + 0.1*f.d[i+2]; n2++; }
         return Math.max(l1/n1, l2/n2);
       };
       let bandTop = cam.stripY;
@@ -3209,7 +3293,7 @@ async function camFindOpponent(){
     }else{
       // écran d'APPARIEMENT : le pseudo adverse est toujours À DROITE, sous la photo de
       // profil, à côté du drapeau — on cherche le bloc de rangées de texte blanc du cadran
-      cx0 = Math.floor(vw*0.58); cx1 = Math.floor(vw*0.96);
+      cx0 = Math.floor(gcx + GW*0.08); cx1 = Math.min(vw, Math.floor(gcx + GW*0.46));
       const yA = Math.floor(vh*0.34), yB = Math.floor(vh*0.66);
       let best = null, run = null, gap = 0;
       for(let y = yA; y < yB; y++){
@@ -3251,8 +3335,8 @@ async function camFindOpponent(){
     }
     if(run) runs.push(run);
     const r0 = runs.filter(r=>r.b-r.a > vw*0.02).sort((p,q)=>q.w-p.w)[0];
-    const sx = r0 ? Math.max(0, r0.a - 6) : Math.floor(vw*0.52);
-    const sw = r0 ? Math.min(vw - sx, r0.b - r0.a + 12) : Math.floor(vw*0.40);
+    const sx = r0 ? Math.max(0, r0.a - 6) : Math.max(0, Math.floor(gcx + GW*0.02)); // repli : moitié droite du JEU, pas de la frame
+    const sw = r0 ? Math.min(vw - sx, r0.b - r0.a + 12) : Math.floor(GW*0.35);
     // agrandissement x3 ; les DEUX prétraitements sont tentés dans le MÊME essai :
     // binarisation noir/blanc (idéale pour le latin), puis niveaux de gris inversés si vide
     // (les traits fins des idéogrammes survivent mieux sans seuillage — cas 零式100)
