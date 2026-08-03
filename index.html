@@ -684,7 +684,7 @@ function pagerHTML(key, {page, limit, total, shown}){
     `<button ${on?"":"disabled"} title="${title}" onclick="pagers['${key}'].go(${target})">${sym}</button>`;
   return `<div class="pager2">
     <label>Par page <select onchange="pagers['${key}'].setLimit(+this.value)">${
-      [10,20,25,50,100].map(x=>`<option value="${x}" ${x===limit?"selected":""}>${x}</option>`).join("")}</select></label>
+      [10,25,50,100].map(x=>`<option value="${x}" ${x===limit?"selected":""}>${x}</option>`).join("")}</select></label>
     <span>${from ? `${num(from)}–${num(to)}` : "0"}${total != null ? ` sur ${num(total)}` : ""}</span>
     <div class="pgbtns">
       ${b("«", 1, page > 1, "Première page")}
@@ -750,7 +750,7 @@ function playersTable(rows, offset){
 
 /* ================= MONSTRES ================= */
 const moState = { season:null, page:1, orderBy:"played", dir:"DESC", isG3:false,
-  limit: (()=>{ try{ return parseInt(localStorage.getItem("moLimit_v1"), 10) || 20; }catch(e){ return 20; } })() };
+  limit: (()=>{ try{ const v = parseInt(localStorage.getItem("moLimit_v1"), 10); return [10,25,50,100].includes(v) ? v : 25; }catch(e){ return 25; } })() };
 pagers.mo = {
   go(p){ moState.page = Math.max(1, p); loadMo(); },
   setLimit(l){ moState.limit = l; moState.page = 1; try{ localStorage.setItem("moLimit_v1", String(l)); }catch(e){} loadMo(); }
