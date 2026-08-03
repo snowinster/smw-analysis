@@ -297,6 +297,27 @@ td.best{color:var(--win);font-weight:800}
 /* capture en direct */
 .cam-overlay{position:fixed;inset:0;background:rgba(5,8,15,.88);z-index:300;display:flex;align-items:center;justify-content:center;padding:16px}
 .cam-panel{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:16px;max-width:96vw;max-height:94vh;overflow:auto}
+/* ---- fenêtre de signalement (schéma du plateau cliquable) ---- */
+.rep-ov{position:fixed;inset:0;background:rgba(6,9,15,.72);z-index:200;display:flex;align-items:center;justify-content:center;padding:16px}
+.rep-box{background:var(--card);border:1px solid var(--border);border-radius:16px;padding:20px;max-width:600px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,.6)}
+.rep-box h3{margin:0 0 4px;font-size:16px}
+.rep-sub{font-size:12.5px;color:var(--muted);margin-bottom:14px}
+.rep-boards{display:flex;gap:26px;justify-content:center;align-items:center;margin-bottom:4px;flex-wrap:wrap}
+.rep-side .t{font-size:12px;color:var(--muted);font-weight:700;margin-bottom:6px;text-align:center}
+.rep-grid{display:grid;grid-template-columns:repeat(3,56px);grid-template-rows:repeat(2,56px);gap:6px}
+.rep-cell{border:2px dashed var(--border);border-radius:10px;cursor:pointer;font-size:9.5px;color:var(--muted);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;padding:2px;overflow:hidden;background:var(--bg2);transition:border-color .1s,background .1s}
+.rep-cell:hover{border-color:var(--accent)}
+.rep-cell b{font-size:10.5px;color:var(--text)}
+.rep-cell .nm{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rep-cell.sel{border:2px solid var(--lose);background:rgba(240,92,92,.16)}
+.rep-cell.lone{grid-row:1/3;align-self:center;height:56px}
+.rep-vs{font-weight:900;color:var(--gold);font-style:italic}
+.rep-tags{display:flex;gap:8px;flex-wrap:wrap;margin:14px 0 10px}
+.rep-tag{font-size:12px;padding:5px 11px;border-radius:16px;border:1px solid var(--border);background:var(--card2);cursor:pointer;color:var(--muted)}
+.rep-tag.sel{border-color:var(--accent);color:var(--text);background:rgba(124,108,240,.18)}
+.rep-note{width:100%;background:var(--card2);border:1px solid var(--border);border-radius:9px;color:var(--text);padding:8px 10px;font-size:13.5px;outline:none}
+.rep-note:focus{border-color:var(--accent)}
+.rep-actions{display:flex;justify-content:flex-end;gap:10px;margin-top:14px}
 #camCanvas{border:1px solid var(--border);border-radius:8px;cursor:crosshair;display:block}
 .cam-preview{position:fixed;right:14px;bottom:14px;z-index:120;border:1px solid var(--border);border-radius:10px;background:var(--card);padding:6px;box-shadow:0 10px 30px rgba(0,0,0,.5)}
 .cam-preview canvas{display:block;border-radius:6px;max-width:300px}
@@ -2476,10 +2497,68 @@ const repOp = (mode, fn) => repDB().then(db => new Promise((res, rej) => {
   tx.oncomplete = () => res(rq && rq.result);
   tx.onerror = () => rej(tx.error);
 }));
+/* fenêtre de signalement : schéma du plateau cliquable (clique les cases fautives), tags
+   rapides, note libre. Renvoie {cells, tags, note} ou null si annulé. Les noms affichés dans
+   les mini-cases sont ceux que l'app croit avoir reconnus — cliquer là où elle se trompe. */
+function repModal(){
+  return new Promise(resolve => {
+    const ROLE_FR = {TL:"haut-G", TR:"haut-D", BL:"bas-G", BR:"bas-D", lone:"isolée"};
+    // nom reconnu à chaque position : cases de la capture d'abord, picks du simulateur sinon
+    const nameAt = (side, role) => {
+      const s = (cam.slots || []).find(o => o.side === side && slotGeoRole(o) === role);
+      if(s && s.id) return monCache.get(s.id)?.name || "";
+      if(s && s.unk) return "❓";
+      const gi = geoIndex(side, role);
+      const p = (side === "A" ? simState.picksA : simState.picksB).find(p => p.gi === gi);
+      return p ? (p.unknown ? "❓" : p.name) : "";
+    };
+    const cell = (side, role, extra) =>
+      `<div class="rep-cell ${extra||""}" data-side="${side}" data-role="${role}" title="Clique si cette case est fausse">
+        <b>${ROLE_FR[role]}</b><span class="nm">${esc(nameAt(side, role) || "·")}</span></div>`;
+    const TAGS = ["pseudo adverse faux / pas trouvé", "mauvais élément (bonne famille)", "plateau pas détecté", "case ❓ à tort", "autre"];
+    const ov = document.createElement("div");
+    ov.className = "rep-ov";
+    ov.innerHTML = `<div class="rep-box">
+      <h3>🐞 Signaler un problème</h3>
+      <div class="rep-sub">Clique la ou les cases où l'app s'est trompée (le nom affiché = ce qu'elle a cru reconnaître), et/ou choisis un tag. Tout est optionnel.</div>
+      <div class="rep-boards">
+        <div class="rep-side"><div class="t">Toi (gauche)</div>
+          <div class="rep-grid">${cell("A","lone","lone")}${cell("A","TL")}${cell("A","TR")}${cell("A","BL")}${cell("A","BR")}</div></div>
+        <div class="rep-vs">VS</div>
+        <div class="rep-side"><div class="t">Adversaire (droite)</div>
+          <div class="rep-grid">${cell("B","TL")}${cell("B","TR")}${cell("B","lone","lone")}${cell("B","BL")}${cell("B","BR")}</div></div>
+      </div>
+      <div class="rep-tags">${TAGS.map(t=>`<span class="rep-tag" data-tag="${esc(t)}">${esc(t)}</span>`).join("")}</div>
+      <input class="rep-note" id="repNote" placeholder="Détail libre (optionnel) — ex. « c'était Ragdoll, pas Chow »" maxlength="200">
+      <div class="rep-actions"><button class="btn" id="repCancel">Annuler</button><button class="btn primary" id="repSend">Enregistrer</button></div>
+    </div>`;
+    document.body.appendChild(ov);
+    const done = v => { ov.remove(); resolve(v); };
+    ov.addEventListener("click", e => { if(e.target === ov) done(null); });
+    ov.querySelector("#repCancel").onclick = () => done(null);
+    ov.querySelectorAll(".rep-cell").forEach(c => c.onclick = () => c.classList.toggle("sel"));
+    ov.querySelectorAll(".rep-tag").forEach(c => c.onclick = () => c.classList.toggle("sel"));
+    ov.querySelector("#repSend").onclick = () => done({
+      cells: [...ov.querySelectorAll(".rep-cell.sel")].map(c => ({
+        side: c.dataset.side, role: c.dataset.role,
+        shown: c.querySelector(".nm").textContent === "·" ? "" : c.querySelector(".nm").textContent
+      })),
+      tags: [...ov.querySelectorAll(".rep-tag.sel")].map(c => c.dataset.tag),
+      note: ov.querySelector("#repNote").value.trim()
+    });
+    ov.querySelector("#repNote").focus();
+  });
+}
 async function camReport(){
   try{
-    const note = prompt("Qu'est-ce qui ne va pas ? (optionnel — ex. « mauvais monstre case B haut-gauche », « pseudo pas trouvé »)", "");
-    if(note === null) return; // Annuler = pas de signalement
+    const sel = await repModal();
+    if(sel === null) return; // Annuler = pas de signalement
+    const ROLE_FR = {TL:"haut-G", TR:"haut-D", BL:"bas-G", BR:"bas-D", lone:"isolée"};
+    const note = [
+      sel.cells.map(c => `case ${c.side === "A" ? "toi" : "adv"} ${ROLE_FR[c.role]}${c.shown ? ` (lu : ${c.shown})` : ""}`).join(", "),
+      sel.tags.join(" · "),
+      sel.note
+    ].filter(Boolean).join(" — ");
     let frame = null;
     if(cam.video && cam.video.videoWidth){
       const sc = Math.min(1, 1920 / cam.video.videoWidth);
@@ -2492,7 +2571,9 @@ async function camReport(){
     const pick = p => ({id: p.id, name: p.name, gi: p.gi, manual: !!p.manual, unknown: !!p.unknown});
     await repOp("readwrite", st => st.add({
       date: new Date().toISOString(),
-      note: (note || "").trim(),
+      note,
+      cells: sel.cells, // structuré : cases désignées par l'utilisateur (side + position + nom lu)
+      tags: sel.tags,
       ua: navigator.userAgent,
       frame, frameW: cam.video?.videoWidth || 0, frameH: cam.video?.videoHeight || 0,
       cam: {
