@@ -1953,11 +1953,17 @@ async function camStart(){
     // jeu est le cas idéal : la frame = le jeu seul, toutes les proportions sont justes) ;
     // selfBrowserSurface "exclude" : notre propre onglet disparaît des choix (se partager
     // soi-même n'a aucun sens ici — c'est le maximum que l'API permet pour l'onglet Chrome)
+    // monitorTypeSurfaces "exclude" : retire « Tout l'écran » du sélecteur — on veut la FENÊTRE
+    // du jeu, seul cas où la frame = le jeu exactement. (Un jeu en plein écran sans bordure
+    // apparaît quand même dans la liste des fenêtres.) L'onglet « Onglet Chrome », lui, ne peut
+    // pas être retiré par l'API : on ne peut qu'exclure NOTRE propre onglet et ouvrir sur
+    // l'onglet Fenêtre par défaut.
     cam.stream = await navigator.mediaDevices.getDisplayMedia({
       video: {frameRate: 5, displaySurface: "window"},
       audio: false,
       selfBrowserSurface: "exclude",
-      surfaceSwitching: "include"
+      surfaceSwitching: "include",
+      monitorTypeSurfaces: "exclude"
     });
   }catch(e){ liveStatus("✖ partage d'écran refusé", false); liveOff(); return; }
   cam.video = document.createElement("video");
