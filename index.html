@@ -322,6 +322,8 @@ td.best{color:var(--win);font-weight:800}
 .cam-preview{position:fixed;right:14px;bottom:14px;z-index:120;border:1px solid var(--border);border-radius:10px;background:var(--card);padding:6px;box-shadow:0 10px 30px rgba(0,0,0,.5)}
 .cam-preview canvas{display:block;border-radius:6px;max-width:300px}
 .cam-preview .row{margin-top:5px;gap:6px;font-size:11px}
+.cam-preview.mini{cursor:pointer;padding:7px 12px;font-size:12px;user-select:none}
+.cam-preview.mini:hover{border-color:var(--acc,#4a7dff)}
 /* Artifact Calculator : lignes fluides à la place d'un tableau 5 colonnes, qui débordait ou se
    compressait illisiblement sur téléphone. Une ligne = libellé + roll à gauche, valeurs à droite,
    barre en dessous — ça se replie proprement à toutes les largeurs. */
@@ -1753,6 +1755,7 @@ async function viewSimulator(){
           LD_MODES.map(([v,l])=>`<option value="${v}" ${v===simState.ldMode?"selected":""}>${l}</option>`).join("")}</select>
         <button class="btn" id="simReport" style="font-size:12.5px" title="La reconnaissance s'est trompée (mauvais monstre, mauvais élément, pseudo pas trouvé, plateau pas détecté…) ? Un clic enregistre une capture de la frame + le journal + tout l'état interne. Les signalements s'accumulent en local : exporte-les en un seul fichier quand tu en as plusieurs.">🐞 Signaler</button>
         <button class="btn" id="simRepExport" style="font-size:12.5px;display:none" title="Télécharge tous les signalements accumulés en un seul fichier JSON (avec captures) à transmettre — puis propose de vider la liste."></button>
+        <button class="btn" id="simRepClear" style="font-size:12.5px;display:none" title="Supprime définitivement les signalements stockés en local, SANS exporter. À faire une fois le fichier transmis et les corrections appliquées : les cas déjà traités ne seront plus jamais ré-exportés.">🗑</button>
         <span id="liveStatus" class="muted" style="font-size:12px"></span>
         <label class="muted" style="margin-left:auto">Stats basées sur
           <select id="simSeason">${seasons.map(x=>`<option value="${x}" ${x===simState.season?"selected":""}>Saison ${x}</option>`).join("")}</select>
@@ -1767,6 +1770,7 @@ async function viewSimulator(){
     document.getElementById("simLive").onchange = e => { simState.live = e.target.checked; liveToggle(); };
     document.getElementById("simReport").onclick = () => camReport();
     document.getElementById("simRepExport").onclick = () => camExportReports();
+    document.getElementById("simRepClear").onclick = () => camClearReports();
     repRefreshUI();
     document.getElementById("simBoxOnly").onchange = e => {
       simState.boxOnly = e.target.checked;
@@ -2626,13 +2630,24 @@ async function camExportReports(){
   }
   repRefreshUI();
 }
+/* suppression SANS export : une fois le fichier transmis et les corrections faites,
+   on purge la liste locale pour que les cas déjà traités ne soient plus ré-exportés */
+async function camClearReports(){
+  const n = await repOp("readonly", st => st.count());
+  if(!n) return;
+  if(!confirm("Supprimer définitivement les " + n + " signalement(s) stockés en local ?\n\nÀ faire une fois le fichier transmis et les corrections appliquées — ils ne seront plus jamais ré-exportés.")) return;
+  await repOp("readwrite", st => st.clear());
+  liveStatus("🗑 signalements locaux supprimés", true);
+  repRefreshUI();
+}
 async function repRefreshUI(){
-  const el = document.getElementById("simRepExport");
+  const el = document.getElementById("simRepExport"), cl = document.getElementById("simRepClear");
   if(!el) return;
   try{
     const n = await repOp("readonly", st => st.count());
     el.style.display = n ? "" : "none";
     el.textContent = "💾 " + n + " signalement" + (n > 1 ? "s" : "") + " →";
+    if(cl) cl.style.display = n ? "" : "none";
   }catch(e){}
 }
 /* applique (ou remplace) le pick d'un slot dans le simulateur — écriture par POSITION (.gi) */
@@ -3236,19 +3251,35 @@ async function camTick(){
   liveStatus(`🎥 draft en cours — ${cam.slots.length}/10 cases${cam.locked ? " 🔒" : ""}, ${cam.slots.filter(s=>s.id).length} picks reconnus${gain > 1.15 ? ` · 🌒 fenêtre assombrie (compensation ×${gain.toFixed(2)})` : ""}`, true);
   camPreview();
 }
-/* aperçu + diagnostic */
+/* aperçu + diagnostic — RÉDUIT par défaut (pastille discrète pendant le jeu) :
+   un clic déplie l'aperçu vidéo + le diagnostic, « − réduire » replie */
 function camPreview(){
   let p = document.getElementById("camPreview");
   if(!simState.live || !cam.video){ p?.remove(); return; }
+  const mode = cam.expPrev ? "full" : "mini";
+  if(p && p.dataset.mode !== mode){ p.remove(); p = null; }
   if(!p){
     p = document.createElement("div");
-    p.id = "camPreview"; p.className = "cam-preview";
-    p.innerHTML = `<canvas title="clic : agrandir/réduire"></canvas>
-      <div id="camDiag" style="font-size:11px;line-height:1.55;margin-top:5px;max-width:640px"></div>
-      <div class="row"><span class="muted" id="camPrevTxt"></span><span class="spacer"></span>
-      <button class="btn" style="font-size:10px;padding:2px 7px" onclick="camManual()">⚙ manuel</button></div>`;
+    p.id = "camPreview"; p.className = "cam-preview" + (mode === "mini" ? " mini" : "");
+    p.dataset.mode = mode;
+    if(mode === "mini"){
+      p.title = "clic : afficher l'aperçu et le diagnostic de la capture";
+      p.innerHTML = `🎥 <span id="camPrevTxt" class="muted"></span>`;
+      p.onclick = () => { cam.expPrev = true; camPreview(); };
+    }else{
+      p.innerHTML = `<canvas title="clic : agrandir/réduire"></canvas>
+        <div id="camDiag" style="font-size:11px;line-height:1.55;margin-top:5px;max-width:640px"></div>
+        <div class="row"><span class="muted" id="camPrevTxt"></span><span class="spacer"></span>
+        <button class="btn" style="font-size:10px;padding:2px 7px" onclick="camManual()">⚙ manuel</button>
+        <button class="btn" style="font-size:10px;padding:2px 7px" onclick="cam.expPrev=false;camPreview()" title="Replier l'aperçu en pastille discrète">− réduire</button></div>`;
+      p.querySelector("canvas").onclick = () => { cam.bigPrev = !cam.bigPrev; };
+    }
     document.body.appendChild(p);
-    p.querySelector("canvas").onclick = () => { cam.bigPrev = !cam.bigPrev; };
+  }
+  if(mode === "mini"){
+    const mt = document.getElementById("camPrevTxt");
+    if(mt) mt.textContent = cam.slots.length ? `${cam.slots.length}/10 · ${cam.slots.filter(s=>s.id).length} reconnus` : "en attente…";
+    return;
   }
   const cv = p.querySelector("canvas"), ctx = cv.getContext("2d");
   const vw = cam.video.videoWidth, vh = cam.video.videoHeight;
