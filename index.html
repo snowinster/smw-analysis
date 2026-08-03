@@ -2512,21 +2512,35 @@ function repModal(){
       const p = (side === "A" ? simState.picksA : simState.picksB).find(p => p.gi === gi);
       return p ? (p.unknown ? "❓" : p.name) : "";
     };
-    const cell = (side, role, extra) =>
-      `<div class="rep-cell ${extra||""}" data-side="${side}" data-role="${role}" title="Clique si cette case est fausse">
+    /* disposition FIDÈLE au plateau en cours : la case isolée est à l'EXTÉRIEUR du côté qui a
+       le first pick, côté VS sinon — simState.fp est tenu à jour en direct par la capture,
+       le schéma reflète donc le vrai plateau au moment du signalement */
+    const fpA = simState.fp === "A";
+    const cell = (side, role, col, row) =>
+      `<div class="rep-cell ${role === "lone" ? "lone" : ""}" data-side="${side}" data-role="${role}"
+        style="grid-column:${col};grid-row:${row}" title="Clique si cette case est fausse">
         <b>${ROLE_FR[role]}</b><span class="nm">${esc(nameAt(side, role) || "·")}</span></div>`;
-    const TAGS = ["pseudo adverse faux / pas trouvé", "mauvais élément (bonne famille)", "plateau pas détecté", "case ❓ à tort", "autre"];
+    const gridOf = side => {
+      // colonne de la case isolée — motif du jeu vérifié sur captures : first pick à TOI →
+      // les deux isolées à l'EXTÉRIEUR ; first pick adverse → les deux CÔTÉ VS
+      const loneCol = side === "A" ? (fpA ? 1 : 3) : (fpA ? 3 : 1);
+      const sq = loneCol === 1 ? 2 : 1; // le carré 2x2 occupe les deux autres colonnes
+      return cell(side, "lone", loneCol, "1 / 3")
+        + cell(side, "TL", sq, 1) + cell(side, "TR", sq + 1, 1)
+        + cell(side, "BL", sq, 2) + cell(side, "BR", sq + 1, 2);
+    };
+    const TAGS = ["mauvais monstre détecté", "mauvais élément (bonne famille)", "pseudo adverse faux / pas trouvé", "plateau pas détecté", "case ❓ à tort", "autre"];
     const ov = document.createElement("div");
     ov.className = "rep-ov";
     ov.innerHTML = `<div class="rep-box">
       <h3>🐞 Signaler un problème</h3>
       <div class="rep-sub">Clique la ou les cases où l'app s'est trompée (le nom affiché = ce qu'elle a cru reconnaître), et/ou choisis un tag. Tout est optionnel.</div>
       <div class="rep-boards">
-        <div class="rep-side"><div class="t">Toi (gauche)</div>
-          <div class="rep-grid">${cell("A","lone","lone")}${cell("A","TL")}${cell("A","TR")}${cell("A","BL")}${cell("A","BR")}</div></div>
+        <div class="rep-side"><div class="t">Toi (gauche)${fpA ? " · first pick" : ""}</div>
+          <div class="rep-grid">${gridOf("A")}</div></div>
         <div class="rep-vs">VS</div>
-        <div class="rep-side"><div class="t">Adversaire (droite)</div>
-          <div class="rep-grid">${cell("B","TL")}${cell("B","TR")}${cell("B","lone","lone")}${cell("B","BL")}${cell("B","BR")}</div></div>
+        <div class="rep-side"><div class="t">Adversaire (droite)${fpA ? "" : " · first pick"}</div>
+          <div class="rep-grid">${gridOf("B")}</div></div>
       </div>
       <div class="rep-tags">${TAGS.map(t=>`<span class="rep-tag" data-tag="${esc(t)}">${esc(t)}</span>`).join("")}</div>
       <input class="rep-note" id="repNote" placeholder="Détail libre (optionnel) — ex. « c'était Ragdoll, pas Chow »" maxlength="200">
