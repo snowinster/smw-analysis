@@ -1730,6 +1730,8 @@ async function viewSimulator(){
         </label>
         <select id="simLdMode" style="font-size:12.5px;padding:4px 8px" title="Filtre Lumière/Ténèbres des conseils. « Seulement les miens » est surtout utile quand « Limiter à ma box » est décoché : le classement théorique ne se remplit plus de LD que tu ne possèdes pas, mais garde ceux de ta box, qui sont de vrais choix.">${
           LD_MODES.map(([v,l])=>`<option value="${v}" ${v===simState.ldMode?"selected":""}>${l}</option>`).join("")}</select>
+        <button class="btn" id="simReport" style="font-size:12.5px" title="La reconnaissance s'est trompée (mauvais monstre, mauvais élément, pseudo pas trouvé, plateau pas détecté…) ? Un clic enregistre une capture de la frame + le journal + tout l'état interne. Les signalements s'accumulent en local : exporte-les en un seul fichier quand tu en as plusieurs.">🐞 Signaler</button>
+        <button class="btn" id="simRepExport" style="font-size:12.5px;display:none" title="Télécharge tous les signalements accumulés en un seul fichier JSON (avec captures) à transmettre — puis propose de vider la liste."></button>
         <span id="liveStatus" class="muted" style="font-size:12px"></span>
         <label class="muted" style="margin-left:auto">Stats basées sur
           <select id="simSeason">${seasons.map(x=>`<option value="${x}" ${x===simState.season?"selected":""}>Saison ${x}</option>`).join("")}</select>
@@ -1742,6 +1744,9 @@ async function viewSimulator(){
     attachCmpPicker("simInB","simResB", async id=>{ simState.b=id; simState.boxB=null; renderSim(); simState.boxB = await loadSimBox(id); renderSim(); });
     document.getElementById("simFpMine").onchange = e => { simState.fp = e.target.checked ? "A" : "B"; renderSim(); };
     document.getElementById("simLive").onchange = e => { simState.live = e.target.checked; liveToggle(); };
+    document.getElementById("simReport").onclick = () => camReport();
+    document.getElementById("simRepExport").onclick = () => camExportReports();
+    repRefreshUI();
     document.getElementById("simBoxOnly").onchange = e => {
       simState.boxOnly = e.target.checked;
       try{ localStorage.setItem("simBoxOnly_v1", String(simState.boxOnly)); }catch(err){}
@@ -2448,6 +2453,92 @@ function camLog(msg){
   cam.journal = cam.journal || [];
   cam.journal.push(msg);
   if(cam.journal.length > 8) cam.journal.shift();
+  // journal COMPLET horodaté, pour les signalements de bug (celui affiché est plafonné à 8)
+  cam.journalFull = cam.journalFull || [];
+  cam.journalFull.push(new Date().toISOString().slice(11, 23) + " " + msg);
+  if(cam.journalFull.length > 400) cam.journalFull.shift();
+}
+/* ---- signalements de bug : un clic capture la frame vidéo + le journal + tout l'état interne.
+   Les signalements s'ACCUMULENT en local (IndexedDB, survit aux rechargements) ; un bouton
+   exporte le tout en UN SEUL fichier JSON — frame en JPEG base64 rejouable telle quelle dans
+   les bancs de test hors ligne (c'est comme ça que Chow/Ragdoll a été corrigé). ---- */
+function repDB(){
+  return new Promise((res, rej) => {
+    const rq = indexedDB.open("swanalysis_reports", 1);
+    rq.onupgradeneeded = () => rq.result.createObjectStore("reports", {autoIncrement: true});
+    rq.onsuccess = () => res(rq.result);
+    rq.onerror = () => rej(rq.error);
+  });
+}
+const repOp = (mode, fn) => repDB().then(db => new Promise((res, rej) => {
+  const tx = db.transaction("reports", mode);
+  const rq = fn(tx.objectStore("reports"));
+  tx.oncomplete = () => res(rq && rq.result);
+  tx.onerror = () => rej(tx.error);
+}));
+async function camReport(){
+  try{
+    const note = prompt("Qu'est-ce qui ne va pas ? (optionnel — ex. « mauvais monstre case B haut-gauche », « pseudo pas trouvé »)", "");
+    if(note === null) return; // Annuler = pas de signalement
+    let frame = null;
+    if(cam.video && cam.video.videoWidth){
+      const sc = Math.min(1, 1920 / cam.video.videoWidth);
+      const c = document.createElement("canvas");
+      c.width = Math.round(cam.video.videoWidth * sc);
+      c.height = Math.round(cam.video.videoHeight * sc);
+      c.getContext("2d").drawImage(cam.video, 0, 0, c.width, c.height);
+      frame = c.toDataURL("image/jpeg", 0.85);
+    }
+    const pick = p => ({id: p.id, name: p.name, gi: p.gi, manual: !!p.manual, unknown: !!p.unknown});
+    await repOp("readwrite", st => st.add({
+      date: new Date().toISOString(),
+      note: (note || "").trim(),
+      ua: navigator.userAgent,
+      frame, frameW: cam.video?.videoWidth || 0, frameH: cam.video?.videoHeight || 0,
+      cam: {
+        page: cam.page, midX: cam.midX, gameW: cam.gameW, stripY: cam.stripY,
+        goldLum: cam.goldLum, dbTier: cam.dbTier, locked: !!cam.locked, acqLoops: cam.acqLoops || 0,
+        fpSet: !!cam.fpSet, ocrSetB: !!cam.ocrSetB, oppTry: cam.oppTry, oppCand: cam.oppCand,
+        slots: (cam.slots || []).map(s => ({
+          box: s.box, side: s.side, id: s.id, name: s.id ? (monCache.get(s.id)?.name || s.id) : null,
+          unk: !!s.unk, diag: s.diag && s.diag.txt, pend: s.pend, weak: s.weak
+        }))
+      },
+      journal: (cam.journalFull || []).slice(),
+      sim: {
+        season: simState.season, fp: simState.fp, a: simState.a, b: simState.b,
+        boxOnly: simState.boxOnly, ldMode: simState.ldMode, fpRank: simState.fpRank, fpMin: simState.fpMin,
+        picksA: simState.picksA.map(pick), picksB: simState.picksB.map(pick),
+        boxA: simState.boxA?.list?.length ?? null, boxB: simState.boxB?.list?.length ?? null
+      }
+    }));
+    camLog("🐞 signalement enregistré" + (note ? " : " + note.slice(0, 60) : ""));
+    liveStatus("🐞 signalement enregistré — merci ! (exporte le fichier quand tu en as plusieurs)", true);
+    repRefreshUI();
+  }catch(e){ liveStatus("✖ signalement impossible : " + (e?.message || e), false); }
+}
+async function camExportReports(){
+  const all = await repOp("readonly", st => st.getAll());
+  if(!all || !all.length) return;
+  const blob = new Blob([JSON.stringify({exported_at: new Date().toISOString(), count: all.length, reports: all})], {type: "application/json"});
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "swanalysis-signalements-" + new Date().toISOString().slice(0, 10) + ".json";
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+  if(confirm(all.length + " signalement(s) exporté(s).\n\nVider la liste locale maintenant ? (fais-le une fois le fichier transmis)")){
+    await repOp("readwrite", st => st.clear());
+  }
+  repRefreshUI();
+}
+async function repRefreshUI(){
+  const el = document.getElementById("simRepExport");
+  if(!el) return;
+  try{
+    const n = await repOp("readonly", st => st.count());
+    el.style.display = n ? "" : "none";
+    el.textContent = "💾 " + n + " signalement" + (n > 1 ? "s" : "") + " →";
+  }catch(e){}
 }
 /* applique (ou remplace) le pick d'un slot dans le simulateur — écriture par POSITION (.gi) */
 async function applySlotPick(s, newId){
