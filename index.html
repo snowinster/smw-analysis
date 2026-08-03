@@ -2445,11 +2445,22 @@ function sigFromCanvas(){
 const SIG_CROPS = [];
 for(const top of [0.18, 0.22, 0.26]) for(const bot of [0.04, 0.08, 0.12]) for(const side of [0.08, 0.11, 0.14]) SIG_CROPS.push({top, bot, side});
 function cropSig(b, cv){
-  const x = b[0] + b[2]*cv.side, w = b[2]*(1 - 2*cv.side);
-  const y = b[1] + b[3]*cv.top,  h = b[3]*(1 - cv.top - cv.bot);
+  // dx/dy : décalage optionnel en FRACTION de la case (variantes d'alignement)
+  const x = b[0] + b[2]*(cv.side + (cv.dx || 0)), w = b[2]*(1 - 2*cv.side);
+  const y = b[1] + b[3]*(cv.top + (cv.dy || 0)),  h = b[3]*(1 - cv.top - cv.bot);
   cam.tctx.drawImage(cam.video, x, y, w, h, 0, 0, SIG_T, SIG_T);
   return sigFromCanvas();
 }
+/* variantes DÉCALÉES (±3 % et ±6 % de la case, 8 directions, sur l'inset médian) : ajoutées à la
+   recherche uniquement quand la passe normale HÉSITE. Les 27 crops de base tolèrent bien l'échelle
+   mais pas la translation : une case détectée 3-4 px à côté faisait chuter la reconnaissance.
+   Mesuré hors ligne sur 821 icônes (cellules synthétiques, mêmes seuils) :
+     décalage 3 px : 73,1 % → 85,6 %   ·   voilée + décalée : 80,3 % → 84,3 %
+     case nette : 98,5 % → 98,4 % (bruit) — et avec la garde « marge < 0.35 », zéro changement. */
+const SIG_SHIFTS = [];
+for(const m of [0.03, 0.06])
+  for(const [dx, dy] of [[-1,0],[1,0],[0,-1],[0,1],[-1,-1],[1,1],[-1,1],[1,-1]])
+    SIG_SHIFTS.push({top:0.22, bot:0.08, side:0.11, dx:dx*m, dy:dy*m});
 /* signature du CRÂNE des cases vides (générée par scripts/gen-empty-sig.mjs depuis les captures).
    La z-norm par canal rend le motif identique quelle que soit la teinte de la case
    (sombre, beige « à toi de jouer », surbrillance dorée). Mesures sur toutes les captures
@@ -2818,12 +2829,20 @@ async function camTick(){
     // des picks lui échappe, et 16 % d'entre eux ont un sosie dedans. Seuil intermédiaire, pour
     // ne pas coller ce sosie sur un crop sombre — là où une vraie box est un filet quasi sûr.
     const lumMin = tier === "box" ? 33 : tier === "meta" ? 44 : 55;
-    for(const cv of SIG_CROPS){
+    const variants = [...SIG_CROPS];
+    for(let vi = 0; vi < variants.length; vi++){
+      const cv = variants[vi];
       const {v, lum, std, hue, hue4} = cropSig(s.box, cv);
       dEmpty = Math.min(dEmpty, sigDist(v, EMPTY_SIG), cam.emptyLearned ? sigDist(v, cam.emptyLearned) : 1e9); // ressemblance au crâne (référence + modèle appris)
       if(lum*g < lumMin){ if(!best) best = {dark:true, lum}; continue; }
       const m = camMatch2(v, sdb, hue, hue4, fdb, fromBox);
       if(!best || best.dark || m.rel > (best.m?.rel ?? -1)) best = {m, lum, std};
+      // passe normale terminée et résultat HÉSITANT (marge faible, pas un crâne) → la case est
+      // peut-être mal cadrée de quelques pixels : on ajoute les variantes décalées à la recherche
+      if(vi === SIG_CROPS.length - 1 && best && !best.dark
+         && (best.m?.rel ?? 0) < 0.35 && dEmpty >= EMPTY_TH){
+        variants.push(...SIG_SHIFTS);
+      }
     }
     if(!best) continue;
     // emblème crâne reconnu → case certifiée VIDE (sombre, beige « à ton tour » ou surbrillance) :
