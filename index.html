@@ -1806,8 +1806,12 @@ async function fbInit(){
         auth.user = null;
       }
       renderAuthUI();
-      // session cloud restaurée APRÈS l'ouverture du simulateur : le joueur lié s'applique quand même
-      if(auth.user?.playerId && location.hash.startsWith("#/simulator") && !simState.a) setSimA(auth.user.playerId);
+      if(auth.user?.playerId){
+        // connexion EN DIRECT (page login.html, autre onglet…) → le joueur du compte s'applique ;
+        // simple RESTAURATION de session → seulement si le simulateur attend encore un joueur A
+        if(!first) authAfterLogin();
+        else if(location.hash.startsWith("#/simulator") && !simState.a) setSimA(auth.user.playerId);
+      }
       if(first){ first = false; res(); }
     });
   });
@@ -1898,7 +1902,7 @@ function renderAuthUI(){
   if(!$w) return;
   const u = auth.user;
   if(!u){
-    $w.innerHTML = `<button class="auth-chip" onclick="authOpenModal('login')" title="Se connecter ou créer un compte">👤 <span class="pn">Connexion</span></button>`;
+    $w.innerHTML = `<button class="auth-chip" onclick="authOpenLoginPage()" title="Se connecter ou créer un compte">👤 <span class="pn">Connexion</span></button>`;
     return;
   }
   const pic = u.playerPic ? `<img src="${esc(u.playerPic)}" onerror="this.style.display='none'">` : "👤";
@@ -1921,6 +1925,15 @@ function authCloseMenu(){
   if(m) m.style.display = "none";
 }
 document.addEventListener("click", e => { if(!e.target.closest("#authWrap")) authCloseMenu(); });
+/* ----- page de connexion dédiée (login.html, style Arène World) -----
+   Ouverte en fenêtre propre ; la session Firebase se propage toute seule à cet onglet
+   (onAuthStateChanged) dès que la connexion aboutit là-bas. Repli : même onglet si le
+   navigateur bloque la fenêtre. La modale ci-dessous ne sert plus qu'à la LIAISON joueur. */
+function authOpenLoginPage(){
+  const url = "login.html?back=" + encodeURIComponent(location.hash || "#/");
+  const w = window.open(url, "swaLogin", "width=1080,height=760");
+  if(!w) location.href = url;
+}
 /* ----- modale connexion / création / liaison joueur ----- */
 let authSelPlayer = null;
 function authOpenModal(mode){

@@ -1,0 +1,368 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Connexion — SWAnalysis</title>
+<style>
+:root{
+  --gold:#d8a94e; --gold2:#f5d78a; --gold-dark:#8a6a35; --gold-deep:#5d4522;
+  --panel:#241b10; --panel2:#1a130b; --ink:#f3e9d5; --muted:#a8977a;
+  --accent:#7c5cff; --star:#e04fd0; --err:#ff8f9e; --ok:#7ee2a0;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{height:100%}
+body{
+  font-family:"Segoe UI",system-ui,sans-serif;color:var(--ink);overflow:hidden;
+  background:
+    radial-gradient(1100px 600px at 50% -10%, #3a2b4d 0%, transparent 55%),
+    radial-gradient(900px 700px at 12% 110%, #4a3013 0%, transparent 60%),
+    radial-gradient(900px 700px at 88% 110%, #33230e 0%, transparent 60%),
+    linear-gradient(180deg,#100c14 0%,#171009 55%,#0d0906 100%);
+}
+/* voile animé de fond (lueur d'arène qui respire) */
+.glow{position:fixed;inset:0;pointer-events:none;background:radial-gradient(700px 420px at 50% 46%,rgba(216,169,78,.14),transparent 70%);animation:breathe 6s ease-in-out infinite}
+@keyframes breathe{0%,100%{opacity:.55;transform:scale(1)}50%{opacity:1;transform:scale(1.06)}}
+/* braises / particules montantes */
+.ember{position:fixed;bottom:-12px;border-radius:50%;pointer-events:none;background:var(--gold2);opacity:0;animation:rise linear infinite}
+@keyframes rise{
+  0%{transform:translate(0,0) scale(1);opacity:0}
+  8%{opacity:.75}
+  100%{transform:translate(var(--dx),-108vh) scale(.25);opacity:0}
+}
+/* monstres flottants */
+#floaties{position:fixed;inset:0;pointer-events:none;z-index:1}
+.mon{
+  position:absolute;border-radius:16px;border:2px solid var(--gold-dark);
+  box-shadow:0 6px 22px rgba(0,0,0,.55),0 0 18px rgba(216,169,78,.18);
+  animation:bob ease-in-out infinite alternate;opacity:0;
+  transition:opacity 1.2s;background:#20180f;object-fit:cover;
+}
+.mon.show{opacity:.92}
+@keyframes bob{
+  0%{transform:translate(0,0) rotate(var(--r0))}
+  100%{transform:translate(var(--bx),var(--by)) rotate(var(--r1))}
+}
+/* ---------- panneau central façon Arène World ---------- */
+.stage{position:relative;z-index:3;height:100%;display:flex;align-items:center;justify-content:center;padding:18px}
+.panel{
+  width:430px;max-width:96vw;max-height:96vh;overflow:auto;position:relative;
+  background:linear-gradient(180deg,var(--panel) 0%,var(--panel2) 100%);
+  border:2px solid var(--gold-dark);border-radius:18px;
+  box-shadow:0 0 0 1px #000 inset,0 0 46px rgba(216,169,78,.14),0 24px 70px rgba(0,0,0,.75);
+  padding:26px 30px 24px;animation:entrance .5s cubic-bezier(.2,.9,.3,1.15)}
+@keyframes entrance{0%{opacity:0;transform:translateY(26px) scale(.94)}100%{opacity:1;transform:none}}
+.panel::before,.panel::after{content:"◆";position:absolute;top:-13px;color:var(--gold);font-size:15px;text-shadow:0 0 8px rgba(216,169,78,.8)}
+.panel::before{left:22px}.panel::after{right:22px}
+.ribbon{
+  margin:-26px -30px 18px;padding:13px 20px;text-align:center;position:relative;
+  background:linear-gradient(180deg,#3d2d15,#2a1e0d);border-bottom:2px solid var(--gold-dark);
+  border-radius:16px 16px 0 0}
+.ribbon .kicker{font-size:11px;letter-spacing:.35em;text-transform:uppercase;color:var(--gold)}
+.ribbon h1{font-size:24px;margin-top:2px;background:linear-gradient(180deg,var(--gold2),var(--gold));-webkit-background-clip:text;background-clip:text;color:transparent;text-shadow:0 2px 12px rgba(216,169,78,.25)}
+.stars{text-align:center;color:var(--star);letter-spacing:6px;font-size:15px;margin-bottom:14px;text-shadow:0 0 10px rgba(224,79,208,.6);animation:starPulse 2.6s ease-in-out infinite}
+@keyframes starPulse{0%,100%{opacity:.85}50%{opacity:1;text-shadow:0 0 16px rgba(224,79,208,.95)}}
+/* onglets */
+.tabs{display:flex;gap:8px;margin-bottom:16px}
+.tabs button{
+  flex:1;padding:10px;font-size:14px;font-weight:800;cursor:pointer;color:var(--muted);
+  background:#171009;border:1px solid var(--gold-deep);border-radius:10px;font-family:inherit;transition:all .15s}
+.tabs button.active{color:#2a1c06;background:linear-gradient(180deg,var(--gold2),var(--gold));border-color:var(--gold);box-shadow:0 3px 14px rgba(216,169,78,.35)}
+label{display:block;font-size:12px;color:var(--muted);margin:12px 0 5px;letter-spacing:.04em;text-transform:uppercase}
+input[type=text],input[type=password]{
+  width:100%;padding:11px 13px;font-size:15px;color:var(--ink);outline:none;font-family:inherit;
+  background:#140e07;border:1px solid var(--gold-deep);border-radius:10px;transition:border-color .15s,box-shadow .15s}
+input:focus{border-color:var(--gold);box-shadow:0 0 0 3px rgba(216,169,78,.15)}
+.gbtn{
+  width:100%;margin-top:18px;padding:12px;font-size:15px;font-weight:800;cursor:pointer;font-family:inherit;
+  color:#2a1c06;background:linear-gradient(180deg,var(--gold2) 0%,var(--gold) 55%,#b98a38 100%);
+  border:1px solid var(--gold);border-radius:11px;box-shadow:0 4px 18px rgba(216,169,78,.3),0 1px 0 rgba(255,255,255,.35) inset;
+  transition:transform .1s,filter .15s}
+.gbtn:hover{filter:brightness(1.08)}
+.gbtn:active{transform:scale(.98)}
+.gbtn[disabled]{opacity:.55;cursor:wait}
+.google{
+  display:flex;align-items:center;justify-content:center;gap:10px;width:100%;padding:11px;margin-top:2px;
+  background:#fff;color:#1a1a1a;border:1px solid #d8d2c4;border-radius:11px;font-size:14.5px;font-weight:700;cursor:pointer;font-family:inherit;transition:filter .15s}
+.google:hover{filter:brightness(.93)}
+.sep{display:flex;align-items:center;gap:12px;color:var(--muted);font-size:12px;margin:16px 0 12px}
+.sep::before,.sep::after{content:"";flex:1;height:1px;background:linear-gradient(90deg,transparent,var(--gold-deep),transparent)}
+.err{color:var(--err);font-size:13px;margin-top:10px;min-height:17px;text-align:center}
+.hint{color:var(--muted);font-size:11.5px;margin-top:10px;text-align:center;line-height:1.5}
+.back{position:fixed;top:16px;left:18px;z-index:5;color:var(--muted);text-decoration:none;font-size:13.5px;padding:7px 13px;border:1px solid var(--gold-deep);border-radius:9px;background:rgba(20,14,7,.7);backdrop-filter:blur(4px)}
+.back:hover{color:var(--gold2);border-color:var(--gold)}
+/* recherche joueur SW */
+.results{border:1px solid var(--gold-deep);border-radius:10px;margin-top:5px;max-height:190px;overflow-y:auto;display:none;background:#140e07}
+.results .it{display:flex;align-items:center;gap:10px;padding:9px 12px;cursor:pointer;font-size:14px}
+.results .it:hover{background:#241b10}
+.results img,.sel img{width:28px;height:28px;border-radius:7px;object-fit:cover;background:#000}
+.sel{display:flex;align-items:center;gap:9px;margin-top:8px;font-size:13.5px;min-height:22px}
+.sel .x{cursor:pointer;color:var(--muted);font-weight:700}
+.sel .x:hover{color:var(--err)}
+.muted{color:var(--muted)}
+/* écran "déjà connecté" + succès */
+.who{display:flex;flex-direction:column;align-items:center;gap:12px;padding:8px 0 4px;text-align:center}
+.who img{width:74px;height:74px;border-radius:50%;border:2px solid var(--gold);box-shadow:0 0 22px rgba(216,169,78,.4)}
+.who .avatar-fallback{width:74px;height:74px;border-radius:50%;border:2px solid var(--gold);display:flex;align-items:center;justify-content:center;font-size:32px;background:#140e07}
+.success{animation:pop .45s cubic-bezier(.2,.9,.3,1.4)}
+@keyframes pop{0%{transform:scale(.6);opacity:0}100%{transform:none;opacity:1}}
+::-webkit-scrollbar{width:9px}::-webkit-scrollbar-thumb{background:var(--gold-deep);border-radius:5px}
+@media (max-width:760px){ .mon{display:none} }
+</style>
+</head>
+<body>
+<div class="glow"></div>
+<div id="floaties"></div>
+<a class="back" href="index.html" id="backLink">← Retour au site</a>
+
+<div class="stage">
+  <div class="panel" id="panel">
+    <div class="ribbon">
+      <div class="kicker">◆ Arène World ◆</div>
+      <h1>SWAnalysis</h1>
+    </div>
+    <div class="stars">★★★★★★</div>
+    <div id="content"></div>
+  </div>
+</div>
+
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
+<script>
+"use strict";
+/* Config publique Firebase — MÊME projet et MÊME mapping pseudo→email qu'index.html (à garder synchronisés) */
+const FIREBASE_CONFIG = {
+  apiKey: "AIzaSyDjsFJ_xiP1ODROzKOIe1wDwzudfkVE3dg",
+  authDomain: "swanalysis-10ae3.firebaseapp.com",
+  projectId: "swanalysis-10ae3",
+  storageBucket: "swanalysis-10ae3.firebasestorage.app",
+  messagingSenderId: "904967568871",
+  appId: "1:904967568871:web:533b3eb80a12ebcb569142"
+};
+const API = "https://api.swarena.gg";
+const ASSETS = "https://assets.swarena.gg/monster-pictures/";
+const FB_MAIL = p => p.trim().toLowerCase().replace(/[^a-z0-9._-]/g, "_") + "@users.swanalysis.app";
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+firebase.initializeApp(FIREBASE_CONFIG);
+const fbAuth = firebase.auth(), fbDb = firebase.firestore();
+const fbErr = e => ({
+  "auth/email-already-in-use":"Ce pseudo a déjà un compte.",
+  "auth/invalid-credential":"Pseudo ou mot de passe incorrect.",
+  "auth/wrong-password":"Mot de passe incorrect.",
+  "auth/user-not-found":"Compte inconnu.",
+  "auth/too-many-requests":"Trop d'essais — réessaie dans quelques minutes.",
+  "auth/weak-password":"Mot de passe trop court (6 caractères minimum).",
+  "auth/popup-closed-by-user":"Fenêtre Google fermée avant la fin.",
+  "auth/network-request-failed":"Pas de réseau — vérifie ta connexion.",
+  "auth/unauthorized-domain":"Domaine non autorisé dans la console Firebase."
+}[e?.code] || e?.message || String(e));
+
+/* retour : ?back=<hash encodé> — et si la page a été ouverte en popup, elle se referme */
+const back = new URLSearchParams(location.search).get("back") || "#/";
+function done(){
+  if(window.opener && !window.opener.closed){ setTimeout(()=>window.close(), 900); }
+  else setTimeout(()=>{ location.href = "index.html" + back; }, 900);
+}
+
+/* ---------- monstres flottants : piochés au hasard dans le top méta ---------- */
+(async ()=>{
+  let mons = [];
+  try{
+    const meta = await fetch("api/meta-s38.json").then(r=>r.json());
+    mons = (meta.monsters||[]).filter(m=>m.image_filename)
+      .sort((a,b)=>(b.picks||0)-(a.picks||0)).slice(0,70);
+  }catch(e){ return; }
+  for(let i = mons.length-1; i > 0; i--){ const k = Math.floor(Math.random()*(i+1)); [mons[i], mons[k]] = [mons[k], mons[i]]; }
+  const $f = document.getElementById("floaties");
+  const R = (a,b)=>a+Math.random()*(b-a);
+  mons.slice(0, 12).forEach((m, i)=>{
+    const img = document.createElement("img");
+    img.className = "mon";
+    img.src = ASSETS + m.image_filename;
+    img.title = m.name;
+    const size = R(52, 96);
+    const leftSide = i % 2 === 0;
+    img.style.width = img.style.height = size.toFixed(0) + "px";
+    img.style.left = (leftSide ? R(1.5, 17) : R(80, 95)).toFixed(1) + "vw";
+    img.style.top = R(4, 86).toFixed(1) + "vh";
+    img.style.setProperty("--bx", R(-26, 26).toFixed(0) + "px");
+    img.style.setProperty("--by", R(-34, 34).toFixed(0) + "px");
+    img.style.setProperty("--r0", R(-7, 7).toFixed(1) + "deg");
+    img.style.setProperty("--r1", R(-7, 7).toFixed(1) + "deg");
+    img.style.animationDuration = R(4.5, 9).toFixed(1) + "s";
+    img.style.animationDelay = (-R(0, 8)).toFixed(1) + "s";
+    img.style.zIndex = size > 80 ? 2 : 1;
+    img.onerror = ()=>img.remove();
+    img.onload = ()=>setTimeout(()=>img.classList.add("show"), 80 + i*140);
+    $f.appendChild(img);
+  });
+  // parallaxe légère à la souris
+  document.addEventListener("mousemove", e => {
+    const dx = (e.clientX / innerWidth - .5), dy = (e.clientY / innerHeight - .5);
+    $f.style.transform = `translate(${(-dx*14).toFixed(1)}px, ${(-dy*10).toFixed(1)}px)`;
+  });
+})();
+/* braises */
+for(let i = 0; i < 26; i++){
+  const d = document.createElement("div");
+  d.className = "ember";
+  const s = 2 + Math.random()*3.5;
+  d.style.width = d.style.height = s.toFixed(1) + "px";
+  d.style.left = (Math.random()*100).toFixed(1) + "vw";
+  d.style.setProperty("--dx", ((Math.random()-.5)*160).toFixed(0) + "px");
+  d.style.animationDuration = (7 + Math.random()*10).toFixed(1) + "s";
+  d.style.animationDelay = (-Math.random()*14).toFixed(1) + "s";
+  document.body.appendChild(d);
+}
+
+/* ---------- écrans ---------- */
+const $c = document.getElementById("content");
+let selPlayer = null;
+let mode = "login";
+
+function playerPickerHTML(label){
+  return `<label>${label}</label>
+    <input type="text" id="pq" placeholder="🔍 Ton pseudo en jeu…" autocomplete="off">
+    <div class="results" id="pr"></div>
+    <div class="sel" id="ps"></div>`;
+}
+function render(){
+  $c.innerHTML = `
+    <div class="tabs">
+      <button id="tabL" class="${mode==="login"?"active":""}">Connexion</button>
+      <button id="tabS" class="${mode==="signup"?"active":""}">Créer un compte</button>
+    </div>
+    ${mode==="login" ? `
+      <label>Pseudo</label><input type="text" id="fPseudo" autocomplete="username">
+      <label>Mot de passe</label><input type="password" id="fPsw" autocomplete="current-password">
+      <button class="gbtn" id="go">⚔ Se connecter</button>` : `
+      <label>Pseudo</label><input type="text" id="fPseudo" autocomplete="username" placeholder="3 à 24 caractères">
+      <label>Mot de passe</label><input type="password" id="fPsw" autocomplete="new-password" placeholder="6 caractères minimum">
+      <label>Confirme le mot de passe</label><input type="password" id="fPsw2" autocomplete="new-password">
+      ${playerPickerHTML("Ton joueur Summoners War (optionnel)")}
+      <button class="gbtn" id="go">✨ Créer mon compte</button>`}
+    <div class="sep">ou</div>
+    <button class="google" id="goGoogle">
+      <svg width="18" height="18" viewBox="0 0 48 48"><path fill="#FFC107" d="M43.6 20.1H42V20H24v8h11.3C33.7 32.7 29.3 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.9 1.2 8 3l5.7-5.7C34.1 6.1 29.3 4 24 4 13 4 4 13 4 24s9 20 20 20 20-9 20-20c0-1.3-.1-2.6-.4-3.9z"/><path fill="#FF3D00" d="M6.3 14.7l6.6 4.8C14.7 15.1 19 12 24 12c3.1 0 5.9 1.2 8 3l5.7-5.7C34.1 6.1 29.3 4 24 4 16.3 4 9.7 8.3 6.3 14.7z"/><path fill="#4CAF50" d="M24 44c5.2 0 9.9-2 13.4-5.2l-6.2-5.2C29.2 35.1 26.7 36 24 36c-5.3 0-9.7-3.3-11.3-8l-6.5 5C9.6 39.6 16.3 44 24 44z"/><path fill="#1976D2" d="M43.6 20.1H42V20H24v8h11.3c-.8 2.2-2.2 4.1-4.1 5.5l6.2 5.2C41.4 34.9 44 30 44 24c0-1.3-.1-2.6-.4-3.9z"/></svg>
+      Continuer avec Google</button>
+    <div class="err" id="err"></div>
+    <div class="hint">Ton compte retient ton joueur Summoners War : il devient le joueur A du simulateur de draft à chaque connexion.</div>`;
+  document.getElementById("tabL").onclick = ()=>{ mode = "login"; render(); };
+  document.getElementById("tabS").onclick = ()=>{ mode = "signup"; render(); };
+  wirePicker();
+  document.getElementById("go").onclick = submit;
+  document.getElementById("goGoogle").onclick = google;
+  $c.querySelectorAll("input").forEach(el => el.addEventListener("keydown", e => { if(e.key === "Enter") submit(); }));
+  document.getElementById("fPseudo").focus();
+}
+function renderLogged(u, fresh){
+  const pic = u.playerPic ? `<img src="${esc(u.playerPic)}" onerror="this.outerHTML='<div class=\'avatar-fallback\'>👤</div>'">` : `<div class="avatar-fallback">👤</div>`;
+  $c.innerHTML = `
+    <div class="who ${fresh ? "success" : ""}">
+      ${pic}
+      <div style="font-size:18px;font-weight:800">${fresh ? "Bienvenue, " : "Déjà connecté : "}${esc(u.pseudo)} !</div>
+      ${u.playerName ? `<div class="muted" style="font-size:13px">Joueur lié : <b>${esc(u.playerName)}</b></div>` : ""}
+      ${fresh ? `<div class="muted" style="font-size:13px">Connexion réussie ✔ retour au site…</div>` : `
+        <button class="gbtn" id="goSite" style="margin-top:6px">➜ Aller sur le site</button>
+        <button class="google" id="goOut" style="background:#171009;color:var(--muted);border-color:var(--gold-deep)">Se déconnecter</button>`}
+    </div>`;
+  if(!fresh){
+    document.getElementById("goSite").onclick = ()=>{ location.href = "index.html" + back; };
+    document.getElementById("goOut").onclick = async ()=>{ await fbAuth.signOut().catch(()=>{}); render(); };
+  }
+}
+function wirePicker(){
+  const $q = document.getElementById("pq"), $r = document.getElementById("pr");
+  if(!$q) return;
+  const renderSel = ()=>{
+    const $s = document.getElementById("ps");
+    $s.innerHTML = selPlayer
+      ? `${selPlayer.pic ? `<img src="${esc(selPlayer.pic)}" onerror="this.style.display='none'">` : ""}<b>${esc(selPlayer.name)}</b><span class="x" id="px">✕</span>`
+      : `<span class="muted">Aucun joueur choisi</span>`;
+    const $x = document.getElementById("px");
+    if($x) $x.onclick = ()=>{ selPlayer = null; renderSel(); };
+  };
+  renderSel();
+  let t = null;
+  $q.addEventListener("input", ()=>{
+    clearTimeout(t);
+    const q = $q.value.trim();
+    if(q.length < 2){ $r.style.display = "none"; return; }
+    t = setTimeout(async ()=>{
+      $r.style.display = "block";
+      $r.innerHTML = '<div class="it muted">Recherche…</div>';
+      try{
+        const r = await fetch(API + "/player/search/" + encodeURIComponent(q)).then(x=>x.json());
+        const rows = (r.data||[]).slice(0, 8);
+        $r.innerHTML = rows.length ? rows.map(p=>
+          `<div class="it" data-pid="${p.id}" data-pname="${esc(p.wizard_name)}" data-ppic="${esc(p.wizard_picture_url||"")}">
+             <img src="${esc(p.wizard_picture_url||"")}" onerror="this.style.visibility='hidden'"><span>${esc(p.wizard_name)}</span></div>`).join("")
+          : '<div class="it muted">Aucun résultat</div>';
+        $r.querySelectorAll("[data-pid]").forEach(el => el.onclick = ()=>{
+          selPlayer = {id:+el.dataset.pid, name:el.dataset.pname, pic:el.dataset.ppic};
+          $r.style.display = "none"; $q.value = "";
+          renderSel();
+        });
+      }catch(e){ $r.innerHTML = '<div class="it muted">Erreur</div>'; }
+    }, 300);
+  });
+}
+const err = m => { const $e = document.getElementById("err"); if($e) $e.textContent = m || ""; };
+const busy = on => { const b = document.getElementById("go"); if(b) b.disabled = on; };
+async function submit(){
+  err("");
+  const pseudo = (document.getElementById("fPseudo")?.value || "").trim();
+  const psw = document.getElementById("fPsw")?.value || "";
+  if(pseudo.length < 3 || pseudo.length > 24) return err("Pseudo : 3 à 24 caractères.");
+  busy(true);
+  try{
+    if(mode === "signup"){
+      if(psw !== (document.getElementById("fPsw2")?.value || "")){ busy(false); return err("Les deux mots de passe ne correspondent pas."); }
+      const cred = await fbAuth.createUserWithEmailAndPassword(FB_MAIL(pseudo), psw);
+      await cred.user.updateProfile({displayName: pseudo}).catch(()=>{});
+      await fbDb.collection("users").doc(cred.user.uid).set({
+        pseudo, playerId: selPlayer?.id ?? null, playerName: selPlayer?.name ?? "", playerPic: selPlayer?.pic ?? ""
+      }, {merge:true});
+      renderLogged({pseudo, playerName:selPlayer?.name, playerPic:selPlayer?.pic}, true);
+    }else{
+      const cred = await fbAuth.signInWithEmailAndPassword(FB_MAIL(pseudo), psw);
+      let prof = {};
+      try{ prof = (await fbDb.collection("users").doc(cred.user.uid).get()).data() || {}; }catch(e){}
+      renderLogged({pseudo: prof.pseudo || pseudo, playerName: prof.playerName, playerPic: prof.playerPic}, true);
+    }
+    done();
+  }catch(e){ busy(false); err(fbErr(e)); }
+}
+async function google(){
+  err("");
+  try{
+    const cred = await fbAuth.signInWithPopup(new firebase.auth.GoogleAuthProvider());
+    const u = cred.user;
+    const ref = fbDb.collection("users").doc(u.uid);
+    let prof = {};
+    try{ prof = (await ref.get()).data() || {}; }catch(e){}
+    if(!prof.pseudo){
+      prof.pseudo = u.displayName || (u.email||"").split("@")[0];
+      await ref.set({pseudo: prof.pseudo}, {merge:true}).catch(()=>{});
+    }
+    renderLogged({pseudo: prof.pseudo, playerName: prof.playerName, playerPic: prof.playerPic || u.photoURL || ""}, true);
+    done();
+  }catch(e){ err(fbErr(e)); }
+}
+
+/* déjà connecté ? (session restaurée) — sauf si on vient de se connecter (écran succès affiché) */
+let freshLogin = false;
+const _rl = renderLogged;
+renderLogged = (u, fresh) => { if(fresh) freshLogin = true; _rl(u, fresh); };
+fbAuth.onAuthStateChanged(async u => {
+  if(freshLogin) return;
+  if(!u){ render(); return; }
+  let prof = {};
+  try{ prof = (await fbDb.collection("users").doc(u.uid).get()).data() || {}; }catch(e){}
+  renderLogged({pseudo: prof.pseudo || u.displayName || "?", playerName: prof.playerName, playerPic: prof.playerPic || u.photoURL || ""}, false);
+});
+render();
+</script>
+</body>
+</html>
