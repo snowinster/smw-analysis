@@ -1427,18 +1427,35 @@ async function viewMonster(id){
 
     const listN = monState.listN || 10;   // synergies & pires matchups
     const trioN = monState.trioN || 10;   // trios : son propre sélecteur, indépendant
-    const pairTable = (rows, playedKey, rateKey, asc, rateLabel) => {
+    // pages remises à zéro dès que le contexte change (monstre, saison, palier)
+    const pageSig = id + "|" + season + "|" + monState.tier;
+    if(monState.pageSig !== pageSig){ monState.pageSig = pageSig; monState.synPage = 0; monState.matPage = 0; monState.trioPage = 0; }
+    // flèches de pagination communes aux trois tableaux (chacun a SA page)
+    const tblPager = (pageKey, page, pages, total, from, count) => pages <= 1 ? "" : `
+      <div class="row" style="justify-content:flex-end;gap:8px;margin-top:9px">
+        <span class="muted" style="font-size:12px">${num(from+1)}–${num(from+count)} sur ${num(total)}</span>
+        <button class="btn" style="padding:3px 9px" onclick="monState.${pageKey}=0;viewMonster(${id})" ${page===0?"disabled":""} title="Première page">«</button>
+        <button class="btn" style="padding:3px 9px" onclick="monState.${pageKey}=${page-1};viewMonster(${id})" ${page===0?"disabled":""} title="Page précédente">‹</button>
+        <button class="btn" style="padding:3px 9px" onclick="monState.${pageKey}=${page+1};viewMonster(${id})" ${page>=pages-1?"disabled":""} title="Page suivante">›</button>
+        <button class="btn" style="padding:3px 9px" onclick="monState.${pageKey}=${pages-1};viewMonster(${id})" ${page>=pages-1?"disabled":""} title="Dernière page">»</button>
+      </div>`;
+    const pairTable = (rows, playedKey, rateKey, asc, rateLabel, pageKey) => {
       // seuil adaptatif : 15 % du volume max (min 30) pour rester pertinent même en début de saison
       const maxV = Math.max(...(rows||[]).map(x=>x[playedKey]), 0);
       const th = Math.max(30, Math.round(maxV*0.15));
       const f = (rows||[]).filter(x=>x[playedKey]>=th);
       f.sort((a,b)=> asc ? a[rateKey]-b[rateKey] : b[rateKey]-a[rateKey]);
       if(!f.length) return '<div class="muted">Pas assez de données sur ce filtre.</div>';
+      const pages = Math.max(1, Math.ceil(f.length/listN));
+      const page = Math.min(Math.max(0, monState[pageKey]||0), pages-1);
+      const from = page*listN;
+      const slice = f.slice(from, from+listN);
       return `<table><thead><tr><th>Monstre</th><th>${rateLabel}</th><th>Parties</th></tr></thead><tbody>` +
-        f.slice(0, listN).map(x=>`<tr class="clickable" onclick="location.hash='#/monster/${x.b_monster_id}'">
+        slice.map(x=>`<tr class="clickable" onclick="location.hash='#/monster/${x.b_monster_id}'">
           <td><img class="mon-ico" src="${monImg(x.b_monster_image_filename)}" loading="lazy"> &nbsp;${esc(x.b_monster_name)}</td>
           <td><b style="color:${x[rateKey]>=0.5?'var(--win)':'var(--lose)'}">${pct(x[rateKey])}</b></td>
-          <td class="muted">${num(x[playedKey])}</td></tr>`).join("") + "</tbody></table>";
+          <td class="muted">${num(x[playedKey])}</td></tr>`).join("") + "</tbody></table>"
+        + tblPager(pageKey, page, pages, f.length, from, slice.length);
     };
     /* lignes issues de NOS fichiers de replays : duos [a,b,n,w,nt,wt,n3,w3] / versus pareil.
        Le tier choisit les colonnes : tout ladder = n/w, Guardian+ = nt/wt, Guardian 3 = n3/w3 */
@@ -1463,12 +1480,17 @@ async function viewMonster(id){
       const f = rows.filter(x => x.n >= th).map(x => ({ ...x, rate: x.w / x.n }));
       f.sort((a, b) => b.rate - a.rate);
       if(!f.length) return `<div class="muted">Pas assez de volume sur ce filtre${monState.tier === "g3" ? " (Guardian 3 se remplit en fin de saison)" : ""}.</div>`;
+      const pages = Math.max(1, Math.ceil(f.length/trioN));
+      const page = Math.min(Math.max(0, monState.trioPage||0), pages-1);
+      const from = page*trioN;
+      const slice = f.slice(from, from+trioN);
       return `<table><thead><tr><th>Trio</th><th>Winrate</th><th>Parties</th></tr></thead><tbody>` +
-        f.slice(0, trioN).map(x => `<tr>
+        slice.map(x => `<tr>
           <td style="white-space:nowrap">${x.ids.map(mid => `<img class="mon-ico mon-click" src="${monImg(monMeta(mid).image_filename)}" loading="lazy" title="${esc(monMeta(mid).name || mid)}" onclick="location.hash='#/monster/${mid}'">`).join(" ")}
             &nbsp;<span style="font-size:12.5px">${x.ids.map(mid => esc(monMeta(mid).name || ("#" + mid))).join(" + ")}</span></td>
           <td><b style="color:${x.rate >= 0.5 ? 'var(--win)' : 'var(--lose)'}">${pct(x.rate)}</b></td>
-          <td class="muted">${num(x.n)}</td></tr>`).join("") + "</tbody></table>";
+          <td class="muted">${num(x.n)}</td></tr>`).join("") + "</tbody></table>"
+        + tblPager("trioPage", page, pages, f.length, from, slice.length);
     };
 
     const skillsHTML = det?.skills?.length ? `<h2>Compétences</h2><div class="panel">` +
@@ -1543,10 +1565,10 @@ async function viewMonster(id){
         const useFile = !!(duosD?.rows?.length);
         const provenance = (monState.tier === "ladder" ? "tout le ladder" : monState.tier === "g3" ? "Guardian 3" : "Guardian+")
           + (useFile ? " · notre collecte de replays" : " · swarena");
-        const syn = useFile ? pairTable(fileRows(duosD, false), "played", "rate", false, "WR ensemble")
-                            : pairTable(togR.data, "total_played_together", "win_together_rate", false, "WR ensemble");
-        const mat = useFile ? pairTable(fileRows(vsD, true), "played", "rate", true, "WR contre")
-                            : pairTable(agR.data, "total_played_against", "win_against_rate", true, "WR contre");
+        const syn = useFile ? pairTable(fileRows(duosD, false), "played", "rate", false, "WR ensemble", "synPage")
+                            : pairTable(togR.data, "total_played_together", "win_together_rate", false, "WR ensemble", "synPage");
+        const mat = useFile ? pairTable(fileRows(vsD, true), "played", "rate", true, "WR contre", "matPage")
+                            : pairTable(agR.data, "total_played_against", "win_against_rate", true, "WR contre", "matPage");
         return `
       <div class="row" style="margin:26px 0 10px;gap:10px">
         <h2 style="margin:0">Synergies, matchups & trios</h2>
