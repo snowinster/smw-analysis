@@ -1379,7 +1379,7 @@ async function getMetaMap(season){
 async function viewMonster(id){
   $app.innerHTML = '<div class="loading">Chargement de la fiche monstre…</div>';
   try{
-    if(monState.id !== id){ monState.id = id; monState.season = null; monState.userChose = false; }
+    if(monState.id !== id){ monState.id = id; monState.season = null; monState.userChose = false; monState.trioQ = ""; }
     if(monState.tier === "sub") monState.tier = "ladder"; // filtre retiré : la collecte sous Guardian ne sert plus qu'à « Tout le ladder »
     const [seasons, baseR] = await Promise.all([getSeasons(), api(`/monster/${id}`).catch(()=>({data:null}))]);
     const base = baseR.data;
@@ -1484,28 +1484,23 @@ async function viewMonster(id){
         return { b_monster_id: other, b_monster_name: m.name || ("#" + other), b_monster_image_filename: m.image_filename || "",
                  played: r[TI[0]], rate: r[TI[0]] ? r[TI[1]] / r[TI[0]] : 0 };
       }).filter(x => x.played > 0);
-    // trios (uniquement depuis notre collecte) : [a,b,c,n,w,…] — colonnes décalées de +1
-    const trioTable = () => {
-      const rows = (triosD?.rows || [])
+    // trios (uniquement depuis notre collecte) : [a,b,c,n,w,…] — colonnes décalées de +1.
+    // Les données sont stockées dans monTrioState et le tableau est peint par monTrioPaint(),
+    // pour que la barre de recherche filtre SANS re-rendre la page (le champ garde le focus).
+    monTrioState = {
+      g3note: monState.tier === "g3",
+      page: 0,
+      rows: (triosD?.rows || [])
         .filter(r => r[0] === id || r[1] === id || r[2] === id)
-        .map(r => ({ ids: [r[0], r[1], r[2]], n: r[TI[0] + 1], w: r[TI[1] + 1] }))
-        .filter(x => x.n > 0);
-      const maxV = Math.max(...rows.map(x => x.n), 0);
-      const th = Math.max(30, Math.round(maxV * 0.15));
-      const f = rows.filter(x => x.n >= th).map(x => ({ ...x, rate: x.w / x.n }));
-      f.sort((a, b) => b.rate - a.rate);
-      if(!f.length) return `<div class="muted">Pas assez de volume sur ce filtre${monState.tier === "g3" ? " (Guardian 3 se remplit en fin de saison)" : ""}.</div>`;
-      const pages = Math.max(1, Math.ceil(f.length/trioN));
-      const page = Math.min(Math.max(0, monState.trioPage||0), pages-1);
-      const from = page*trioN;
-      const slice = f.slice(from, from+trioN);
-      return `<table><thead><tr><th>Trio</th><th>Winrate</th><th>Parties</th></tr></thead><tbody>` +
-        slice.map(x => `<tr>
-          <td style="white-space:nowrap">${x.ids.map(mid => `<img class="mon-ico mon-click" src="${monImg(monMeta(mid).image_filename)}" loading="lazy" title="${esc(monMeta(mid).name || mid)}" onclick="location.hash='#/monster/${mid}'">`).join(" ")}
-            &nbsp;<span style="font-size:12.5px">${x.ids.map(mid => esc(monMeta(mid).name || ("#" + mid))).join(" + ")}</span></td>
-          <td><b style="color:${x.rate >= 0.5 ? 'var(--win)' : 'var(--lose)'}">${pct(x.rate)}</b></td>
-          <td class="muted">${num(x.n)}</td></tr>`).join("") + "</tbody></table>"
-        + tblPager("trioPage", page, pages, f.length, from, slice.length);
+        .map(r => {
+          const ids = [r[0], r[1], r[2]];
+          const raw = ids.map(mid => monMeta(mid).name || ("#" + mid));
+          // homonymes (deux Stark d'éléments différents) : l'élément est ajouté au nom
+          const names = ids.map((mid, i) => raw.filter(n => n === raw[i]).length > 1
+            ? `${raw[i]} (${ELEM_FR[monMeta(mid).element] || "?"})` : raw[i]);
+          return { ids, names, imgs: ids.map(mid => monMeta(mid).image_filename || ""), n: r[TI[0] + 1], w: r[TI[1] + 1] };
+        })
+        .filter(x => x.n > 0).map(x => ({ ...x, rate: x.w / x.n }))
     };
 
     const skillsHTML = det?.skills?.length ? `<h2>Compétences</h2><div class="panel">` +
@@ -1600,19 +1595,91 @@ async function viewMonster(id){
       </div>
       <div class="row" style="margin:22px 0 10px;gap:10px">
         <h2 style="font-size:16px;margin:0">Meilleurs trios <span class="muted" style="font-size:12px;font-weight:400">(winrate, joués avec lui · ${monState.tier==="ladder"?"tout le ladder":monState.tier==="g3"?"Guardian 3":"Guardian+"} · notre collecte de replays)</span></h2>
+        <input type="text" id="trioSearch" value="${esc(monState.trioQ||"")}" oninput="monTrioSearch(this.value)"
+          placeholder="🔍 Filtrer par monstre(s) — ex : laima + fern" autocomplete="off"
+          style="flex:0 1 300px;padding:6px 11px;border-radius:9px;border:1px solid var(--border);background:var(--card2);color:var(--text);font-size:12.5px;outline:none">
         <span class="spacer"></span>
         <label class="muted" style="font-size:12.5px">Afficher
-          <select onchange="monState.trioN=+this.value;viewMonster(${id})" style="font-size:12.5px;padding:3px 8px">${
+          <select onchange="monState.trioN=+this.value;monTrioPaint()" style="font-size:12.5px;padding:3px 8px">${
             [5,10,20,50].map(v=>`<option value="${v}" ${v===trioN?"selected":""}>${v}</option>`).join("")}</select>
         </label>
       </div>
-      <div class="panel tbl-wrap">${trioTable()}</div>`;
+      <div class="panel tbl-wrap" id="trioPanel"></div>`;
       })()}
       ${skillsHTML}
       ${runesSectionHTML(runes)}
 `;
     attachChartTips();
+    monTrioPaint();
   }catch(e){ fail(e); }
+}
+/* ----- tableau des trios : peint à part pour que la recherche filtre sans re-rendre la page ----- */
+let monTrioState = null;
+const trioNorm = s => (s||"").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
+function monTrioSearch(v){
+  monState.trioQ = v;
+  if(monTrioState) monTrioState.page = 0;
+  monTrioPaint();
+}
+function monTrioGo(p){
+  if(monTrioState){ monTrioState.page = p; monTrioPaint(); }
+}
+function monTrioPaint(){
+  const S = monTrioState, el = document.getElementById("trioPanel");
+  if(!S || !el) return;
+  const per = monState.trioN || 10;
+  const terms = trioNorm(monState.trioQ||"").split(/[+,]/).map(t=>t.trim()).filter(Boolean);
+  let rows = S.rows;
+  if(terms.length){
+    // recherche : chaque terme doit correspondre à un monstre DISTINCT du trio (« stark + stark »
+    // exige deux Stark différents) — AUCUNE invention, seuls les trios réellement mesurés
+    // par la collecte existent ici
+    const matches = x => {
+      const used = new Set();
+      const place = ti => {
+        if(ti >= terms.length) return true;
+        for(let ni = 0; ni < x.names.length; ni++){
+          if(used.has(ni) || !trioNorm(x.names[ni]).includes(terms[ti])) continue;
+          used.add(ni);
+          if(place(ti+1)) return true;
+          used.delete(ni);
+        }
+        return false;
+      };
+      return place(0);
+    };
+    rows = rows.filter(matches);
+  }else{
+    // sans recherche : seuil adaptatif pour écarter les trios anecdotiques
+    const maxV = Math.max(...rows.map(x=>x.n), 0);
+    const th = Math.max(30, Math.round(maxV*0.15));
+    rows = rows.filter(x=>x.n >= th);
+  }
+  rows = rows.slice().sort((a,b)=>b.rate-a.rate);
+  if(!rows.length){
+    el.innerHTML = `<div class="muted">${terms.length
+      ? "Aucun trio mesuré avec ce(s) monstre(s) sur ce filtre — on n'invente rien : seuls les trios réellement joués dans les replays collectés apparaissent."
+      : "Pas assez de volume sur ce filtre" + (S.g3note ? " (Guardian 3 se remplit en fin de saison)" : "") + "."}</div>`;
+    return;
+  }
+  const pages = Math.max(1, Math.ceil(rows.length/per));
+  const page = Math.min(Math.max(0, S.page), pages-1);
+  S.page = page;
+  const from = page*per, slice = rows.slice(from, from+per);
+  el.innerHTML = `<table><thead><tr><th>Trio</th><th>Winrate</th><th>Parties</th></tr></thead><tbody>` +
+    slice.map(x => `<tr>
+      <td style="white-space:nowrap">${x.ids.map((mid,i) => `<img class="mon-ico mon-click" src="${monImg(x.imgs[i])}" loading="lazy" title="${esc(x.names[i])}" onclick="location.hash='#/monster/${mid}'">`).join(" ")}
+        &nbsp;<span style="font-size:12.5px">${x.names.map(esc).join(" + ")}</span></td>
+      <td><b style="color:${x.rate >= 0.5 ? 'var(--win)' : 'var(--lose)'}">${pct(x.rate)}</b></td>
+      <td class="muted">${num(x.n)}</td></tr>`).join("") + "</tbody></table>" +
+    (pages <= 1 ? "" : `
+    <div class="row" style="justify-content:flex-end;gap:8px;margin-top:9px">
+      <span class="muted" style="font-size:12px">${num(from+1)}–${num(from+slice.length)} sur ${num(rows.length)}</span>
+      <button class="btn" style="padding:3px 9px" onclick="monTrioGo(0)" ${page===0?"disabled":""} title="Première page">«</button>
+      <button class="btn" style="padding:3px 9px" onclick="monTrioGo(${page-1})" ${page===0?"disabled":""} title="Page précédente">‹</button>
+      <button class="btn" style="padding:3px 9px" onclick="monTrioGo(${page+1})" ${page>=pages-1?"disabled":""} title="Page suivante">›</button>
+      <button class="btn" style="padding:3px 9px" onclick="monTrioGo(${pages-1})" ${page>=pages-1?"disabled":""} title="Dernière page">»</button>
+    </div>`);
 }
 
 // contenu du panneau de tendance : légende + courbes, réécrit seul quand on change de granularité
@@ -1807,7 +1874,16 @@ const simState = { a:null, b:null, fp:"A", picksA:[], picksB:[], boxA:null, boxB
   // positions du plateau (.gi) modifiées À LA MAIN : la capture n'y écrit plus jamais
   giLock: {A:new Set(), B:new Set()},
   boxSort: (()=>{ try{ return localStorage.getItem("simBoxSort_v2") || "element"; }catch(e){ return "element"; } })(),
-  fpRank: (()=>{ try{ return parseInt(localStorage.getItem("simFpRank_v1"), 10) || 4003; }catch(e){ return 4003; } })(),
+  // palier des first picks : mêmes filtres que la fiche monstre (ladder / g3 / gplus / sub) ;
+  // migration depuis l'ancien réglage numérique « rang minimum »
+  fpTier: (()=>{ try{
+    const v = localStorage.getItem("simFpTier_v1");
+    if(["ladder","g3","gplus","sub"].includes(v)) return v;
+    const old = parseInt(localStorage.getItem("simFpRank_v1"), 10);
+    if(old >= 4003) return "g3";
+    if(old >= 4001) return "gplus";
+    if(old >= 3501) return "sub";
+  }catch(e){} return "ladder"; })(),
   fpMin:  (()=>{ try{ return parseInt(localStorage.getItem("simFpMin_v1"), 10) || 100; }catch(e){ return 100; } })(),
   // conseils limités aux monstres que tu possèdes, ou meilleurs choix THÉORIQUES tous monstres
   boxOnly: (()=>{ try{ return localStorage.getItem("simBoxOnly_v1") !== "false"; }catch(e){ return true; } })(),
@@ -1817,17 +1893,14 @@ const simState = { a:null, b:null, fp:"A", picksA:[], picksB:[], boxA:null, boxB
    « mine » écarte les LD que tu ne possèdes pas (utile en mode théorique : sans lui, le
    classement se remplit de monstres hors de portée). « none » les exclut tous. */
 const LD_MODES = [["all","LD : tous"],["mine","LD : seulement les miens"],["none","LD : exclus"]];
-/* paliers de rang RTA, tels que l'API les expose dans last_rating_id du first picker.
-   Vérifié sur 197 000 lignes de replays S38 : 35xx = Conquérant, 40xx = Guardian, le dernier
-   chiffre donne le sous-rang, et le score médian croît bien dans cet ordre (1080 → 1278).
-   Le filtre est un rang MINIMUM : « Guardian 3+ » inclut donc aussi la Légende (4004). */
-const FP_RANKS = [
-  {r:3501, l:"Conquérant 1+"},
-  {r:3502, l:"Conquérant 2+"},
-  {r:3503, l:"Conquérant 3+"},
-  {r:4001, l:"Guardian 1+"},
-  {r:4002, l:"Guardian 2+"},
-  {r:4003, l:"Guardian 3+"}
+/* paliers des first picks : LES MÊMES filtres que partout sur le site (fiche monstre).
+   Le last_rating_id du first picker (35xx = Conquérant, 40xx = Guardian, 4003+ = G3/Légende)
+   classe chaque ouverture dans son palier ; « Sous Guardian » = tout ce qui est < Guardian 1. */
+const FP_TIERS = [
+  {v:"ladder", l:"Tout le ladder", min:0,    max:Infinity},
+  {v:"g3",     l:"Guardian 3",     min:4003, max:Infinity},
+  {v:"gplus",  l:"Guardian+",      min:4001, max:Infinity},
+  {v:"sub",    l:"Sous Guardian",  min:1,    max:4000}
 ];
 /* nombre minimum d'ouvertures pour qu'un monstre entre au classement des first picks.
    Défaut 100 : mesuré sur la S38 en Guardian 3+, il laisse 38 candidats (pour 15 affichés) et
@@ -1839,9 +1912,9 @@ const FP_MIN_OPTIONS = [10, 25, 50, 100, 250, 500];
    renderSim() : leurs gestionnaires sont donc posés en attribut (comme ailleurs dans la page)
    plutôt que rattachés une fois, sinon ils sauteraient au premier re-rendu.
    Aucun appel réseau au changement : la ventilation par rang est déjà en cache. */
-function setFpRank(v){
-  simState.fpRank = +v;
-  try{ localStorage.setItem("simFpRank_v1", String(simState.fpRank)); }catch(e){}
+function setFpTier(v){
+  simState.fpTier = v;
+  try{ localStorage.setItem("simFpTier_v1", v); }catch(e){}
   renderSim();
 }
 function setFpMin(v){
@@ -1850,8 +1923,8 @@ function setFpMin(v){
   renderSim();
 }
 const fpFilterHTML = () =>
-  `<select onchange="setFpRank(this.value)" style="font-size:12.5px;padding:3px 8px;font-weight:400" title="Niveau minimum du joueur qui a ouvert la draft : seules les ouvertures faites à ce rang ou au-dessus sont comptées. « Guardian 3+ » inclut donc la Légende.">${
-      FP_RANKS.map(x=>`<option value="${x.r}" ${x.r===simState.fpRank?"selected":""}>${x.l}</option>`).join("")}</select>
+  `<select onchange="setFpTier(this.value)" style="font-size:12.5px;padding:3px 8px;font-weight:400" title="Palier du joueur qui a OUVERT la draft — mêmes filtres que sur la fiche monstre. « Guardian 3 » inclut la Légende ; « Sous Guardian » = Conquérant et moins (la collecte balaie le haut du ladder : le volume y est plus réduit).">${
+      FP_TIERS.map(x=>`<option value="${x.v}" ${x.v===simState.fpTier?"selected":""}>${x.l}</option>`).join("")}</select>
    <select onchange="setFpMin(this.value)" style="font-size:12.5px;padding:3px 8px;font-weight:400" title="Nombre minimum d'ouvertures pour entrer au classement. Plus le seuil est bas, plus tu vois de monstres rares - mais leur pourcentage repose sur peu de parties et se retrouve fortement corrigé vers 50 %.">${
       FP_MIN_OPTIONS.map(x=>`<option value="${x}" ${x===simState.fpMin?"selected":""}>min. ${x} ouvertures</option>`).join("")}</select>`;
 const ELEM_ORDER = {Fire:0, Water:1, Wind:2, Light:3, Dark:4};
@@ -2046,11 +2119,13 @@ async function getFirstPickStats(){
 /* somme les paliers de rang >= minRating → Map(monster_id -> {n, w}).
    La clé 0 vient d'un fichier de l'ancien format (non ventilé) : on la compte toujours,
    sinon un déploiement à moitié propagé afficherait une liste vide. */
-function fpAggregate(fps, minRating){
+function fpAggregate(fps, tier){
+  const T = FP_TIERS.find(x=>x.v===tier) || FP_TIERS[0];
   const out = new Map();
   for(const [id, by] of fps){
     let n = 0, w = 0;
-    for(const k in by){ if(+k === 0 || +k >= minRating){ n += by[k][0]; w += by[k][1]; } }
+    // la clé 0 (ancien format non ventilé) n'est comptée qu'en « Tout le ladder »
+    for(const k in by){ if((+k === 0 && T.v === "ladder") || (+k >= T.min && +k <= T.max)){ n += by[k][0]; w += by[k][1]; } }
     if(n) out.set(id, {n, w});
   }
   return out;
@@ -3405,7 +3480,7 @@ async function camReport(){
       journal: (cam.journalFull || []).slice(),
       sim: {
         season: simState.season, fp: simState.fp, a: simState.a, b: simState.b,
-        boxOnly: simState.boxOnly, ldMode: simState.ldMode, fpRank: simState.fpRank, fpMin: simState.fpMin,
+        boxOnly: simState.boxOnly, ldMode: simState.ldMode, fpTier: simState.fpTier, fpMin: simState.fpMin,
         picksA: simState.picksA.map(pick), picksB: simState.picksB.map(pick),
         boxA: simState.boxA?.list?.length ?? null, boxB: simState.boxB?.list?.length ?? null
       }
@@ -4940,7 +5015,7 @@ async function renderSim(){
   const fpMode = !simState.picksB.length;
   let fpGlobal = [];
   if(fpMode){
-    const fps = fpAggregate(await getFirstPickStats(), simState.fpRank);
+    const fps = fpAggregate(await getFirstPickStats(), simState.fpTier);
     if(token !== simRenderToken) return;
     // liste globale des first picks du rang choisi (même hors box), au-dessus du seuil
     // d'ouvertures choisi dans l'en-tête. Le tri applique shrink(), qui ramène vers 50 % les
