@@ -4994,9 +4994,13 @@ async function renderSim(){
        c'est le vrai « sens d'équipe » que demandent les drafts, pas juste du counter) */
   const agg = await getSimAgg(simState.season);
   if(token !== simRenderToken) return;
-  const duoWr = (a,b) => { const e = agg.dm.get(duoKey(a,b)); return e ? shrink(e[1]/e[0], e[0]) : null; };
-  const trioWr = (a,b,c) => { const e = agg.tm.get(trioKey(a,b,c)); return e ? shrink(e[1]/e[0], e[0]) : null; };
-  const vsWrOur = (a,b) => { const e = agg.vm.get(a+"|"+b); return e ? shrink(e[1]/e[0], e[0]) : null; };
+  // parties MINIMUM pour qu'une mesure de nos replays compte dans les conseils : en dessous,
+  // le chiffre est trop bruité pour orienter un pick (colonnes « tout le ladder », ~480k équipes)
+  const AGG_MIN = { duo: 50, trio: 50, vs: 80 };
+  const duoWr = (a,b) => { const e = agg.dm.get(duoKey(a,b)); return e && e[0] >= AGG_MIN.duo ? shrink(e[1]/e[0], e[0]) : null; };
+  const trioWrN = (a,b,c) => { const e = agg.tm.get(trioKey(a,b,c)); return e && e[0] >= AGG_MIN.trio ? { wr: shrink(e[1]/e[0], e[0]), n: e[0] } : null; };
+  const trioWr = (a,b,c) => trioWrN(a,b,c)?.wr ?? null;
+  const vsWrOur = (a,b) => { const e = agg.vm.get(a+"|"+b); return e && e[0] >= AGG_MIN.vs ? shrink(e[1]/e[0], e[0]) : null; };
   const teamFit = (cid, mineIds) => {
     const vals = [];
     for(let i=0;i<mineIds.length;i++){
@@ -5176,11 +5180,12 @@ async function renderSim(){
       let score = myFit!=null ? 0.45*vs + 0.35*togAdj + 0.20*myFit : 0.55*vs + 0.45*togAdj;
       // cohérence de TRIO (nos replays) avec chaque pick déjà posé — le cas type : tu as le
       // first pick, il a répondu par deux, tu poses ces deux-là → ton équipe démarre sur
-      // le trio (ton FP + cette paire), donc son winrate réel pèse dans le classement
-      const tfs = myPicks.map(p=>trioWr(c1.id, c2.id, p.id)).filter(x=>x!=null);
-      const tf = tfs.length ? tfs.reduce((a,x)=>a+x,0)/tfs.length : null;
+      // le trio (ton FP + cette paire). Moyenne PONDÉRÉE par le volume, minimum 50 parties.
+      const tfs = myPicks.map(p=>trioWrN(c1.id, c2.id, p.id)).filter(Boolean);
+      const trioN = tfs.reduce((s,x)=>s+x.n, 0);
+      const tf = tfs.length ? tfs.reduce((s,x)=>s+x.wr*x.n, 0)/trioN : null;
       if(tf != null) score = 0.78*score + 0.22*tf;
-      duos.push({ c1, c2, tog, vs, myFit, score, nTog, trioFit: tf });
+      duos.push({ c1, c2, tog, vs, myFit, score, nTog, trioFit: tf, trioN });
     }
     duos.sort((a,b)=>b.score-a.score);
     duos = duos.slice(0,15);
@@ -5205,12 +5210,14 @@ async function renderSim(){
       const togAdj = shrink(tog, nTog);
       let score = c.myFit!=null ? 0.45*c.vsScore + 0.35*togAdj + 0.20*c.myFit
                                 : 0.55*c.vsScore + 0.45*togAdj;
-      // trio formé avec le partenaire + chacun des autres picks posés (nos replays)
+      // trio formé avec le partenaire + chacun des autres picks posés (nos replays,
+      // moyenne pondérée par le volume, minimum 50 parties)
       const others = myPicks.filter(p=>p.id!==partner.id);
-      const tfs = others.map(o=>trioWr(c.id, partner.id, o.id)).filter(x=>x!=null);
-      const tf = tfs.length ? tfs.reduce((a,x)=>a+x,0)/tfs.length : null;
+      const tfs = others.map(o=>trioWrN(c.id, partner.id, o.id)).filter(Boolean);
+      const trioN = tfs.reduce((s,x)=>s+x.n, 0);
+      const tf = tfs.length ? tfs.reduce((s,x)=>s+x.wr*x.n, 0)/trioN : null;
       if(tf != null) score = 0.78*score + 0.22*tf;
-      pairWith.push({c, tog, nTog, score, trioFit: tf});
+      pairWith.push({c, tog, nTog, score, trioFit: tf, trioN});
     }
     pairWith.sort((a,b)=>b.score-a.score);
     pairWith = pairWith.slice(0,15);
@@ -5269,7 +5276,7 @@ async function renderSim(){
       title="${pct(p.c.vsScore)} vs picks adverses · ${pct(p.tog)} avec ${esc(partner?.name||"")} (${num(p.nTog)} parties)">
       <img src="${monImg(p.c.img)}" loading="lazy">
       <div class="sg-n">${esc(p.c.name)} ${!simState.boxOnly && inBox(p.c.id) ? '<span class="inbox-badge">dans ta box</span>' : ""}${p.c.banRate!=null && p.c.banRate>=0.15 ? ` <span class="ban-badge">🚫 souvent banni (${pct(p.c.banRate,0)})</span>` : ""}
-        <div class="sub">${pct(p.tog)} avec ${esc(partner?.name||"")} (${num(p.nTog)} parties) · ${pct(p.c.vsScore)} vs sa draft${p.trioFit!=null?` · <b>trio avec tes picks ${pct(p.trioFit)}</b>`:""}</div></div>
+        <div class="sub">${pct(p.tog)} avec ${esc(partner?.name||"")} (${num(p.nTog)} parties) · ${pct(p.c.vsScore)} vs sa draft${p.trioFit!=null?` · <b>trio avec tes picks ${pct(p.trioFit)}</b> (${num(p.trioN)} parties)`:""}</div></div>
       <span class="sg-wr" style="color:${p.score>=0.5?'var(--win)':'var(--lose)'}">${pct(p.score)}</span></div>`);
   const duoRowsArr = duos.map(d=>
     `<div class="sugg" onclick="simPickDuo(${d.c1.id},${d.c2.id})" title="Picker les deux · ${pct(d.vs)} vs picks adverses · ${pct(d.tog)} ensemble (${num(d.nTog)} parties)">
@@ -5277,7 +5284,7 @@ async function renderSim(){
       <span style="color:var(--muted);font-weight:800">+</span>
       <img src="${monImg(d.c2.img)}" loading="lazy" class="mon-click" draggable="true" data-drag-id="${d.c2.id}" title="Picker uniquement ${esc(d.c2.name)}" onclick="event.stopPropagation();simPick(${d.c2.id},'A')">
       <div class="sg-n">${esc(d.c1.name)} + ${esc(d.c2.name)}
-        <div class="sub">${pct(d.vs)} vs picks adverses · ${pct(d.tog)} ensemble (${num(d.nTog)} parties)${d.trioFit!=null?` · <b>trio avec tes picks ${pct(d.trioFit)}</b>`:""}${d.myFit!=null?` · synergie picks ${pct(d.myFit)}`:""}</div></div>
+        <div class="sub">${pct(d.vs)} vs picks adverses · ${pct(d.tog)} ensemble (${num(d.nTog)} parties)${d.trioFit!=null?` · <b>trio avec tes picks ${pct(d.trioFit)}</b> (${num(d.trioN)} parties)`:""}${d.myFit!=null?` · synergie picks ${pct(d.myFit)}`:""}</div></div>
       <span class="sg-wr" style="color:${d.score>=0.5?'var(--win)':'var(--lose)'}">${pct(d.score)}</span></div>`);
   const pagedPanel = key => `<div id="sgList-${key}"></div><div id="sgPager-${key}"></div>`;
   $s.innerHTML = (fpMode ? `
