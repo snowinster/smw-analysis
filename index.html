@@ -1285,7 +1285,7 @@ async function goMonsterBySlug(slug){
 }
 
 /* ================= FICHE MONSTRE ================= */
-const monState = { id:null, season:null, isG3:false, userChose:false, hist:null,
+const monState = { id:null, season:null, isG3:false, tier:"all", userChose:false, hist:null,
   gran: (()=>{ try{ return localStorage.getItem("monGran_v1") || "jour"; }catch(e){ return "jour"; } })() };
 /* granularité du graphe de tendance. Défaut « jour » : c'est la vue la plus détaillée, celle
    qui montre les décrochages ponctuels. Garder en tête que les jours creux ne pèsent parfois
@@ -1321,6 +1321,19 @@ async function monFamily(id){
   monFamCache.set(key, arr);
   return arr;
 }
+/* stats SOUS Guardian : notre propre agrégation de replays (api/meta-sub-s{N}.json,
+   générée chaque nuit par build-sub-guardian.mjs) — swarena ne publie que du Guardian+ */
+const subMetaCache = new Map();
+async function getSubMeta(season){
+  if(subMetaCache.has(season)) return subMetaCache.get(season);
+  let d = null;
+  try{
+    const r = await fetch(`api/meta-sub-s${season}.json`, {cache:"no-cache"});
+    if(r.ok) d = await r.json();
+  }catch(e){}
+  subMetaCache.set(season, d);
+  return d;
+}
 async function viewMonster(id){
   $app.innerHTML = '<div class="loading">Chargement de la fiche monstre…</div>';
   try{
@@ -1330,7 +1343,7 @@ async function viewMonster(id){
     if(!base){ $app.innerHTML = '<div class="error-box">Monstre introuvable.</div>'; return; }
     monCache.set(id, {name:base.name, image_filename:base.image_filename, element:base.element, slug:base.slug}); saveMonCache();
     if(!monState.season) monState.season = seasons[0];
-    const season = monState.season, g3 = monState.isG3;
+    const season = monState.season, g3 = monState.tier === "g3";
     const pairsQ = ord => `/monster/${id}/pairs?season=${season}&isG3=${g3}&searchPairName=&orderBy=${ord}&orderDirection=DESC&minPlayedAgainst=0&minPlayedTogether=0&limit=150&offset=0`;
     const [sumR, histR, togR, agR, detR, runes] = await Promise.all([
       api(`/monster/${id}/summary?season=${season}&isG3=${g3}`).catch(()=>({data:null})),
@@ -1350,6 +1363,13 @@ async function viewMonster(id){
     const det = detR.data;
     const hist = histR.data || [];
     monState.hist = hist; // gardé pour que changer de granularité ne relance aucune requête
+    // filtre « Sous Guardian » : le bandeau vient de NOTRE agrégation, pas de l'API
+    let subRow = null, subInfo = null;
+    if(monState.tier === "sub"){
+      const d = await getSubMeta(season);
+      if(d){ subInfo = { sides: d.sides, battles: d.battles_scanned }; subRow = (d.monsters||[]).find(m => m.monster_id === id) || null; }
+    }
+    const st = monState.tier === "sub" ? subRow : (sumR.data ? s : null);
 
     // (stats de base du monstre retirées : sans intérêt ici, l'utilisateur veut les stats RTA)
 
@@ -1405,25 +1425,28 @@ async function viewMonster(id){
             <select onchange="monState.season=+this.value;monState.userChose=true;viewMonster(${id})">${seasons.map(x=>`<option value="${x}" ${x===monState.season?"selected":""}>Saison ${x}</option>`).join("")}</select>
           </label>
           <div class="chips">
-            <span class="chip ${g3?"active":""}" onclick="monState.isG3=true;viewMonster(${id})" title="Statistiques restreintes aux joueurs Guardian 3 et plus">Guardian 3</span>
-            <span class="chip ${!g3?"active":""}" onclick="monState.isG3=false;viewMonster(${id})" title="Tous les joueurs Guardian et plus — la source (swarena) ne publie pas plus fin (pas de paliers Punisher ni de découpage pré/post-patch)">Guardian+ (tous)</span>
+            <span class="chip ${monState.tier==="g3"?"active":""}" onclick="monState.tier='g3';viewMonster(${id})" title="Statistiques restreintes aux joueurs Guardian 3 et plus">Guardian 3</span>
+            <span class="chip ${monState.tier==="all"?"active":""}" onclick="monState.tier='all';viewMonster(${id})" title="Tous les joueurs Guardian et plus (données publiées par swarena)">Guardian+ (tous)</span>
+            <span class="chip ${monState.tier==="sub"?"active":""}" onclick="monState.tier='sub';viewMonster(${id})" title="Conquérant et en dessous — swarena ne publie pas ces stats : elles sont calculées par NOTRE collecte nocturne de replays (échantillon du ladder entre les rangs ~6 000 et 32 000)">Sous Guardian</span>
           </div>
         </div>
       </div>
-      ${sumR.data ? `<div class="mon-band">
-        <div class="mb-cell">${bandIc(IC_TROPHY, s.win_rate>=0.5?"#3fca7c":"#f05c5c")}<div>
-          <div class="mb-val" style="color:${s.win_rate>=0.5?"var(--win)":"var(--lose)"}">${pct(s.win_rate)}</div>
-          <div class="mb-lbl">Win rate</div><div class="mb-sub">${num(s.wins)} victoires</div></div></div>
+      ${st ? `<div class="mon-band">
+        <div class="mb-cell">${bandIc(IC_TROPHY, st.win_rate>=0.5?"#3fca7c":"#f05c5c")}<div>
+          <div class="mb-val" style="color:${st.win_rate>=0.5?"var(--win)":"var(--lose)"}">${pct(st.win_rate)}</div>
+          <div class="mb-lbl">Win rate</div><div class="mb-sub">${num(st.wins)} victoires</div></div></div>
         <div class="mb-cell">${bandIc(IC_PICK, "#57b0ff")}<div>
-          <div class="mb-val" style="color:#57b0ff">${pct(s.pick_rate)}</div>
-          <div class="mb-lbl">Pick rate</div><div class="mb-sub">${num(s.picks)} picks</div></div></div>
+          <div class="mb-val" style="color:#57b0ff">${pct(st.pick_rate)}</div>
+          <div class="mb-lbl">Pick rate</div><div class="mb-sub">${num(st.picks)} picks</div></div></div>
         <div class="mb-cell">${bandIc(IC_BAN, "#f05c5c")}<div>
-          <div class="mb-val" style="color:#f05c5c">${pct(s.ban_rate)}</div>
-          <div class="mb-lbl">Ban rate</div><div class="mb-sub">${num(s.bans)} bans</div></div></div>
+          <div class="mb-val" style="color:#f05c5c">${pct(st.ban_rate)}</div>
+          <div class="mb-lbl">Ban rate</div><div class="mb-sub">${num(st.bans)} bans</div></div></div>
         <div class="mb-cell">${bandIc(IC_CROWN, "#d8a94e")}<div>
-          <div class="mb-val" style="color:#d8a94e">${pct(s.lead_rate)}</div>
+          <div class="mb-val" style="color:#d8a94e">${pct(st.lead_rate)}</div>
           <div class="mb-lbl">Lead rate</div><div class="mb-sub">en leader</div></div></div>
-      </div>${(s.picks||0) < 30 ? `<div class="muted" style="font-size:12px;margin:-6px 0 16px">Échantillon très faible sur ce filtre (${num(s.picks)} pick${s.picks>1?"s":""}) — les pourcentages ne veulent pas dire grand-chose.</div>` : ""}` : `<div class="panel muted">Pas de statistiques pour la saison ${monState.season}.</div>`}
+      </div>${monState.tier==="sub" ? `<div class="muted" style="font-size:12px;margin:-6px 0 16px">Sous Guardian (Conquérant et moins) — calculé par notre collecte : ${num(st.picks)} picks sur ${num(subInfo.sides)} équipes (${num(subInfo.battles)} replays échantillonnés). La tendance et les synergies ci-dessous restent des données Guardian+.</div>`
+        : (st.picks||0) < 30 ? `<div class="muted" style="font-size:12px;margin:-6px 0 16px">Échantillon très faible sur ce filtre (${num(st.picks)} pick${st.picks>1?"s":""}) — les pourcentages ne veulent pas dire grand-chose.</div>` : ""}`
+      : `<div class="panel muted">${monState.tier==="sub" ? "Pas encore de données sous Guardian pour cette saison (la collecte tourne chaque nuit)." : `Pas de statistiques pour la saison ${monState.season}.`}</div>`}
       ${hist.length>2 ? `<h2 style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">Tendance - Saison ${monState.season}
         <select onchange="setMonGran(this.value)" style="font-size:12.5px;padding:3px 8px;font-weight:400" title="Regroupement des points. En quotidien, un jour à un ou deux combats fait sauter le winrate à 0 ou 100 % : le regroupement additionne les combats avant de calculer le pourcentage. Le mensuel est le plus stable mais une saison dure environ un mois, il n'y reste que 2 ou 3 points.">${
           MON_GRANS.map(([v,l])=>`<option value="${v}" ${v===monState.gran?"selected":""}>${l}</option>`).join("")}</select></h2>

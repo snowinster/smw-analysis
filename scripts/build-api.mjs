@@ -123,6 +123,13 @@ for(const s of [latest, latest - 1]){
   await write(`meta-s${s}.json`, { season: s, monsters: metaBySeason[s] });
   await write(`firstpicks-s${s}.json`, { season: s, ...(await buildFirstPicks(s)) });
   await write(`leaderboard-s${s}.json`, { season: s, players: await buildLeaderboard(s) });
+  // stats SOUS Guardian (agrégées par nous depuis les replays — swarena ne publie que du Guardian+)
+  try{
+    const { default: buildSubGuardian } = await import("./build-sub-guardian.mjs");
+    await write(`meta-sub-s${s}.json`, { season: s, source: "replays api.swarena.gg, agrégation locale", ...(await buildSubGuardian(s)) });
+  }catch(e){
+    console.log(`meta-sub-s${s}.json ignoré :`, e.message);
+  }
 }
 
 // ---- lexique des pseudos du ladder (résolution OCR côté client, sans plafond de recherche) ----
@@ -216,7 +223,8 @@ await write("index.json", {
   endpoints: {
     "meta": "api/meta-s{season}.json - stats méta de tous les monstres (WR, pick, ban, lead)",
     "firstpicks": "api/firstpicks-s{season}.json - vraies stats de first pick ventilées par rang du first picker (stats[].by = {last_rating_id: [ouvertures, victoires]}, Conquérant 1 et au-dessus)",
-    "leaderboard": "api/leaderboard-s{season}.json - top 100 du ladder RTA"
+    "leaderboard": "api/leaderboard-s{season}.json - top 100 du ladder RTA",
+    "meta-sub": "api/meta-sub-s{season}.json - stats de monstres SOUS Guardian (Conquérant et moins), agrégées par nous depuis un échantillon de replays du ladder profond (swarena ne publie que du Guardian+)"
   },
   note: "Données agrégées depuis api.swarena.gg (elles-mêmes issues des replays RTA de Com2uS ; données statiques des monstres via SWARFARM). Mise à jour quotidienne. Les saisons archivées sont conservées même après leur purge chez swarena."
 });
