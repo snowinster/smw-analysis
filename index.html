@@ -5159,6 +5159,31 @@ async function renderSim(){
        constituer la liste, et un vivier borné à 40 au lieu des ~400 monstres du jeu.
      Les deux passent ensuite par le MÊME calcul de score, seuls les candidats changent. */
   const lastPickTurn = !fpMode && simState.picksA.length === 4; // ton 5e monstre = dernier de TA draft
+  /* menace de ban CONTEXTUELLE d'un de mes picks : ban rate global × adéquation contre LEUR
+     draft. Un Douglas banni 55 % en général mais déjà countré par leur Shi Hou/Velaska
+     (WR faible contre eux) n'attirera PAS leur ban — ils ne gaspillent pas. */
+  const banCtx = v => v == null ? 0.6 : Math.max(0, Math.min(1, (v - 0.45)/0.15));
+  const myVsTheir = mid => {
+    const rows = cachedPairs(mid, "total_played_against");
+    let s = 0, n = 0;
+    for(const e of enemyPicks){
+      const r = rows.find(x=>x.b_monster_id===e.id);
+      if(r && r.total_played_against >= 20){ s += shrink(r.win_against_rate, r.total_played_against); n++; }
+      else{ const v = vsWrOur(mid, e.id); if(v != null){ s += v; n++; } }
+    }
+    return n ? s/n : null;
+  };
+  let myBanThreats = [];
+  if(lastPickTurn && myPicks.length && enemyPicks.length){
+    await Promise.all(myPicks.map(p=>getPairsAgainst(p.id)));
+    if(token !== simRenderToken) return;
+    myBanThreats = myPicks.map(p=>{
+      const br = meta.get(p.id)?.ban_rate ?? 0;
+      const vsT = myVsTheir(p.id);
+      return { p, br, vsT, threat: br*banCtx(vsT) };
+    }).sort((a,b)=>b.threat-a.threat);
+  }
+  const myMaxBanThreat = myBanThreats.length ? myBanThreats[0].threat : 0;
   if(enemyPicks.length){
     const boxCandidates = simState.boxOnly
       ? my.list.filter(x=>!pickedIds.has(x.unit_master_id) && keepLD(x.unit_master_id, x.element))
@@ -5221,12 +5246,10 @@ async function renderSim(){
       const banRate = meta.get(bx.unit_master_id)?.ban_rate ?? 0;
       let score = myFit!=null ? 0.75*vsScore + 0.25*myFit : vsScore;
       if(lastPickTurn){
-        /* DERNIER pick : le ban adverse tombe sur le plus gros aimant de ton équipe FINALE.
-           On ne pénalise donc que l'EXCÈS de ban rate du candidat par rapport à ton meilleur
-           aimant déjà posé — si ton Leo attire déjà le ban, un Beelzebub de fin de draft
-           passe souvent : les « bombes » très bannies mais bien adaptées redeviennent jouables. */
-        const myMaxBan = Math.max(0, ...myPicks.map(p=>meta.get(p.id)?.ban_rate ?? 0));
-        score -= 0.15*Math.max(0, banRate - myMaxBan);
+        /* DERNIER pick : le ban adverse tombe sur la plus grosse MENACE CONTEXTUELLE de ton
+           équipe finale (ban rate × adéquation contre leur draft). On ne pénalise le candidat
+           que pour l'excès de SA menace contextuelle sur celle de ton meilleur aimant posé. */
+        score -= 0.15*Math.max(0, banRate*banCtx(vsScore) - myMaxBanThreat);
       }else{
         score -= 0.08*banRate; // pénalité : un monstre très banni risque de ne jamais combattre
       }
@@ -5338,11 +5361,16 @@ async function renderSim(){
         ${sgWr(c.avg)}</div>`);
     boxEmpty = `<div class="muted">Pas assez de données de matchup ${simState.boxOnly ? "pour les monstres de ta box" : "sur les counters connus"} contre ces picks.</div>`;
     if(lastPick && myPicks.length){
-      const myBans = myPicks.map(p=>({p, br: meta.get(p.id)?.ban_rate ?? 0})).sort((x,y)=>y.br-x.br);
-      const topBan = myBans[0];
-      boxNotes += topBan.br >= 0.15
-        ? `<div class="note">💡 Ton <b>${esc(topBan.p.name)}</b> (ban rate ${pct(topBan.br)}) attirera probablement le ban adverse - un dernier pick fort a de bonnes chances de passer.</div>`
-        : `<div class="note">⚠️ Aucun de tes picks actuels n'attire fortement le ban : un dernier pick très menaçant (🚫) risque d'être banni. Deux stratégies : un « ban bait » assumé pour protéger le reste, ou un counter plus discret.</div>`;
+      // prédiction de ban CONTEXTUELLE : souvent banni ET menaçant contre LEUR draft réelle
+      const top = myBanThreats[0];
+      const globalTop = myBanThreats.slice().sort((a,b)=>b.br-a.br)[0];
+      if(top && top.threat >= 0.10){
+        boxNotes += `<div class="note">💡 Le ban adverse visera probablement ton <b>${esc(top.p.name)}</b> — banni ${pct(top.br)} en général${top.vsT!=null?` ET ${pct(top.vsT)} de WR contre leur draft`:""}. Un dernier pick fort a de bonnes chances de passer.</div>`;
+      }else if(globalTop && globalTop.br >= 0.20 && globalTop.threat < 0.10){
+        boxNotes += `<div class="note">⚠️ Ton <b>${esc(globalTop.p.name)}</b> est souvent banni en général (${pct(globalTop.br)}), mais leur draft le countre déjà${globalTop.vsT!=null?` (${pct(globalTop.vsT)} contre eux)`:""} — peu de chances qu'ils gaspillent leur ban dessus. Le ban risque de viser ton dernier pick : privilégie un counter solide plutôt qu'une bombe.</div>`;
+      }else{
+        boxNotes += `<div class="note">⚠️ Aucun de tes picks actuels n'attire fortement le ban contre cette draft : un dernier pick très menaçant (🚫) risque d'être banni. Deux stratégies : un « ban bait » assumé pour protéger le reste, ou un counter plus discret.</div>`;
+      }
       // ton ban conseillé, calculable dès maintenant (sa draft est complète)
       if(enemyPicks.length === 5){
         await Promise.all(myPicks.map(p=>getPairs(p.id, "total_played_against")));
