@@ -1348,6 +1348,21 @@ async function getAgg(kind, season){
   aggCache.set(k, d);
   return d;
 }
+/* agrégats replays pour le SIMULATEUR : duos/trios/oppositions en Maps indexées (colonnes
+   « tout le ladder », le plus gros volume). Sert la cohérence d'équipe des conseils de picks. */
+const simAggCache = {};
+const duoKey = (a,b) => a < b ? a+"|"+b : b+"|"+a;
+const trioKey = (a,b,c) => [a,b,c].sort((x,y)=>x-y).join("|");
+async function getSimAgg(season){
+  if(simAggCache.season === season) return simAggCache;
+  const [d, t, v] = await Promise.all([getAgg("duos", season), getAgg("trios", season), getAgg("versus", season)]);
+  const dm = new Map(), tm = new Map(), vm = new Map();
+  for(const r of (d?.rows||[])) dm.set(r[0]+"|"+r[1], [r[2], r[3]]);
+  for(const r of (t?.rows||[])) tm.set(r[0]+"|"+r[1]+"|"+r[2], [r[3], r[4]]);
+  for(const r of (v?.rows||[])) vm.set(r[0]+"|"+r[1], [r[2], r[3]]);
+  Object.assign(simAggCache, {season, dm, tm, vm});
+  return simAggCache;
+}
 const metaMapCache = new Map();
 async function getMetaMap(season){
   if(metaMapCache.has(season)) return metaMapCache.get(season);
@@ -4898,6 +4913,30 @@ async function renderSim(){
   // stats méta de la saison (ban rate, seuils)
   const meta = await getMetaStats();
   if(token !== simRenderToken) return;
+  /* nos agrégats de replays : duos, TRIOS et oppositions — complètent swarena.
+     - duoWr/trioWr : winrate d'un noyau de 2/3 monstres joués ensemble (rétréci au volume)
+     - vsWrOur : winrate de a CONTRE b, pour rattraper les matchups absents des pairs swarena
+     - teamFit : cohérence du candidat avec les picks DÉJÀ posés (les trios pèsent double :
+       c'est le vrai « sens d'équipe » que demandent les drafts, pas juste du counter) */
+  const agg = await getSimAgg(simState.season);
+  if(token !== simRenderToken) return;
+  const duoWr = (a,b) => { const e = agg.dm.get(duoKey(a,b)); return e ? shrink(e[1]/e[0], e[0]) : null; };
+  const trioWr = (a,b,c) => { const e = agg.tm.get(trioKey(a,b,c)); return e ? shrink(e[1]/e[0], e[0]) : null; };
+  const vsWrOur = (a,b) => { const e = agg.vm.get(a+"|"+b); return e ? shrink(e[1]/e[0], e[0]) : null; };
+  const teamFit = (cid, mineIds) => {
+    const vals = [];
+    for(let i=0;i<mineIds.length;i++){
+      const d = duoWr(cid, mineIds[i]);
+      if(d != null) vals.push([d, 1]);
+      for(let k=i+1;k<mineIds.length;k++){
+        const t = trioWr(cid, mineIds[i], mineIds[k]);
+        if(t != null) vals.push([t, 2]);
+      }
+    }
+    if(!vals.length) return null;
+    const W = vals.reduce((s,[,w])=>s+w, 0);
+    return vals.reduce((s,[v,w])=>s+v*w, 0)/W;
+  };
   // mode FIRST PICK (aucun pick adverse, ❓ compris) : classement par les VRAIES stats FP1 du top ladder
   const fpMode = !simState.picksB.length;
   let fpGlobal = [];
@@ -4983,6 +5022,10 @@ async function renderSim(){
           sum += shrink(r.win_against_rate, r.total_played_against); // WR ajusté au volume
           cover++;
           det.push(`${Math.round(r.win_against_rate*100)}% vs ${e.name}${prev?" (S"+(simState.season-1)+")":""}`);
+        }else{
+          // matchup absent des pairs swarena → rattrapé par NOS replays quand on l'a mesuré
+          const v = vsWrOur(bx.unit_master_id, e.id);
+          if(v != null){ sum += v; cover++; det.push(`${Math.round(v*100)}% vs ${e.name} (nos replays)`); }
         }
       }
       if(!cover) continue;
@@ -4999,6 +5042,12 @@ async function renderSim(){
           if(r){ s += shrink(r.win_together_rate, r.total_played_together); n2++; }
         }
         if(n2) myFit = s/n2;
+      }
+      // cohérence duo + TRIO avec les picks posés, mesurée sur NOS replays — couvre aussi le
+      // 5e pick (4 picks posés = 6 trios possibles avec le candidat : le « sens d'équipe » final)
+      if(myPicks.length){
+        const ourFit = teamFit(bx.unit_master_id, myPicks.map(p=>p.id));
+        if(ourFit != null) myFit = myFit != null ? (myFit + ourFit)/2 : ourFit;
       }
       const banRate = meta.get(bx.unit_master_id)?.ban_rate ?? 0;
       let score = myFit!=null ? 0.75*vsScore + 0.25*myFit : vsScore;
@@ -5037,14 +5086,27 @@ async function renderSim(){
       const c1 = base[i], c2 = base[k];
       const rows = cachedPairs(c1.id, "total_played_together");
       const row = rows.find(r=>r.b_monster_id===c2.id);
-      if(!row || row.total_played_together < 20) continue;
-      const togAdj = shrink(row.win_together_rate, row.total_played_together);
+      let tog, nTog;
+      if(row && row.total_played_together >= 20){ tog = row.win_together_rate; nTog = row.total_played_together; }
+      else{
+        // paire absente des pairs swarena → NOS replays la mesurent peut-être
+        const e2 = agg.dm.get(duoKey(c1.id, c2.id));
+        if(!e2) continue;
+        tog = e2[1]/e2[0]; nTog = e2[0];
+      }
+      const togAdj = shrink(tog, nTog);
       const vs = ((c1.vsScore ?? c1.avg) + (c2.vsScore ?? c2.avg)) / 2;
       const fits = [c1.myFit, c2.myFit].filter(x=>x!=null);
       const myFit = fits.length ? fits.reduce((a,x)=>a+x,0)/fits.length : null;
       // 45 % counter + 35 % synergie du duo + 20 % cohérence avec tes picks posés
-      const score = myFit!=null ? 0.45*vs + 0.35*togAdj + 0.20*myFit : 0.55*vs + 0.45*togAdj;
-      duos.push({ c1, c2, tog:row.win_together_rate, vs, myFit, score, nTog:row.total_played_together });
+      let score = myFit!=null ? 0.45*vs + 0.35*togAdj + 0.20*myFit : 0.55*vs + 0.45*togAdj;
+      // cohérence de TRIO (nos replays) avec chaque pick déjà posé — le cas type : tu as le
+      // first pick, il a répondu par deux, tu poses ces deux-là → ton équipe démarre sur
+      // le trio (ton FP + cette paire), donc son winrate réel pèse dans le classement
+      const tfs = myPicks.map(p=>trioWr(c1.id, c2.id, p.id)).filter(x=>x!=null);
+      const tf = tfs.length ? tfs.reduce((a,x)=>a+x,0)/tfs.length : null;
+      if(tf != null) score = 0.78*score + 0.22*tf;
+      duos.push({ c1, c2, tog, vs, myFit, score, nTog, trioFit: tf });
     }
     duos.sort((a,b)=>b.score-a.score);
     duos = duos.slice(0,15);
@@ -5059,11 +5121,22 @@ async function renderSim(){
     const rows = cachedPairs(partner.id, "total_played_together");
     for(const c of boxVs){
       const row = rows.find(r=>r.b_monster_id===c.id);
-      if(!row || row.total_played_together < 20) continue;
-      const togAdj = shrink(row.win_together_rate, row.total_played_together);
-      const score = c.myFit!=null ? 0.45*c.vsScore + 0.35*togAdj + 0.20*c.myFit
-                                  : 0.55*c.vsScore + 0.45*togAdj;
-      pairWith.push({c, tog:row.win_together_rate, nTog:row.total_played_together, score});
+      let tog, nTog;
+      if(row && row.total_played_together >= 20){ tog = row.win_together_rate; nTog = row.total_played_together; }
+      else{
+        const e2 = agg.dm.get(duoKey(partner.id, c.id)); // paire absente chez swarena → nos replays
+        if(!e2) continue;
+        tog = e2[1]/e2[0]; nTog = e2[0];
+      }
+      const togAdj = shrink(tog, nTog);
+      let score = c.myFit!=null ? 0.45*c.vsScore + 0.35*togAdj + 0.20*c.myFit
+                                : 0.55*c.vsScore + 0.45*togAdj;
+      // trio formé avec le partenaire + chacun des autres picks posés (nos replays)
+      const others = myPicks.filter(p=>p.id!==partner.id);
+      const tfs = others.map(o=>trioWr(c.id, partner.id, o.id)).filter(x=>x!=null);
+      const tf = tfs.length ? tfs.reduce((a,x)=>a+x,0)/tfs.length : null;
+      if(tf != null) score = 0.78*score + 0.22*tf;
+      pairWith.push({c, tog, nTog, score, trioFit: tf});
     }
     pairWith.sort((a,b)=>b.score-a.score);
     pairWith = pairWith.slice(0,15);
@@ -5136,7 +5209,7 @@ async function renderSim(){
           <span class="sg-wr" style="color:${p.score>=0.5?'var(--win)':'var(--lose)'}">${pct(p.score)}</span></div>`).join("")
         : `<div class="muted">Aucune synergie mesurée avec ${esc(partner.name)} (moins de 20 parties ensemble) - fie-toi au classement de gauche.</div>`}</div>
     </div>`
-    : `<div><h2>${(()=>{const t=simState.picksA.length+simState.picksB.length; const q=simSeq(); return q[t]==="A"&&q[t+1]==="A" ? "🎯 Tu dois picker 2 - duos conseillés" : "Duos conseillés";})()} <span class="muted" style="font-size:12px;font-weight:400">(meilleure chance de win : counter + synergie${duosFromBox ? ", pris dans ta box" : simState.boxOnly ? " - box trop limitée, duos globaux" : " - tous monstres, possédés ou non"})</span></h2>
+    : `<div><h2>${(()=>{const t=simState.picksA.length+simState.picksB.length; const q=simSeq(); return q[t]==="A"&&q[t+1]==="A" ? "🎯 Tu dois picker 2 - duos conseillés" : "Duos conseillés";})()} <span class="muted" style="font-size:12px;font-weight:400">(meilleure chance de win : counter + synergie + cohérence de trio avec tes picks posés${duosFromBox ? ", pris dans ta box" : simState.boxOnly ? " - box trop limitée, duos globaux" : " - tous monstres, possédés ou non"})</span></h2>
       <div class="panel">${duos.length ? duos.map((d,i)=>
         `<div class="sugg" onclick="simPickDuo(${d.c1.id},${d.c2.id})" title="Picker les deux · ${pct(d.vs)} vs picks adverses · ${pct(d.tog)} ensemble (${num(d.nTog)} parties)">
           <img src="${monImg(d.c1.img)}" loading="lazy" class="mon-click" draggable="true" data-drag-id="${d.c1.id}" title="Picker uniquement ${esc(d.c1.name)}" onclick="event.stopPropagation();simPick(${d.c1.id},'A')">
