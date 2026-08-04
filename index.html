@@ -911,7 +911,7 @@ let plSummaries = {}; // cache des résumés par saison pour le joueur affiché
 async function viewPlayer(id){
   $app.innerHTML = '<div class="loading">Chargement du profil…</div>';
   try{
-    if(plState.id !== id){ plState.id = id; plState.season = null; plSummaries = {}; }
+    if(plState.id !== id){ plState.id = id; plState.season = null; plSummaries = {}; plState.hists = {}; }
     const sr = await api(`/player/${id}/seasons`);
     const allSeasons = (sr.data||[]).sort((a,b)=>b-a);
     if(!allSeasons.length){ $app.innerHTML = '<div class="error-box">Aucune donnée pour ce joueur.</div>'; return; }
@@ -929,12 +929,18 @@ async function viewPlayer(id){
     if(!plState.season || !seasons.includes(plState.season)) plState.season = seasons[0];
     const season = plState.season;
 
-    const [histR, lbR] = await Promise.all([
-      api(`/player/${id}/history?season=${season}`).catch(()=>({data:[]})),
-      api(`/player/${id}/last-battles?season=${season}&limit=500`).catch(()=>({data:[]}))
+    // courbe de score : les 3 dernières saisons jouées, en ordre chronologique (cache par joueur)
+    const chartSeasons = seasons.slice(0,3).sort((x,y)=>x-y);
+    plState.hists = plState.hists || {};
+    const [lbR, ...histRs] = await Promise.all([
+      api(`/player/${id}/last-battles?season=${season}&limit=500`).catch(()=>({data:[]})),
+      ...chartSeasons.map(x => plState.hists[x]
+        ? Promise.resolve({data: plState.hists[x]})
+        : api(`/player/${id}/history?season=${x}`).catch(()=>({data:[]})))
     ]);
+    chartSeasons.forEach((x,i)=>{ plState.hists[x] = histRs[i].data || []; });
+    const multiHist = chartSeasons.map(x=>({season:x, pts:(plState.hists[x]||[]).filter(h=>h.score>0)}));
     const s = plSummaries[season] || {};
-    const hist = histR.data || [];
     const battles = lbR.data || [];
 
     const wr  = s.wizard_battles ? s.wizard_wins/s.wizard_battles : null;
@@ -962,7 +968,7 @@ async function viewPlayer(id){
         <div class="card"><div class="lbl">First pick</div><div class="big">${pct(fwr)}</div><div class="muted" style="font-size:12px">${num(s.first_pick_wins)} / ${num(s.first_pick_battles)}</div></div>
         <div class="card"><div class="lbl">Second pick</div><div class="big">${pct(swr)}</div><div class="muted" style="font-size:12px">${num(s.second_pick_wins)} / ${num(s.second_pick_battles)}</div></div>
       </div>
-      ${hist.length ? `<h2>Évolution du score - Saison ${season}</h2><div class="panel chart-wrap" id="chartPanel">${scoreChart(hist)}</div>` : ""}
+      ${multiHist.some(sg=>sg.pts.length) ? `<h2>Évolution du score ${chartSeasons.length>1 ? `- S${chartSeasons[0]} → S${chartSeasons[chartSeasons.length-1]}` : `- Saison ${season}`}</h2><div class="panel chart-wrap" id="chartPanel">${scoreChart(multiHist)}</div>` : ""}
       ${bestiary.length ? `<h2>Bestiaire (${bestiary.length} monstres)</h2>${bestiaryHTML(bestiary)}` : ""}
       ${mergedBestiaryHTML(seasons)}
       <h2>Derniers combats ${battles.length?`(${num(battles.length)})`:""}</h2>
@@ -1040,10 +1046,23 @@ function mergedBestiaryHTML(seasons){
 }
 
 /* ----- graphe score (SVG) ----- */
-function scoreChart(hist){
-  const pts = hist.filter(h=>h.score>0);
+/* évolution du score sur les dernières saisons : UNE SEULE courbe continue — la couleur
+   change à chaque saison via un dégradé à arrêts nets posé sur la même polyline.
+   La largeur remplit le panneau (mesurée au rendu), avec défilement si trop de points. */
+const SEASON_COLS = ["#4ea1ff", "#8b6cf0", "#ffb04e"]; // ancienne → récente
+function scoreChart(segs){
+  const pts = [];
+  const ranges = []; // {season, c, i0, i1} : plage d'indices de chaque saison dans la courbe
+  for(const sg of segs){
+    if(!sg.pts.length) continue;
+    const i0 = pts.length;
+    for(const h of sg.pts) pts.push({...h, season: sg.season});
+    ranges.push({season: sg.season, i0, i1: pts.length-1});
+  }
+  ranges.forEach((r,k)=>{ r.c = SEASON_COLS[(k + SEASON_COLS.length - ranges.length) % SEASON_COLS.length]; });
   if(pts.length<2) return '<div class="muted">Pas assez de données pour tracer le graphe.</div>';
-  const W = Math.max(700, pts.length*22), H = 260, P = 38;
+  const avail = (document.getElementById("app")?.clientWidth || 1000) - 84;
+  const W = Math.max(Math.min(avail, 2600), Math.min(pts.length*14, 4000)), H = 280, P = 38;
   const min = Math.min(...pts.map(p=>p.score)), max = Math.max(...pts.map(p=>p.score));
   const span = (max-min)||1;
   const X = i => P + i*(W-2*P)/(pts.length-1);
@@ -1053,13 +1072,24 @@ function scoreChart(hist){
     const v = Math.round(min+f*span), y = Y(v);
     return `<line x1="${P}" y1="${y}" x2="${W-P}" y2="${y}" stroke="#2b3550" stroke-dasharray="3 4"/><text x="6" y="${y+4}" fill="#8b95ab" font-size="11">${v}</text>`;
   }).join("");
+  // arrêts NETS du dégradé aux frontières de saison (le bbox de la polyline va du 1er au dernier point)
+  const off = i => (i/(pts.length-1)).toFixed(4);
+  const stops = ranges.map(r=>`<stop offset="${off(r.i0)}" stop-color="${r.c}"/><stop offset="${off(r.i1)}" stop-color="${r.c}"/>`).join("");
+  // étiquette de saison au-dessus de son tronçon + séparateur pointillé entre saisons
+  const marks = ranges.map((r,k)=>{
+    const xm = (X(r.i0)+X(r.i1))/2;
+    const sep = k ? (()=>{ const xb = (X(ranges[k-1].i1)+X(r.i0))/2;
+      return `<line x1="${xb.toFixed(1)}" y1="${P-10}" x2="${xb.toFixed(1)}" y2="${H-P}" stroke="#2b3550" stroke-dasharray="4 5"/>`; })() : "";
+    return sep + `<text x="${xm.toFixed(1)}" y="16" text-anchor="middle" fill="${r.c}" font-size="12.5" font-weight="700">S${r.season}</text>`;
+  }).join("");
+  const colOf = {}; ranges.forEach(r=>{ colOf[r.season] = r.c; });
   const dots = pts.map((p,i)=>
-    `<circle cx="${X(i).toFixed(1)}" cy="${Y(p.score).toFixed(1)}" r="4.5" fill="#7c6cf0" stroke="#0d1117" stroke-width="1.5"
-       data-tip="${esc(p.date_add)} - score ${p.score} · ${p.battles} combats, ${p.wins} V"/>`).join("");
+    `<circle cx="${X(i).toFixed(1)}" cy="${Y(p.score).toFixed(1)}" r="4.5" fill="${colOf[p.season]}" stroke="#0d1117" stroke-width="1.5"
+       data-tip="S${p.season} · ${esc(p.date_add)} - score ${p.score} · ${p.battles} combats, ${p.wins} V"/>`).join("");
   return `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">
-    ${grid}
+    ${grid}${marks}
     <polyline points="${line}" fill="none" stroke="url(#gline)" stroke-width="2.5" stroke-linejoin="round"/>
-    <defs><linearGradient id="gline" x1="0" x2="1"><stop offset="0" stop-color="#7c6cf0"/><stop offset="1" stop-color="#4ea1ff"/></linearGradient></defs>
+    <defs><linearGradient id="gline" x1="0" x2="1">${stops}</linearGradient></defs>
     ${dots}</svg>`;
 }
 function attachChartTips(){
@@ -2058,13 +2088,11 @@ function authCloseMenu(){
 }
 document.addEventListener("click", e => { if(!e.target.closest("#authWrap")) authCloseMenu(); });
 /* ----- page de connexion dédiée (login.html, style Arène World) -----
-   Ouverte en fenêtre propre ; la session Firebase se propage toute seule à cet onglet
-   (onAuthStateChanged) dès que la connexion aboutit là-bas. Repli : même onglet si le
-   navigateur bloque la fenêtre. La modale ci-dessous ne sert plus qu'à la LIAISON joueur. */
+   Navigation dans le MÊME onglet (pas de nouvelle fenêtre) ; après connexion, la page
+   redirige vers index.html + le hash d'origine (?back=). La modale ci-dessous ne sert
+   plus qu'à la LIAISON joueur. */
 function authOpenLoginPage(){
-  const url = "login.html?back=" + encodeURIComponent(location.hash || "#/");
-  const w = window.open(url, "swaLogin", "width=1080,height=760");
-  if(!w) location.href = url;
+  location.href = "login.html?back=" + encodeURIComponent(location.hash || "#/");
 }
 /* ----- modale connexion / création / liaison joueur ----- */
 let authSelPlayer = null;
