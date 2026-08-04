@@ -1811,13 +1811,12 @@ const simState = { a:null, b:null, fp:"A", picksA:[], picksB:[], boxA:null, boxB
   fpMin:  (()=>{ try{ return parseInt(localStorage.getItem("simFpMin_v1"), 10) || 100; }catch(e){ return 100; } })(),
   // conseils limités aux monstres que tu possèdes, ou meilleurs choix THÉORIQUES tous monstres
   boxOnly: (()=>{ try{ return localStorage.getItem("simBoxOnly_v1") !== "false"; }catch(e){ return true; } })(),
-  // toute valeur héritée (dont l'ancien « all ») retombe sur « mine », le défaut
-  ldMode:  (()=>{ try{ return localStorage.getItem("simLdMode_v1") === "none" ? "none" : "mine"; }catch(e){ return "mine"; } })() };
-/* filtre Lumière/Ténèbres des conseils. « mine » (défaut) écarte les LD que tu ne possèdes pas :
-   sans lui, le classement théorique se remplit de monstres hors de portée qui noient les conseils
-   réellement jouables — mais il garde ceux de ta box, qui eux sont de vrais choix. Il n'agit donc
-   que lorsque « Limiter à ma box » est décoché ; en mode box, tout est déjà à toi. */
-const LD_MODES = [["mine","LD : seulement les miens"],["none","LD : exclus"]];
+  ldMode:  (()=>{ try{ const v = localStorage.getItem("simLdMode_v1"); return ["all","mine","none"].includes(v) ? v : "all"; }catch(e){ return "all"; } })() };
+/* filtre Lumière/Ténèbres des conseils. « all » (défaut) : tous les LD passent — le toggle
+   « Limiter à ma box » restreint de toute façon le vivier à ta box quand il est coché.
+   « mine » écarte les LD que tu ne possèdes pas (utile en mode théorique : sans lui, le
+   classement se remplit de monstres hors de portée). « none » les exclut tous. */
+const LD_MODES = [["all","LD : tous"],["mine","LD : seulement les miens"],["none","LD : exclus"]];
 /* paliers de rang RTA, tels que l'API les expose dans last_rating_id du first picker.
    Vérifié sur 197 000 lignes de replays S38 : 35xx = Conquérant, 40xx = Guardian, le dernier
    chiffre donne le sous-rang, et le score médian croît bien dans cet ordre (1080 → 1278).
@@ -2547,7 +2546,7 @@ async function viewSimulator(){
         <label class="switch" title="Coché : les conseils ne proposent que des monstres de TA box - ce que tu peux réellement jouer. Décoché : ils classent les meilleurs choix théoriques parmi tous les monstres qui counterent sa draft, possédés ou non, avec un badge sur ceux que tu as.">
           <input type="checkbox" id="simBoxOnly" ${simState.boxOnly?"checked":""}><span class="tk"></span><span>📦 Limiter à ma box</span>
         </label>
-        <select id="simLdMode" style="font-size:12.5px;padding:4px 8px" title="Filtre Lumière/Ténèbres des conseils. « Seulement les miens » est surtout utile quand « Limiter à ma box » est décoché : le classement théorique ne se remplit plus de LD que tu ne possèdes pas, mais garde ceux de ta box, qui sont de vrais choix.">${
+        <select id="simLdMode" style="font-size:12.5px;padding:4px 8px" title="Filtre Lumière/Ténèbres des conseils. « Tous » (défaut) : aucun filtre — et si « Limiter à ma box » est coché, seuls ceux de ta box apparaissent de toute façon. « Seulement les miens » évite que le classement théorique se remplisse de LD que tu ne possèdes pas. « Exclus » les retire tous.">${
           LD_MODES.map(([v,l])=>`<option value="${v}" ${v===simState.ldMode?"selected":""}>${l}</option>`).join("")}</select>
         <button class="btn" id="simReport" style="font-size:12.5px" title="La reconnaissance s'est trompée (mauvais monstre, mauvais élément, pseudo pas trouvé, plateau pas détecté…) ? Un clic enregistre une capture de la frame + le journal + tout l'état interne. Les signalements s'accumulent en local : exporte-les en un seul fichier quand tu en as plusieurs.">🐞 Signaler</button>
         <button class="btn" id="simRepExport" style="font-size:12.5px;display:none" title="Télécharge tous les signalements accumulés en un seul fichier JSON (avec captures) à transmettre — puis propose de vider la liste."></button>
@@ -4909,7 +4908,7 @@ async function renderSim(){
   const inBox = id => my.list.some(x=>x.unit_master_id===id);
   // filtre Lumière/Ténèbres : « mine » ne garde que les LD de ta box, « none » les écarte tous.
   // Les autres éléments passent toujours, et un élément inconnu n'est jamais écarté.
-  const keepLD = (id, element) => !isLD(element) || (simState.ldMode === "mine" && inBox(id));
+  const keepLD = (id, element) => !isLD(element) || simState.ldMode === "all" || (simState.ldMode === "mine" && inBox(id));
   // stats méta de la saison (ban rate, seuils)
   const meta = await getMetaStats();
   if(token !== simRenderToken) return;
@@ -5143,22 +5142,22 @@ async function renderSim(){
   }
   const $s = document.getElementById("simSugg");
   if(!$s || token !== simRenderToken) return;
-  let boxPanelTitle = "", boxPanelRows = "";
+  let boxPanelTitle = "", boxRowsArr = [], boxEmpty = "", boxNotes = "";
   if(!fpMode){
     boxPanelTitle = lastPick
       ? `🎯 Dernier pick - counter toute leur draft <span class="muted" style="font-size:12px;font-weight:400">(WR réel vs leurs picks · attention au ban adverse${simState.boxOnly?"":" · tous monstres"})</span>`
       : `${simState.boxOnly ? "Ta box contre ses picks" : "Meilleurs picks théoriques contre ses picks"} <span class="muted" style="font-size:12px;font-weight:400">(chaque monstre seul, WR moyen face à l'ensemble de sa draft - les duos sont à droite${simState.boxOnly?"":" · tous monstres, possédés ou non"})</span>`;
-    boxPanelRows = boxVs.length ? boxVs.map((c,i)=>
+    boxRowsArr = boxVs.map((c,i)=>
       `<div class="sugg" draggable="true" data-drag-id="${c.id}" onclick="simPick(${c.id},'A')"
         title="${c.det.join(" · ")}${c.myFit!=null?` · synergie picks ${pct(c.myFit)}`:""} — score ajusté au volume${c.banRate>=0.15?", pénalité de ban":""}">
         <img src="${monImg(c.img)}" loading="lazy"><div class="sg-n">${esc(c.name)} ${!simState.boxOnly && inBox(c.id) ? '<span class="inbox-badge">dans ta box</span>' : ""} ${c.delta>=0.03?`<span class="inbox-badge" title="Gagne ${(c.delta*100).toFixed(0)} pts de plus contre cette draft que son winrate habituel">🎯 counter +${(c.delta*100).toFixed(0)} pts</span>`:""} ${c.banRate!=null && c.banRate>=0.15 ? `<span class="ban-badge">🚫 souvent banni (${pct(c.banRate,0)})</span>` : ""}
           <div class="sub">mesuré ${c.cover}/${enemyPicks.length} pick${enemyPicks.length>1?"s":""} · ${c.det.join(" · ")}${c.myFit!=null?` · synergie picks ${pct(c.myFit)}`:""} · perso : ${c.myWr!=null?pct(c.myWr):"-"} (${c.myPlays} parties)</div></div>
-        <span class="sg-wr" style="color:${c.avg>=0.5?'var(--win)':'var(--lose)'}">${pct(c.avg)}</span></div>`).join("")
-      : `<div class="muted">Pas assez de données de matchup ${simState.boxOnly ? "pour les monstres de ta box" : "sur les counters connus"} contre ces picks.</div>`;
+        <span class="sg-wr" style="color:${c.avg>=0.5?'var(--win)':'var(--lose)'}">${pct(c.avg)}</span></div>`);
+    boxEmpty = `<div class="muted">Pas assez de données de matchup ${simState.boxOnly ? "pour les monstres de ta box" : "sur les counters connus"} contre ces picks.</div>`;
     if(lastPick && myPicks.length){
       const myBans = myPicks.map(p=>({p, br: meta.get(p.id)?.ban_rate ?? 0})).sort((x,y)=>y.br-x.br);
       const topBan = myBans[0];
-      boxPanelRows += topBan.br >= 0.15
+      boxNotes += topBan.br >= 0.15
         ? `<div class="note">💡 Ton <b>${esc(topBan.p.name)}</b> (ban rate ${pct(topBan.br)}) attirera probablement le ban adverse - un dernier pick fort a de bonnes chances de passer.</div>`
         : `<div class="note">⚠️ Aucun de tes picks actuels n'attire fortement le ban : un dernier pick très menaçant (🚫) risque d'être banni. Deux stratégies : un « ban bait » assumé pour protéger le reste, ou un counter plus discret.</div>`;
       // ton ban conseillé, calculable dès maintenant (sa draft est complète)
@@ -5178,51 +5177,83 @@ async function renderSim(){
           const c = matchupOf(myPicks, enemyPicks.filter(x=>x!==e));
           if(!bestBan || c > bestBan.c) bestBan = {e, c};
         }
-        if(bestBan) boxPanelRows += `<div class="note">🚫 <b>Ton ban conseillé : ${esc(bestBan.e.name)}</b> - sans lui, les matchups de tes 4 picks actuels montent à ${pct(bestBan.c)}. (L'analyse complète des bans, incluant ton 5e pick, s'affiche après la fin de la draft.)</div>`;
+        if(bestBan) boxNotes += `<div class="note">🚫 <b>Ton ban conseillé : ${esc(bestBan.e.name)}</b> - sans lui, les matchups de tes 4 picks actuels montent à ${pct(bestBan.c)}. (L'analyse complète des bans, incluant ton 5e pick, s'affiche après la fin de la draft.)</div>`;
       }
     }
   }
+  // ----- listes PAGINÉES : 5 lignes par page, flèches en bas (plus de défilement interne) -----
+  const fpRowsArr = fpGlobal.map(f=>{
+    const fm = monCache.get(f.id)||{};
+    return `<div class="sugg" draggable="true" data-drag-id="${f.id}" onclick="simPick(${f.id},'A')">
+      <img src="${monImg(fm.image_filename)}" loading="lazy">
+      <div class="sg-n">${esc(fm.name||f.id)} ${inBox(f.id)?'<span class="inbox-badge">dans ta box</span>':""}<div class="sub">${elemTag(fm.element)} · ouvert ${f.n} fois en FP1</div></div>
+      <span class="sg-wr" style="color:${f.wr>=0.5?'var(--win)':'var(--lose)'}">${pct(f.wr)}</span></div>`;
+  });
+  const pairRowsArr = pairWith.map(p=>
+    `<div class="sugg" draggable="true" data-drag-id="${p.c.id}" onclick="simPick(${p.c.id},'A')"
+      title="${pct(p.c.vsScore)} vs picks adverses · ${pct(p.tog)} avec ${esc(partner?.name||"")} (${num(p.nTog)} parties)">
+      <img src="${monImg(p.c.img)}" loading="lazy">
+      <div class="sg-n">${esc(p.c.name)} ${!simState.boxOnly && inBox(p.c.id) ? '<span class="inbox-badge">dans ta box</span>' : ""}${p.c.banRate!=null && p.c.banRate>=0.15 ? ` <span class="ban-badge">🚫 souvent banni (${pct(p.c.banRate,0)})</span>` : ""}
+        <div class="sub">${pct(p.tog)} avec ${esc(partner?.name||"")} (${num(p.nTog)} parties) · ${pct(p.c.vsScore)} vs sa draft</div></div>
+      <span class="sg-wr" style="color:${p.score>=0.5?'var(--win)':'var(--lose)'}">${pct(p.score)}</span></div>`);
+  const duoRowsArr = duos.map(d=>
+    `<div class="sugg" onclick="simPickDuo(${d.c1.id},${d.c2.id})" title="Picker les deux · ${pct(d.vs)} vs picks adverses · ${pct(d.tog)} ensemble (${num(d.nTog)} parties)">
+      <img src="${monImg(d.c1.img)}" loading="lazy" class="mon-click" draggable="true" data-drag-id="${d.c1.id}" title="Picker uniquement ${esc(d.c1.name)}" onclick="event.stopPropagation();simPick(${d.c1.id},'A')">
+      <span style="color:var(--muted);font-weight:800">+</span>
+      <img src="${monImg(d.c2.img)}" loading="lazy" class="mon-click" draggable="true" data-drag-id="${d.c2.id}" title="Picker uniquement ${esc(d.c2.name)}" onclick="event.stopPropagation();simPick(${d.c2.id},'A')">
+      <div class="sg-n">${esc(d.c1.name)} + ${esc(d.c2.name)}
+        <div class="sub">${pct(d.vs)} vs picks adverses · ${pct(d.tog)} ensemble (${num(d.nTog)} parties)${d.myFit!=null?` · synergie avec tes picks ${pct(d.myFit)}`:""}</div></div>
+      <span class="sg-wr" style="color:${d.score>=0.5?'var(--win)':'var(--lose)'}">${pct(d.score)}</span></div>`);
+  const pagedPanel = key => `<div id="sgList-${key}"></div><div id="sgPager-${key}"></div>`;
   $s.innerHTML = (fpMode ? `
     <h2 style="display:flex;align-items:center;gap:7px;flex-wrap:wrap">First picks ${fpFilterHTML()}
       <span style="color:var(--accent2);cursor:help;font-size:15px" title="Comment c'est calculé ? On balaie tout l'historique de saison des 600 premiers du classement, sans plafond par joueur. Dans chaque combat : qui avait le first pick, son rang, le monstre posé en premier, et s'il a gagné. Le % = victoires / ouvertures. Recalculé chaque nuit. (Les deux menus ci-contre ont leur propre explication au survol.)">*</span></h2>
-    <div class="panel fp-panel">${fpGlobal.length ? fpGlobal.map((f,i)=>{
-        const fm = monCache.get(f.id)||{};
-        return `<div class="sugg" draggable="true" data-drag-id="${f.id}" onclick="simPick(${f.id},'A')">
-          <img src="${monImg(fm.image_filename)}" loading="lazy">
-          <div class="sg-n">${esc(fm.name||f.id)} ${inBox(f.id)?'<span class="inbox-badge">dans ta box</span>':""}<div class="sub">${elemTag(fm.element)} · ouvert ${f.n} fois en FP1</div></div>
-          <span class="sg-wr" style="color:${f.wr>=0.5?'var(--win)':'var(--lose)'}">${pct(f.wr)}</span></div>`;
-      }).join("") : '<div class="muted">Analyse des replays en cours ou pas assez de données pour cette saison.</div>'}</div>`
+    <div class="panel fp-panel">${pagedPanel("fp")}</div>`
   : (lastPick && !partner) ? `<div><h2>${boxPanelTitle}</h2>
-      <div class="panel">${boxPanelRows}</div>
+      <div class="panel">${pagedPanel("box")}${boxNotes}</div>
     </div>`
   : `<div class="two-col">
     <div><h2>${boxPanelTitle}</h2>
-      <div class="panel">${boxPanelRows}</div>
+      <div class="panel">${pagedPanel("box")}${boxNotes}</div>
     </div>
     ${partner ? `<div><h2>🎯 Complète ta paire avec ${esc(partner.name)} <span class="muted" style="font-size:12px;font-weight:400">(il te reste 1 seul pick dans ce tour - classement par counter + synergie AVEC ${esc(partner.name)})</span></h2>
-      <div class="panel">${pairWith.length ? pairWith.map(p=>
-        `<div class="sugg" draggable="true" data-drag-id="${p.c.id}" onclick="simPick(${p.c.id},'A')"
-          title="${pct(p.c.vsScore)} vs picks adverses · ${pct(p.tog)} avec ${esc(partner.name)} (${num(p.nTog)} parties)">
-          <img src="${monImg(p.c.img)}" loading="lazy">
-          <div class="sg-n">${esc(p.c.name)} ${!simState.boxOnly && inBox(p.c.id) ? '<span class="inbox-badge">dans ta box</span>' : ""}${p.c.banRate!=null && p.c.banRate>=0.15 ? ` <span class="ban-badge">🚫 souvent banni (${pct(p.c.banRate,0)})</span>` : ""}
-            <div class="sub">${pct(p.tog)} avec ${esc(partner.name)} (${num(p.nTog)} parties) · ${pct(p.c.vsScore)} vs sa draft</div></div>
-          <span class="sg-wr" style="color:${p.score>=0.5?'var(--win)':'var(--lose)'}">${pct(p.score)}</span></div>`).join("")
-        : `<div class="muted">Aucune synergie mesurée avec ${esc(partner.name)} (moins de 20 parties ensemble) - fie-toi au classement de gauche.</div>`}</div>
+      <div class="panel">${pagedPanel("pair")}</div>
     </div>`
     : `<div><h2>${(()=>{const t=simState.picksA.length+simState.picksB.length; const q=simSeq(); return q[t]==="A"&&q[t+1]==="A" ? "🎯 Tu dois picker 2 - duos conseillés" : "Duos conseillés";})()} <span class="muted" style="font-size:12px;font-weight:400">(meilleure chance de win : counter + synergie + cohérence de trio avec tes picks posés${duosFromBox ? ", pris dans ta box" : simState.boxOnly ? " - box trop limitée, duos globaux" : " - tous monstres, possédés ou non"})</span></h2>
-      <div class="panel">${duos.length ? duos.map((d,i)=>
-        `<div class="sugg" onclick="simPickDuo(${d.c1.id},${d.c2.id})" title="Picker les deux · ${pct(d.vs)} vs picks adverses · ${pct(d.tog)} ensemble (${num(d.nTog)} parties)">
-          <img src="${monImg(d.c1.img)}" loading="lazy" class="mon-click" draggable="true" data-drag-id="${d.c1.id}" title="Picker uniquement ${esc(d.c1.name)}" onclick="event.stopPropagation();simPick(${d.c1.id},'A')">
-          <span style="color:var(--muted);font-weight:800">+</span>
-          <img src="${monImg(d.c2.img)}" loading="lazy" class="mon-click" draggable="true" data-drag-id="${d.c2.id}" title="Picker uniquement ${esc(d.c2.name)}" onclick="event.stopPropagation();simPick(${d.c2.id},'A')">
-          <div class="sg-n">${esc(d.c1.name)} + ${esc(d.c2.name)}
-            <div class="sub">${pct(d.vs)} vs picks adverses · ${pct(d.tog)} ensemble (${num(d.nTog)} parties)${d.myFit!=null?` · synergie avec tes picks ${pct(d.myFit)}`:""}</div></div>
-          <span class="sg-wr" style="color:${d.score>=0.5?'var(--win)':'var(--lose)'}">${pct(d.score)}</span></div>`).join("")
-        : '<div class="muted">Pas assez de données pour former des duos fiables contre ces picks.</div>'}</div>
+      <div class="panel">${pagedPanel("duo")}</div>
     </div>`}
   </div>`)
 ;
+  simSuggLists.fp   = { rows: fpRowsArr,  page:0, empty: '<div class="muted">Analyse des replays en cours ou pas assez de données pour cette saison.</div>' };
+  simSuggLists.box  = { rows: boxRowsArr, page:0, empty: boxEmpty };
+  simSuggLists.pair = { rows: pairRowsArr, page:0, empty: `<div class="muted">Aucune synergie mesurée avec ${esc(partner?.name||"ce monstre")} (moins de 20 parties ensemble) - fie-toi au classement de gauche.</div>` };
+  simSuggLists.duo  = { rows: duoRowsArr, page:0, empty: '<div class="muted">Pas assez de données pour former des duos fiables contre ces picks.</div>' };
+  ["fp","box","pair","duo"].forEach(simSuggPaint);
   wireSimAdd();
+}
+/* pagination des panneaux de suggestions : 5 lignes/page, changement de page SANS recalcul
+   (les listes calculées restent en mémoire, seul le contenu du panneau est repeint) */
+const simSuggLists = {};
+function simSuggPaint(key){
+  const L = simSuggLists[key];
+  const el = document.getElementById("sgList-" + key), pg = document.getElementById("sgPager-" + key);
+  if(!L || !el || !pg) return;
+  const PER = 5;
+  if(!L.rows.length){ el.innerHTML = L.empty; pg.innerHTML = ""; return; }
+  const pages = Math.max(1, Math.ceil(L.rows.length/PER));
+  L.page = Math.min(Math.max(0, L.page), pages-1);
+  const from = L.page*PER;
+  el.innerHTML = L.rows.slice(from, from+PER).join("");
+  pg.innerHTML = pages <= 1 ? "" : `
+    <div class="row" style="justify-content:flex-end;gap:8px;margin-top:9px">
+      <span class="muted" style="font-size:12px">${from+1}–${Math.min(from+PER, L.rows.length)} sur ${L.rows.length}</span>
+      <button class="btn" style="padding:3px 9px" onclick="simSuggGo('${key}',${L.page-1})" ${L.page===0?"disabled":""} title="Page précédente">‹</button>
+      <button class="btn" style="padding:3px 9px" onclick="simSuggGo('${key}',${L.page+1})" ${L.page>=pages-1?"disabled":""} title="Page suivante">›</button>
+    </div>`;
+  wireSimAdd();
+}
+function simSuggGo(key, p){
+  if(simSuggLists[key]){ simSuggLists[key].page = p; simSuggPaint(key); }
 }
 /* indice de confiance de victoire après la draft complète (AVANT bans) :
    matchups réels tes 5 vs ses 5 (pondérés par volume) + différentiel de synergie interne */
