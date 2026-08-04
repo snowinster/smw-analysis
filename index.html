@@ -377,7 +377,24 @@ td.best{color:var(--win);font-weight:800}
    contraint aussi le texte de gauche, qui revient à la ligne plus tôt au lieu de tout pousser. */
 .sugg .sg-n{flex:1;min-width:0;font-size:13.5px;font-weight:600}
 .sugg .sg-n .sub{font-size:11px;color:var(--muted);font-weight:400}
-.sugg .sg-wr{flex:none;font-weight:800;font-size:13.5px;white-space:nowrap;text-align:right;min-width:58px}
+.sugg .sg-wr{flex:none;font-weight:800;font-size:13.5px;white-space:nowrap;text-align:right;min-width:58px;display:flex;flex-direction:column;align-items:flex-end;gap:3px}
+.sg-bar{width:54px;height:4px;border-radius:3px;background:var(--bg2);overflow:hidden}
+.sg-bar i{display:block;height:100%;border-radius:3px}
+/* frise de séquence de draft 1-2-2-2-2-1 */
+.seq-strip{display:flex;align-items:center;gap:5px;margin:0 0 12px;flex-wrap:wrap}
+.seq-strip b{font-size:14px;margin-right:6px}
+.seq-strip b.me{color:var(--win)}
+.seq-strip b.opp{color:var(--muted);font-weight:600}
+.sq{width:24px;height:10px;border-radius:5px;background:var(--card2);border:1px solid var(--border)}
+.sq.a{border-color:#7c6cf0}
+.sq.b{border-color:#ff9f6b}
+.sq.a.fill{background:#7c6cf0}
+.sq.b.fill{background:#ff9f6b}
+.sq.cur{box-shadow:0 0 9px var(--accent);border-color:var(--accent)}
+/* recalcul des suggestions : l'ancienne liste reste visible, grisée, au lieu de clignoter */
+#simSugg.recalc{opacity:.45;pointer-events:none;filter:saturate(.5)}
+/* survol d'une suggestion : les picks adverses qu'elle countre s'illuminent sur le plateau */
+.slot.vs-glow{outline:2px solid var(--win);box-shadow:0 0 16px rgba(63,202,124,.65)}
 .wrong-opp{font-size:10.5px;font-weight:700;padding:2px 8px;border-radius:9px;color:var(--lose);border-color:var(--lose);background:transparent;vertical-align:middle}
 .wrong-opp:hover{background:var(--lose);color:#fff}
 .inbox-badge{font-size:10px;font-weight:700;color:var(--win);border:1px solid var(--win);padding:1px 6px;border-radius:9px}
@@ -2600,6 +2617,24 @@ async function setSimA(id){
 
 // ordre de draft RTA 1-2-2-2-2-1
 function simSeq(){ return simState.fp==="A" ? "ABBAABBAAB" : "BAABBAABBA"; }
+/* frise de séquence : les 10 crans de la draft, remplis au fil des picks, tour courant surligné */
+function seqStripHTML(){
+  const seq = simSeq();
+  const t = Math.min(10, simState.picksA.length + simState.picksB.length);
+  const crans = [...seq].map((s,i)=>{
+    const cur = t < 10 && (i === t || (seq[t] === s && i === t+1 && seq[t+1] === seq[t]));
+    return `<span class="sq ${s==="A"?"a":"b"} ${i<t?"fill":""} ${cur && seq[t]===s && i<=t+1 && i>=t ? "cur":""}" title="Pick ${i+1} — ${s==="A"?"toi":"adversaire"}"></span>`;
+  }).join("");
+  if(t >= 10) return `<div class="seq-strip"><b class="me">Draft complète</b>${crans}</div>`;
+  const mine = seq[t] === "A";
+  let slots = 1;
+  if(seq[t+1] === seq[t]) slots = 2;
+  return `<div class="seq-strip">
+    <b class="${mine?"me":"opp"}">${mine ? (slots>1 ? "À TOI — 2 picks" : "À TOI") : "À l'adversaire" + (slots>1 ? " (2 picks)" : "")}</b>
+    ${crans}
+    <span class="muted" style="font-size:11.5px">pick ${t+1}/10</span>
+  </div>`;
+}
 function simTurn(){
   const total = simState.picksA.length + simState.picksB.length;
   return total >= 10 ? null : simSeq()[total];
@@ -2741,7 +2776,7 @@ function simSideHTML(side, mirrored){
     const ri = p ? picks.indexOf(p) : -1; // index réel dans le tableau (pour la suppression)
     if(p?.unknown) return `<div class="slot unknown" onclick="simFillUnknown('${side}',${ri})" style="cursor:pointer" title="Monstre détecté mais pas encore identifié — clique pour le saisir à la main"><span>?</span><button class="rm" onclick="event.stopPropagation();simRemove('${side}',${ri})">✕</button></div>`;
     return p
-      ? `<div class="slot ${p.manual?"manual":""}" title="${esc(p.name)}${p.manual?" · posé à la main (la capture n'y touche plus)":""}"><img src="${monImg(p.img)}"><button class="rm" onclick="simRemove('${side}',${ri})">✕</button></div>`
+      ? `<div class="slot ${p.manual?"manual":""}" data-mid="${p.id}" title="${esc(p.name)}${p.manual?" · posé à la main (la capture n'y touche plus)":""}"><img src="${monImg(p.img)}"><button class="rm" onclick="simRemove('${side}',${ri})">✕</button></div>`
       : `<div class="slot ${turn && i===nextIdx ? "next":""}"></div>`;
   };
   // first pick : 1 (slot isolé) puis 2-2 (carré) · second pick : 2-2 (carré) puis 1 (slot isolé en dernier)
@@ -2792,6 +2827,7 @@ function simSideHTML(side, mirrored){
       </label>
     </div>
     <div class="row" style="margin-top:8px;gap:8px">
+      <button class="btn" onclick="simToggleBoxGrid('${side}')" title="Afficher/replier la grille de la box (le champ 🔍 Ajouter un pick marche même repliée)">${(side==="A"?simState.boxOpenA:simState.boxOpenB)||editBox ? "▾" : "▸"} Box (${box.list.length})</button>
       <button class="btn" onclick="simToggleEdit('${side}')">${editBox?"✔ Terminer":"✏️ Modifier la box"}</button>
       ${editBox ? `${nbRemoved?`<span class="muted" style="font-size:12px">${nbRemoved} masqué(s)</span>`:""}
         <button class="btn" onclick="simBoxReset('${side}')" title="Annule toutes les suppressions et ajouts manuels">↺ Réinitialiser</button>` : ""}
@@ -2804,7 +2840,7 @@ function simSideHTML(side, mirrored){
       </div>
       <span class="muted" style="font-size:12px">Clique un monstre de la grille pour le retirer.</span>
     </div>` : ""}
-    <div class="picks" style="margin-top:10px">${boxGrid}</div>`;
+    ${(side==="A"?simState.boxOpenA:simState.boxOpenB)||editBox ? `<div class="picks" style="margin-top:10px">${boxGrid}</div>` : ""}`;
   // disposition façon écran VS du jeu : le pick n°1 seul, excentré côté extérieur, + carré de 4
   return `<div class="sim-side ${turn?"turn":""}" data-drop-side="${side}">
     <div class="sim-name">${box?.pic?`<img class="avatar" src="${esc(box.pic)}" onerror="this.style.visibility='hidden'">`:""}
@@ -4821,6 +4857,21 @@ async function simPickDuo(id1, id2){
   await simPick(id1, "A");
   await simPick(id2, "A");
 }
+/* grille de box repliée par défaut : le plateau et les conseils restent au-dessus de la ligne
+   de flottaison ; le champ « Ajouter un pick » et le drag & drop des conseils marchent sans elle */
+function simToggleBoxGrid(side){
+  if(side === "A") simState.boxOpenA = !simState.boxOpenA;
+  else simState.boxOpenB = !simState.boxOpenB;
+  renderSim();
+}
+/* survol d'une suggestion : illumine sur le plateau les picks adverses qu'elle countre */
+document.addEventListener("mouseover", e => {
+  const t = e.target.closest?.("[data-vs]");
+  document.querySelectorAll(".slot.vs-glow").forEach(el => el.classList.remove("vs-glow"));
+  if(!t?.dataset.vs) return;
+  for(const id of t.dataset.vs.split(","))
+    document.querySelectorAll(`.slot[data-mid="${id}"]`).forEach(el => el.classList.add("vs-glow"));
+});
 /* index de pick conventionnel d'une position du plateau (le jeu remplit chaque colonne
    dans l'ordre des picks, 1er en HAUT ; la case isolée est le 1er pick côté FP, le 5e sinon) */
 function geoIndex(side, geo){
@@ -4956,7 +5007,7 @@ async function renderSim(){
   const token = ++simRenderToken;
   const turn = simTurn();
   // TOI toujours à gauche, l'adversaire à droite (l'ordre de remplissage FP/SP reste géré par slot)
-  let html = `<div class="vs-wrap">${simSideHTML("A",false)}<div class="vs-mid">VS</div>${simSideHTML("B",true)}</div>`;
+  let html = seqStripHTML() + `<div class="vs-wrap">${simSideHTML("A",false)}<div class="vs-mid">VS</div>${simSideHTML("B",true)}</div>`;
   if(!simState.a){
     $b.innerHTML = html + '<div class="panel muted">👉 Choisis ton compte (joueur A) ou clique une puce « Mes comptes ».</div>';
     wireSimAdd(); return;
@@ -4978,7 +5029,10 @@ async function renderSim(){
     html += `<div id="simSugg"><div class="panel muted" style="text-align:center">✋ Au tour de l'adversaire - pose son pick avec son champ 🔍, sa box 📦 ou un glisser-déposer. Tes conseils reviendront à ton tour.</div></div>`;
     $b.innerHTML = html; wireSimAdd(); return;
   }
-  html += `<div id="simSugg"><div class="loading">Calcul des suggestions…</div></div>`;
+  // recalcul SANS clignotement : l'ancienne liste reste affichée, grisée, jusqu'aux nouveaux résultats
+  const $prevSugg = document.getElementById("simSugg");
+  const keepPrev = $prevSugg && $prevSugg.querySelector(".sugg");
+  html += `<div id="simSugg" class="${keepPrev ? "recalc" : ""}">${keepPrev ? $prevSugg.innerHTML : '<div class="loading">Calcul des suggestions…</div>'}</div>`;
   $b.innerHTML = html;
   wireSimAdd();
   // ----- suggestions TOUJOURS du point de vue du joueur A (celui qui veut gagner) -----
@@ -5081,9 +5135,9 @@ async function renderSim(){
       for(const r of rows){
         if(r.total_played_against < th) continue;
         let c = cand.get(r.b_monster_id);
-        if(!c){ c = {id:r.b_monster_id, name:r.b_monster_name, img:r.b_monster_image_filename, sum:0, cover:0, det:[]}; cand.set(r.b_monster_id, c); }
+        if(!c){ c = {id:r.b_monster_id, name:r.b_monster_name, img:r.b_monster_image_filename, sum:0, cover:0, det:[], vsIds:[]}; cand.set(r.b_monster_id, c); }
         const wrVs = 1 - r.win_against_rate;
-        c.sum += wrVs; c.cover++; c.det.push(`${Math.round(wrVs*100)}% vs ${e.name}`);
+        c.sum += wrVs; c.cover++; c.det.push(`${Math.round(wrVs*100)}% vs ${e.name}`); c.vsIds.push(e.id);
       }
     }
     // filtre LD appliqué AVANT la découpe à 40, sur l'élément porté par la méta : sinon exclure
@@ -5125,7 +5179,7 @@ async function renderSim(){
       const bx = boxCandidates[bi];
       const rowsNow = rowsNowAll[bi] || [], rowsPrev = rowsPrevAll[bi] || [];
       const baseline = meta.get(bx.unit_master_id)?.win_rate ?? 0.5; // niveau de base du monstre dans la méta
-      let sum=0, cover=0; const det=[];
+      let sum=0, cover=0; const det=[], vsIds=[];
       for(const e of enemyPicks){
         let r = rowsNow.find(x=>x.b_monster_id===e.id), prev = false;
         if(!(r && r.total_played_against>=20)){
@@ -5136,10 +5190,11 @@ async function renderSim(){
           sum += shrink(r.win_against_rate, r.total_played_against); // WR ajusté au volume
           cover++;
           det.push(`${Math.round(r.win_against_rate*100)}% vs ${e.name}${prev?" (S"+(simState.season-1)+")":""}`);
+          vsIds.push(e.id);
         }else{
           // matchup absent des pairs swarena → rattrapé par NOS replays quand on l'a mesuré
           const v = vsWrOur(bx.unit_master_id, e.id);
-          if(v != null){ sum += v; cover++; det.push(`${Math.round(v*100)}% vs ${e.name} (nos replays)`); }
+          if(v != null){ sum += v; cover++; det.push(`${Math.round(v*100)}% vs ${e.name} (nos replays)`); vsIds.push(e.id); }
         }
       }
       if(!cover) continue;
@@ -5177,7 +5232,7 @@ async function renderSim(){
       }
       boxVs.push({
         id:bx.unit_master_id, name:bx.name, img:bx.image_filename, element:bx.element,
-        avg:score, vsScore, myFit, delta: vsScore - baseline, cover, det,
+        avg:score, vsScore, myFit, delta: vsScore - baseline, cover, det, vsIds,
         myPlays:bx.plays||0, myWr: bx.plays ? bx.wins/bx.plays : null, banRate
       });
     }
@@ -5263,17 +5318,24 @@ async function renderSim(){
   }
   const $s = document.getElementById("simSugg");
   if(!$s || token !== simRenderToken) return;
+  const sgChip = (lbl, val, color, title) => `<span style="color:${color}" title="${esc(title)}">${lbl} <b>${val}</b></span>`;
+  // score de droite : % + petite jauge (échelle 45-65 % pour rendre les écarts visibles)
+  const sgWr = v => {
+    const col = v>=0.5 ? "var(--win)" : "var(--lose)";
+    const w = Math.max(4, Math.min(100, Math.round((v-0.45)/0.2*100)));
+    return `<span class="sg-wr" style="color:${col}">${pct(v)}<span class="sg-bar"><i style="width:${w}%;background:${col}"></i></span></span>`;
+  };
   let boxPanelTitle = "", boxRowsArr = [], boxEmpty = "", boxNotes = "";
   if(!fpMode){
     boxPanelTitle = lastPick
       ? `🎯 Dernier pick - counter toute leur draft <span class="muted" style="font-size:12px;font-weight:400">(WR réel vs leurs picks · attention au ban adverse${simState.boxOnly?"":" · tous monstres"})</span>`
       : `${simState.boxOnly ? "Ta box contre ses picks" : "Meilleurs picks théoriques"} <span class="muted" style="font-size:12px;font-weight:400">(chaque monstre seul, WR moyen face à l'ensemble de sa draft - les paires sont à droite${simState.boxOnly?"":" · tous monstres, possédés ou non"})</span>`;
     boxRowsArr = boxVs.map((c,i)=>
-      `<div class="sugg" draggable="true" data-drag-id="${c.id}" onclick="simPick(${c.id},'A')"
+      `<div class="sugg" draggable="true" data-drag-id="${c.id}" data-vs="${(c.vsIds||[]).join(",")}" onclick="simPick(${c.id},'A')"
         title="${c.det.join(" · ")}${c.myFit!=null?` · synergie picks ${pct(c.myFit)}`:""} — score ajusté au volume${c.banRate>=0.15?", pénalité de ban":""}">
         <img src="${monImg(c.img)}" loading="lazy"><div class="sg-n">${esc(c.name)} ${!simState.boxOnly && inBox(c.id) ? '<span class="inbox-badge">dans ta box</span>' : ""} ${c.delta>=0.03?`<span class="inbox-badge" title="Gagne ${(c.delta*100).toFixed(0)} pts de plus contre cette draft que son winrate habituel">🎯 counter +${(c.delta*100).toFixed(0)} pts</span>`:""} ${lastPick && c.banRate>=0.25 ? `<span class="inbox-badge" title="Très banni d'habitude — mais en DERNIER pick, si ton équipe a déjà un aimant à ban plus gros, sa menace passe souvent">💣 bombe finale</span>` : ""} ${c.banRate!=null && c.banRate>=0.15 ? `<span class="ban-badge">🚫 souvent banni (${pct(c.banRate,0)})</span>` : ""}
           <div class="sub">mesuré ${c.cover}/${enemyPicks.length} pick${enemyPicks.length>1?"s":""} · ${c.det.join(" · ")}${c.myFit!=null?` · synergie picks ${pct(c.myFit)}`:""} · perso : ${c.myWr!=null?pct(c.myWr):"-"} (${c.myPlays} parties)</div></div>
-        <span class="sg-wr" style="color:${c.avg>=0.5?'var(--win)':'var(--lose)'}">${pct(c.avg)}</span></div>`);
+        ${sgWr(c.avg)}</div>`);
     boxEmpty = `<div class="muted">Pas assez de données de matchup ${simState.boxOnly ? "pour les monstres de ta box" : "sur les counters connus"} contre ces picks.</div>`;
     if(lastPick && myPicks.length){
       const myBans = myPicks.map(p=>({p, br: meta.get(p.id)?.ban_rate ?? 0})).sort((x,y)=>y.br-x.br);
@@ -5308,12 +5370,11 @@ async function renderSim(){
     return `<div class="sugg" draggable="true" data-drag-id="${f.id}" onclick="simPick(${f.id},'A')">
       <img src="${monImg(fm.image_filename)}" loading="lazy">
       <div class="sg-n">${esc(fm.name||f.id)} ${inBox(f.id)?'<span class="inbox-badge">dans ta box</span>':""}<div class="sub">${elemTag(fm.element)} · ouvert ${f.n} fois en FP1</div></div>
-      <span class="sg-wr" style="color:${f.wr>=0.5?'var(--win)':'var(--lose)'}">${pct(f.wr)}</span></div>`;
+      ${sgWr(f.wr)}</div>`;
   });
   /* sous-ligne SYNTHÉTIQUE des suggestions : libellés courts, chaque critère a SA couleur.
      vs adverse (orange) · duo (bleu) · trio (doré, gras — grisé si trop peu de parties
      pour compter) · compo (violet). L'explication complète est au survol de chaque libellé. */
-  const sgChip = (lbl, val, color, title) => `<span style="color:${color}" title="${esc(title)}">${lbl} <b>${val}</b></span>`;
   // libellé selon la taille de l'équipe résultante : 3 monstres = « trio », 4+ = « équipe ».
   // Plein volume (≥ plancher) = doré, 22 % du score ; faible volume = grisé, poids réduit
   // proportionnel au volume (jamais ignoré, jamais surestimé).
@@ -5332,11 +5393,11 @@ async function renderSim(){
       // « compo » (cohérence estimée par paires) reste dans le calcul mais n'est plus affiché :
       // sa différence avec « équipe » embrouillait plus qu'elle n'aidait
     ].filter(Boolean);
-    return `<div class="sugg" draggable="true" data-drag-id="${p.c.id}" onclick="simPick(${p.c.id},'A')">
+    return `<div class="sugg" draggable="true" data-drag-id="${p.c.id}" data-vs="${(p.c.vsIds||[]).join(",")}" onclick="simPick(${p.c.id},'A')">
       <img src="${monImg(p.c.img)}" loading="lazy">
       <div class="sg-n">${esc(p.c.name)} ${!simState.boxOnly && inBox(p.c.id) ? '<span class="inbox-badge">dans ta box</span>' : ""}${p.c.banRate!=null && p.c.banRate>=0.15 ? ` <span class="ban-badge">🚫 souvent banni (${pct(p.c.banRate,0)})</span>` : ""}
         <div class="sub">${bits.map(b=>`<div>${b}</div>`).join("")}</div></div>
-      <span class="sg-wr" style="color:${p.score>=0.5?'var(--win)':'var(--lose)'}">${pct(p.score)}</span></div>`;
+      ${sgWr(p.score)}</div>`;
   });
   const duoRowsArr = duos.map(d=>{
     const bits = [
@@ -5345,13 +5406,13 @@ async function renderSim(){
       sgTrioChip(d)
       // « compo » reste dans le calcul mais n'est plus affiché (voir plus haut)
     ].filter(Boolean);
-    return `<div class="sugg" onclick="simPickDuo(${d.c1.id},${d.c2.id})" title="Picker les deux">
+    return `<div class="sugg" data-vs="${[...new Set([...(d.c1.vsIds||[]), ...(d.c2.vsIds||[])])].join(",")}" onclick="simPickDuo(${d.c1.id},${d.c2.id})" title="Picker les deux">
       <img src="${monImg(d.c1.img)}" loading="lazy" class="mon-click" draggable="true" data-drag-id="${d.c1.id}" title="Picker uniquement ${esc(d.c1.name)}" onclick="event.stopPropagation();simPick(${d.c1.id},'A')">
       <span style="color:var(--muted);font-weight:800">+</span>
       <img src="${monImg(d.c2.img)}" loading="lazy" class="mon-click" draggable="true" data-drag-id="${d.c2.id}" title="Picker uniquement ${esc(d.c2.name)}" onclick="event.stopPropagation();simPick(${d.c2.id},'A')">
       <div class="sg-n">${esc(d.c1.name)} + ${esc(d.c2.name)}
         <div class="sub">${bits.map(b=>`<div>${b}</div>`).join("")}</div></div>
-      <span class="sg-wr" style="color:${d.score>=0.5?'var(--win)':'var(--lose)'}">${pct(d.score)}</span></div>`;
+      ${sgWr(d.score)}</div>`;
   });
   const pagedPanel = key => `<div id="sgList-${key}"></div><div id="sgPager-${key}"></div>`;
   $s.innerHTML = (fpMode ? `
@@ -5377,6 +5438,7 @@ async function renderSim(){
   simSuggLists.box  = { rows: boxRowsArr, page:0, empty: boxEmpty };
   simSuggLists.pair = { rows: pairRowsArr, page:0, empty: `<div class="muted">Aucune synergie mesurée avec ${esc(partner?.name||"ce monstre")} sur assez de parties - fie-toi au classement de gauche.</div>` };
   simSuggLists.duo  = { rows: duoRowsArr, page:0, empty: '<div class="muted">Pas assez de données pour former des duos fiables contre ces picks.</div>' };
+  $s.classList.remove("recalc"); // les nouveaux résultats remplacent l'ancienne liste grisée
   ["fp","box","pair","duo"].forEach(simSuggPaint);
   wireSimAdd();
 }
