@@ -251,18 +251,21 @@ tr.clickable:hover{background:var(--card2)}
 .bc-head{display:flex;align-items:center;gap:8px;padding:7px 12px;font-size:12px;color:var(--muted);background:rgba(0,0,0,.18);margin-bottom:9px}
 .bc-date{font-size:11.5px;color:var(--muted);white-space:nowrap}
 .bc-rep{font-size:11px;color:var(--muted);white-space:nowrap}
-.bc-row{display:flex;align-items:center;gap:10px;padding:0 12px;min-width:0}
-.bc-row + .bc-row{margin-top:9px;padding-top:9px;border-top:1px dashed var(--border)}
-.bc-picks{display:flex;gap:4px;align-items:center;flex-shrink:0}
+/* plateau miniature : [isolée][2x2]  |  [2x2][isolée] — comme l'écran de draft du jeu */
+.bc-board{display:flex;align-items:center;justify-content:center;gap:14px;padding:2px 12px 0}
+.bc-team{display:flex;align-items:center;gap:6px}
+.bc-mid{width:1px;align-self:stretch;background:var(--border)}
+.bc-square{display:grid;grid-template-rows:repeat(2,auto);grid-auto-flow:column;gap:4px}
+.bc-lone{display:flex;border-radius:10px}
+.bc-lone.fp .pick img{box-shadow:0 0 0 2px var(--accent)}
 .battle.bc .pick,.battle.bc .pick img{width:38px;height:38px}
 .battle.bc .pick img{border-radius:8px}
 .battle.bc .pick.banned::after{font-size:17px}
 .battle.bc .pick.leader::before{font-size:11px;top:-6px;left:-3px}
-.bc-fpstar{font-size:9.5px;font-weight:800;color:var(--accent2);border:1px solid var(--accent2);border-radius:8px;padding:1px 4px;margin-right:2px;flex-shrink:0}
-.bc-opp{margin-left:auto;display:flex;flex-direction:column;align-items:flex-end;gap:1px;min-width:0}
-.bc-opp .n{font-weight:700;font-size:13px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:175px}
-.bc-opp .n:hover{color:var(--accent2)}
-.bc-opp .s{font-size:11px;color:var(--muted);white-space:nowrap}
+.bc-foot{display:flex;align-items:baseline;justify-content:flex-end;gap:8px;padding:8px 12px 0;min-width:0}
+.bc-foot .n{font-weight:700;font-size:13px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.bc-foot .n:hover{color:var(--accent2)}
+.bc-foot .s{font-size:11px;color:var(--muted);white-space:nowrap}
 
 /* chart */
 .chart-wrap{width:100%;overflow-x:auto}
@@ -1131,28 +1134,32 @@ async function renderBattles(battles, viewerId){
         <span class="spacer"></span>
         <span class="bc-rep" title="Identifiant du replay">#${b.replay_rid_ref??""}</span>
       </div>
-      <div class="bc-row">${bcTeamHTML(me)}</div>
-      <div class="bc-row">${bcTeamHTML(opp)}${opp?`<div class="bc-opp">
+      <div class="bc-board">${bcTeamHTML(me)}<div class="bc-mid"></div>${bcTeamHTML(opp)}</div>
+      ${opp?`<div class="bc-foot">
         <span class="n" onclick="location.hash='#/player/${opp.wizard_id}'">${flag(opp.country)} ${esc(opp.wizard_name)} ↗</span>
         <span class="s">Score ${num(opp.score)} · rang ${num(opp.rank)}</span></div>`:""}
-      </div>
     </div>`;
   }).join("") + `</div>` + pager;
 }
-/* une équipe en ligne : 5 icônes (★ leader, ✕ ban) + pastille FP sur le côté qui ouvre la draft */
+/* une équipe au FORMAT PLATEAU : case isolée + carré 2x2 — le first pick a sa case isolée
+   en PREMIER (son pick d'ouverture, cerclée), le second pick l'a en DERNIER (son 5e pick).
+   Le carré se remplit comme en jeu : haut-gauche, bas-gauche, puis haut-droite, bas-droite. */
 function bcTeamHTML(u){
   if(!u) return "";
   const picks = (u.pick_info?.unit_list||[]).slice().sort((a,b)=>a.pick_slot_id-b.pick_slot_id);
   const banned = new Set(u.pick_info?.banned_slot_ids||[]);
   const leader = u.pick_info?.leader_slot_id;
-  return `<div class="bc-picks">
-    ${u.is_first_pick?'<span class="bc-fpstar" title="Ce côté avait le first pick">FP</span>':""}
-    ${picks.map(p=>{
-      const m = monCache.get(p.unit_master_id) || {};
-      const cls = ["pick", banned.has(p.pick_slot_id)?"banned":"", p.pick_slot_id===leader?"leader":""].join(" ");
-      return `<div class="${cls} mon-click" onclick="location.hash='#/monster/${p.unit_master_id}'" title="${esc(m.name||p.unit_master_id)}${p.pick_slot_id===leader?" (leader)":""}${banned.has(p.pick_slot_id)?" (banni)":""} · cliquer pour la fiche">
-        <img src="${monImg(m.image_filename)}" loading="lazy"></div>`;
-    }).join("")}</div>`;
+  const icon = p => {
+    const m = monCache.get(p.unit_master_id) || {};
+    const cls = ["pick", banned.has(p.pick_slot_id)?"banned":"", p.pick_slot_id===leader?"leader":""].join(" ");
+    return `<div class="${cls} mon-click" onclick="location.hash='#/monster/${p.unit_master_id}'" title="${esc(m.name||p.unit_master_id)}${p.pick_slot_id===leader?" (leader)":""}${banned.has(p.pick_slot_id)?" (banni)":""} · cliquer pour la fiche">
+      <img src="${monImg(m.image_filename)}" loading="lazy"></div>`;
+  };
+  const lone = arr => arr.length ? `<div class="bc-lone ${u.is_first_pick?"fp":""}" ${u.is_first_pick?'title="First pick"':""}>${arr.map(icon).join("")}</div>` : "";
+  const square = arr => `<div class="bc-square">${arr.map(icon).join("")}</div>`;
+  return `<div class="bc-team">${u.is_first_pick
+    ? lone(picks.slice(0,1)) + square(picks.slice(1))
+    : square(picks.slice(0,4)) + lone(picks.slice(4))}</div>`;
 }
 
 /* ================= runes d'un monstre (modal) ================= */
