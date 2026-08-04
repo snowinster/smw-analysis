@@ -5246,7 +5246,7 @@ async function renderSim(){
   if(!fpMode){
     boxPanelTitle = lastPick
       ? `🎯 Dernier pick - counter toute leur draft <span class="muted" style="font-size:12px;font-weight:400">(WR réel vs leurs picks · attention au ban adverse${simState.boxOnly?"":" · tous monstres"})</span>`
-      : `${simState.boxOnly ? "Ta box contre ses picks" : "Meilleurs picks théoriques contre ses picks"} <span class="muted" style="font-size:12px;font-weight:400">(chaque monstre seul, WR moyen face à l'ensemble de sa draft - les duos sont à droite${simState.boxOnly?"":" · tous monstres, possédés ou non"})</span>`;
+      : `${simState.boxOnly ? "Ta box contre ses picks" : "Meilleurs picks théoriques"} <span class="muted" style="font-size:12px;font-weight:400">(chaque monstre seul, WR moyen face à l'ensemble de sa draft - les paires sont à droite${simState.boxOnly?"":" · tous monstres, possédés ou non"})</span>`;
     boxRowsArr = boxVs.map((c,i)=>
       `<div class="sugg" draggable="true" data-drag-id="${c.id}" onclick="simPick(${c.id},'A')"
         title="${c.det.join(" · ")}${c.myFit!=null?` · synergie picks ${pct(c.myFit)}`:""} — score ajusté au volume${c.banRate>=0.15?", pénalité de ban":""}">
@@ -5343,7 +5343,7 @@ async function renderSim(){
     ${partner ? `<div><h2>🎯 Complète ta paire avec ${esc(partner.name)} <span class="muted" style="font-size:12px;font-weight:400">(il te reste 1 seul pick dans ce tour - classement par counter + synergie AVEC ${esc(partner.name)})</span></h2>
       <div class="panel">${pagedPanel("pair")}</div>
     </div>`
-    : `<div><h2>${(()=>{const t=simState.picksA.length+simState.picksB.length; const q=simSeq(); return q[t]==="A"&&q[t+1]==="A" ? "🎯 Tu dois picker 2 - duos conseillés" : "Duos conseillés";})()} <span class="muted" style="font-size:12px;font-weight:400">(meilleure chance de win : counter + synergie + cohérence de trio avec tes picks posés${duosFromBox ? ", pris dans ta box" : simState.boxOnly ? " - box trop limitée, duos globaux" : " - tous monstres, possédés ou non"})</span></h2>
+    : `<div><h2>${(()=>{const t=simState.picksA.length+simState.picksB.length; const q=simSeq(); return q[t]==="A"&&q[t+1]==="A" ? "🎯 À toi de poser 2 picks — meilleures PAIRES à jouer ensemble" : "Paires conseillées (pour ton prochain tour double)";})()} <span class="muted" style="font-size:12px;font-weight:400">(clic sur la ligne = picker les deux, clic sur une icône = picker celui-là seul · counter + duo + cohérence d'équipe${duosFromBox ? ", pris dans ta box" : simState.boxOnly ? " - box trop limitée, paires globales" : " - tous monstres, possédés ou non"})</span></h2>
       <div class="panel">${pagedPanel("duo")}</div>
     </div>`}
   </div>`)
