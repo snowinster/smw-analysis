@@ -445,11 +445,11 @@ td.best{color:var(--win);font-weight:800}
 @media (min-width:1560px){
   #simSugg{position:absolute;right:20px;top:340px;width:430px;z-index:40;scrollbar-width:thin;scrollbar-color:var(--border) transparent;
     background:var(--bg2);border:1px solid var(--border);border-radius:14px;padding:10px;box-shadow:0 10px 34px rgba(0,0,0,.55)}
-  #simSugg .panel{margin-bottom:10px;max-height:352px;overflow-y:auto;overflow-x:hidden;scrollbar-width:thin;scrollbar-color:var(--border) transparent}
+  /* plus de défilement interne : 5 lignes par page + la pagination, hauteur naturelle */
+  #simSugg .panel{margin-bottom:10px}
   /* le panneau First picks est SEUL dans la colonne (pas de duos sous lui) : il peut descendre
      jusqu'en bas du plateau adverse. Les 352px des autres restent nécessaires, eux s'empilent
      à deux. Le min() évite qu'il dépasse l'écran sur une fenêtre courte. */
-  #simSugg .panel.fp-panel{max-height:min(560px, calc(100vh - 230px))}
   #simBoard{margin-right:446px}
   /* colonne étroite : les deux sections s'EMPILENT au lieu d'être côte à côte */
   #simSugg .two-col{grid-template-columns:1fr;gap:12px}
