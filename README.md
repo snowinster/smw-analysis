@@ -37,4 +37,6 @@ Le site étant 100 % statique (GitHub Pages, aucun serveur), il existe deux mode
 
 Une fois la config collée, le même bouton propose « Continuer avec Google » et les comptes pseudo + mot de passe deviennent des comptes cloud partagés entre navigateurs.
 
+**Comptes administrateur** : l'infrastructure existe (`auth.user.admin`, helper `isAdmin()`, badge 🛡 dans le menu) mais aucune fonction admin n'est branchée pour l'instant. Pour nommer un admin : ajouter son pseudo (en minuscules) dans la constante `ADMIN_ACCOUNTS` d'`index.html` — ou, en mode Firebase, poser `admin: true` sur son document `users/{uid}` depuis la console Firestore.
+
 Projet personnel, non affilié à Swarena ni à Com2uS. Summoners War © Com2uS Corp.

@@ -1707,6 +1707,14 @@ async function loadSimBox(id){
      c'est le seul moyen d'avoir des comptes globaux : créer un projet Firebase (gratuit)
      et coller sa config ici — marche à suivre détaillée dans le README, section « Comptes ». */
 const FIREBASE_CONFIG = null; /* ex : {apiKey:"…", authDomain:"xxx.firebaseapp.com", projectId:"xxx", appId:"…"} */
+/* comptes ADMINISTRATEUR : pseudos (en minuscules) listés ici. Aucun pour le moment — les
+   fonctions admin seront branchées plus tard sur auth.user.admin / isAdmin().
+   En mode Firebase, un champ admin:true posé à la main sur users/{uid} dans la console
+   Firestore fonctionne aussi (les règles n'autorisent que le propriétaire à écrire son doc,
+   mais la console, elle, passe outre — c'est le moyen propre de nommer un admin cloud). */
+const ADMIN_ACCOUNTS = [];
+const isAdminPseudo = p => ADMIN_ACCOUNTS.includes((p||"").trim().toLowerCase());
+const isAdmin = () => !!auth.user?.admin;
 const auth = { user:null, ready:false };
 const AUTH_ACC_KEY = "swaLocalAccounts_v1", AUTH_SES_KEY = "swaSession_v1";
 const lsGetJ = k => { try{ return JSON.parse(localStorage.getItem(k)); }catch(e){ return null; } };
@@ -1745,7 +1753,7 @@ async function authSignupLocal(pseudo, psw, player){
     created: Date.now() };
   lsSetJ(AUTH_ACC_KEY, db);
   lsSetJ(AUTH_SES_KEY, {mode:"local", key});
-  auth.user = { mode:"local", key, pseudo:p, playerId:db.accounts[key].playerId,
+  auth.user = { mode:"local", key, pseudo:p, admin:isAdminPseudo(p), playerId:db.accounts[key].playerId,
     playerName:db.accounts[key].playerName, playerPic:db.accounts[key].playerPic };
 }
 async function authLoginLocal(pseudo, psw){
@@ -1754,13 +1762,13 @@ async function authLoginLocal(pseudo, psw){
   if(!a) throw new Error("Compte inconnu dans ce navigateur." + (FIREBASE_CONFIG ? "" : " (Les comptes sont locaux à chaque navigateur.)"));
   if(a.hash !== await hashPass(psw, a.salt)) throw new Error("Mot de passe incorrect.");
   lsSetJ(AUTH_SES_KEY, {mode:"local", key});
-  auth.user = { mode:"local", key, pseudo:a.pseudo, playerId:a.playerId, playerName:a.playerName, playerPic:a.playerPic };
+  auth.user = { mode:"local", key, pseudo:a.pseudo, admin:isAdminPseudo(a.pseudo), playerId:a.playerId, playerName:a.playerName, playerPic:a.playerPic };
 }
 function authRestoreLocal(){
   const s = lsGetJ(AUTH_SES_KEY);
   if(s?.mode !== "local") return;
   const a = localAccounts().accounts[s.key];
-  if(a) auth.user = { mode:"local", key:s.key, pseudo:a.pseudo, playerId:a.playerId, playerName:a.playerName, playerPic:a.playerPic };
+  if(a) auth.user = { mode:"local", key:s.key, pseudo:a.pseudo, admin:isAdminPseudo(a.pseudo), playerId:a.playerId, playerName:a.playerName, playerPic:a.playerPic };
 }
 /* ----- Firebase (actif seulement si FIREBASE_CONFIG est renseigné) ----- */
 let fbAuth = null, fbDb = null;
@@ -1781,8 +1789,9 @@ async function fbInit(){
       if(u){
         let prof = {};
         try{ prof = (await fbDb.collection("users").doc(u.uid).get()).data() || {}; }catch(e){}
-        auth.user = { mode:"firebase", uid:u.uid,
-          pseudo: prof.pseudo || u.displayName || (u.email||"").split("@")[0],
+        const ps = prof.pseudo || u.displayName || (u.email||"").split("@")[0];
+        auth.user = { mode:"firebase", uid:u.uid, pseudo: ps,
+          admin: prof.admin === true || isAdminPseudo(ps),
           playerId: prof.playerId ?? null, playerName: prof.playerName || "", playerPic: prof.playerPic || "" };
       }else if(auth.user?.mode === "firebase"){
         auth.user = null;
@@ -1815,7 +1824,7 @@ async function authSignup(pseudo, psw, player){
     try{
       const cred = await fbAuth.createUserWithEmailAndPassword(FB_MAIL(pseudo), psw);
       await cred.user.updateProfile({displayName: pseudo.trim()}).catch(()=>{});
-      auth.user = { mode:"firebase", uid:cred.user.uid, pseudo:pseudo.trim(),
+      auth.user = { mode:"firebase", uid:cred.user.uid, pseudo:pseudo.trim(), admin:isAdminPseudo(pseudo),
         playerId: player?.id ?? null, playerName: player?.name ?? "", playerPic: player?.pic ?? "" };
       await fbSaveProfile({pseudo:pseudo.trim(), playerId:auth.user.playerId, playerName:auth.user.playerName, playerPic:auth.user.playerPic});
     }catch(e){ throw new Error(fbErr(e)); }
@@ -1887,7 +1896,7 @@ function renderAuthUI(){
   $w.innerHTML = `
     <button class="auth-chip logged" onclick="authToggleMenu(event)" title="Compte : ${esc(u.pseudo)}">${pic} <span class="pn">${esc(u.pseudo)}</span> ▾</button>
     <div class="auth-menu" id="authMenu" style="display:none">
-      <div class="am-head">Connecté : <b>${esc(u.pseudo)}</b>${u.playerName ? `<br><span class="muted">Joueur lié : ${esc(u.playerName)}</span>` : `<br><span class="muted">Aucun joueur SW lié</span>`}</div>
+      <div class="am-head">Connecté : <b>${esc(u.pseudo)}</b>${u.admin ? ` <span title="Compte administrateur">🛡</span>` : ""}${u.playerName ? `<br><span class="muted">Joueur lié : ${esc(u.playerName)}</span>` : `<br><span class="muted">Aucun joueur SW lié</span>`}${u.admin ? `<br><span class="muted">Administrateur</span>` : ""}</div>
       <div class="am-item" onclick="authOpenModal('link')">🔗 ${u.playerId ? "Changer" : "Choisir"} mon joueur SW</div>
       ${u.playerId ? `<div class="am-item" onclick="authCloseMenu();location.hash='#/player/${u.playerId}'">📊 Mon profil joueur</div>` : ""}
       <div class="am-item" onclick="authLogout()">🚪 Se déconnecter</div>
