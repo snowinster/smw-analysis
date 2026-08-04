@@ -1425,7 +1425,8 @@ async function viewMonster(id){
 
     // (stats de base du monstre retirées : sans intérêt ici, l'utilisateur veut les stats RTA)
 
-    const listN = monState.listN || 10;
+    const listN = monState.listN || 10;   // synergies & pires matchups
+    const trioN = monState.trioN || 10;   // trios : son propre sélecteur, indépendant
     const pairTable = (rows, playedKey, rateKey, asc, rateLabel) => {
       // seuil adaptatif : 15 % du volume max (min 30) pour rester pertinent même en début de saison
       const maxV = Math.max(...(rows||[]).map(x=>x[playedKey]), 0);
@@ -1463,7 +1464,7 @@ async function viewMonster(id){
       f.sort((a, b) => b.rate - a.rate);
       if(!f.length) return `<div class="muted">Pas assez de volume sur ce filtre${monState.tier === "g3" ? " (Guardian 3 se remplit en fin de saison)" : ""}.</div>`;
       return `<table><thead><tr><th>Trio</th><th>Winrate</th><th>Parties</th></tr></thead><tbody>` +
-        f.slice(0, listN).map(x => `<tr>
+        f.slice(0, trioN).map(x => `<tr>
           <td style="white-space:nowrap">${x.ids.map(mid => `<img class="mon-ico mon-click" src="${monImg(monMeta(mid).image_filename)}" loading="lazy" title="${esc(monMeta(mid).name || mid)}" onclick="location.hash='#/monster/${mid}'">`).join(" ")}
             &nbsp;<span style="font-size:12.5px">${x.ids.map(mid => esc(monMeta(mid).name || ("#" + mid))).join(" + ")}</span></td>
           <td><b style="color:${x.rate >= 0.5 ? 'var(--win)' : 'var(--lose)'}">${pct(x.rate)}</b></td>
@@ -1564,8 +1565,8 @@ async function viewMonster(id){
         <h2 style="font-size:16px;margin:0">Meilleurs trios <span class="muted" style="font-size:12px;font-weight:400">(winrate, joués avec lui · ${monState.tier==="ladder"?"tout le ladder":monState.tier==="g3"?"Guardian 3":"Guardian+"} · notre collecte de replays)</span></h2>
         <span class="spacer"></span>
         <label class="muted" style="font-size:12.5px">Afficher
-          <select onchange="monState.listN=+this.value;viewMonster(${id})" style="font-size:12.5px;padding:3px 8px">${
-            [5,10,20,50].map(v=>`<option value="${v}" ${v===listN?"selected":""}>${v}</option>`).join("")}</select>
+          <select onchange="monState.trioN=+this.value;viewMonster(${id})" style="font-size:12.5px;padding:3px 8px">${
+            [5,10,20,50].map(v=>`<option value="${v}" ${v===trioN?"selected":""}>${v}</option>`).join("")}</select>
         </label>
       </div>
       <div class="panel tbl-wrap">${trioTable()}</div>`;
