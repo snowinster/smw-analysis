@@ -1706,7 +1706,16 @@ async function loadSimBox(id){
      appareils, profil stocké dans Firestore. Le site étant 100 % statique (GitHub Pages),
      c'est le seul moyen d'avoir des comptes globaux : créer un projet Firebase (gratuit)
      et coller sa config ici — marche à suivre détaillée dans le README, section « Comptes ». */
-const FIREBASE_CONFIG = null; /* ex : {apiKey:"…", authDomain:"xxx.firebaseapp.com", projectId:"xxx", appId:"…"} */
+/* config publique du projet Firebase « swanalysis » (la sécurité vient des règles Firestore
+   et des domaines autorisés, pas de cette clé — elle est faite pour être côté client) */
+const FIREBASE_CONFIG = {
+  apiKey: "AIzaSyDjsFJ_xiP1ODROzKOIe1wDwzudfkVE3dg",
+  authDomain: "swanalysis-10ae3.firebaseapp.com",
+  projectId: "swanalysis-10ae3",
+  storageBucket: "swanalysis-10ae3.firebasestorage.app",
+  messagingSenderId: "904967568871",
+  appId: "1:904967568871:web:533b3eb80a12ebcb569142"
+};
 /* comptes ADMINISTRATEUR : pseudos (en minuscules) listés ici. Aucun pour le moment — les
    fonctions admin seront branchées plus tard sur auth.user.admin / isAdmin().
    En mode Firebase, un champ admin:true posé à la main sur users/{uid} dans la console
