@@ -244,7 +244,7 @@ tr.clickable:hover{background:var(--card2)}
 .fp-badge{font-size:10.5px;font-weight:700;color:var(--accent2);border:1px solid var(--accent2);padding:1px 7px;border-radius:10px;white-space:nowrap}
 /* combats : CARTES compactes en grille (plusieurs par ligne selon la largeur),
    équipes empilées comme avant — tes picks en haut, l'adversaire en bas */
-.bl-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(430px,100%),1fr));gap:10px;margin-bottom:10px}
+.bl-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(560px,100%),1fr));gap:12px;margin-bottom:10px}
 .battle.bc{margin-bottom:0;padding-bottom:10px}
 .battle.bc.win{border-left:4px solid var(--win)}
 .battle.bc.lose{border-left:4px solid var(--lose)}
@@ -252,16 +252,12 @@ tr.clickable:hover{background:var(--card2)}
 .bc-date{font-size:11.5px;color:var(--muted);white-space:nowrap}
 .bc-rep{font-size:11px;color:var(--muted);white-space:nowrap}
 /* plateau miniature : [isolée][2x2]  |  [2x2][isolée] — comme l'écran de draft du jeu */
-.bc-board{display:flex;align-items:center;justify-content:center;gap:14px;padding:2px 12px 0}
-.bc-team{display:flex;align-items:center;gap:6px}
-.bc-mid{width:1px;align-self:stretch;background:var(--border)}
-.bc-square{display:grid;grid-template-rows:repeat(2,auto);grid-auto-flow:column;gap:4px}
+.bc-board{display:flex;align-items:center;justify-content:center;gap:18px;padding:2px 12px 0}
+.bc-team{display:flex;align-items:center;gap:8px}
+.bc-vs{font-weight:900;font-size:17px;font-style:italic;letter-spacing:.02em;background:linear-gradient(180deg,#f5d78a 20%,#d8a94e 70%,#a97f36);-webkit-background-clip:text;background-clip:text;color:transparent;filter:drop-shadow(0 1px 6px rgba(216,169,78,.45));flex-shrink:0}
+.bc-square{display:grid;grid-template-rows:repeat(2,auto);grid-auto-flow:column;gap:5px}
 .bc-lone{display:flex;border-radius:10px}
 .bc-lone.fp .pick img{box-shadow:0 0 0 2px var(--accent)}
-.battle.bc .pick,.battle.bc .pick img{width:38px;height:38px}
-.battle.bc .pick img{border-radius:8px}
-.battle.bc .pick.banned::after{font-size:17px}
-.battle.bc .pick.leader::before{font-size:11px;top:-6px;left:-3px}
 .bc-foot{display:flex;align-items:baseline;justify-content:flex-end;gap:8px;padding:8px 12px 0;min-width:0}
 .bc-foot .n{font-weight:700;font-size:13px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .bc-foot .n:hover{color:var(--accent2)}
@@ -1096,12 +1092,36 @@ function plBattlesSetPer(v){
   bpState.page = 0;
   renderBattles(bpState.list, bpState.viewer);
 }
+/* filtre classé / normal : un combat NORMAL (mode non classé) apparaît avec un joueur à
+   score 0 · rang 0 — le champ battle_type de l'API ne sépare pas les deux (vérifié :
+   le type 2 contient 55 normaux sur 162), ce critère-là est le seul fiable */
+const battleRanked = b => Object.values(b.user_list||{}).every(u=>(u.score||0) > 0 || (u.rank||0) > 0);
+function plBattlesFilter(){
+  try{ const v = localStorage.getItem("plBattlesFilter_v1"); if(["ranked","normal","all"].includes(v)) return v; }catch(e){}
+  return "ranked"; // par défaut : seulement les combats CLASSÉS
+}
+function plBattlesSetFilter(v){
+  try{ localStorage.setItem("plBattlesFilter_v1", v); }catch(e){}
+  bpState.page = 0;
+  renderBattles(bpState.list, bpState.viewer);
+}
 async function renderBattles(battles, viewerId){
   const per = plBattlesPer();
-  const pages = Math.max(1, Math.ceil(battles.length/per));
+  const filter = plBattlesFilter();
+  const nRanked = battles.filter(battleRanked).length;
+  const filtered = filter === "all" ? battles
+    : battles.filter(b => battleRanked(b) === (filter === "ranked"));
+  const filterBar = `
+    <div class="row" style="gap:8px;margin-bottom:12px">
+      <span class="muted" style="font-size:12.5px">Type :</span>
+      <span class="chip ${filter==="ranked"?"active":""}" onclick="plBattlesSetFilter('ranked')" title="Combats du mode classé (les deux joueurs ont un score et un rang)">🏆 Classés (${num(nRanked)})</span>
+      <span class="chip ${filter==="normal"?"active":""}" onclick="plBattlesSetFilter('normal')" title="Combats normaux (hors classement : un joueur apparaît à score 0 · rang 0)">🎮 Normaux (${num(battles.length-nRanked)})</span>
+      <span class="chip ${filter==="all"?"active":""}" onclick="plBattlesSetFilter('all')">Tous (${num(battles.length)})</span>
+    </div>`;
+  const pages = Math.max(1, Math.ceil(filtered.length/per));
   bpState.page = Math.min(Math.max(0, bpState.page), pages-1);
   const start = bpState.page*per;
-  const slice = battles.slice(start, start+per);
+  const slice = filtered.slice(start, start+per);
   const ids = [];
   for(const b of slice) for(const k in (b.user_list||{})){
     for(const u of (b.user_list[k].pick_info?.unit_list||[])) ids.push(u.unit_master_id);
@@ -1109,19 +1129,19 @@ async function renderBattles(battles, viewerId){
   await preloadMonsters(ids);
   const $bl = document.getElementById("battleList");
   if(!$bl) return;
-  const pager = pages > 1 || battles.length > 5 ? `
+  const pager = pages > 1 || filtered.length > 5 ? `
     <div class="row" style="justify-content:flex-end;gap:12px;margin-top:2px">
       <label class="muted" style="font-size:13px">Par page
         <select onchange="plBattlesSetPer(+this.value)" style="font-size:13px;padding:4px 8px">${
           [5,10,25,50].map(v=>`<option value="${v}" ${v===per?"selected":""}>${v}</option>`).join("")}</select>
       </label>
-      <span class="muted" style="font-size:13px">${num(start+1)}–${num(start+slice.length)} sur ${num(battles.length)}</span>
+      <span class="muted" style="font-size:13px">${num(filtered.length?start+1:0)}–${num(start+slice.length)} sur ${num(filtered.length)}</span>
       <button class="btn" onclick="plBattlesGo(0)" ${bpState.page===0?"disabled":""} title="Première page">«</button>
       <button class="btn" onclick="plBattlesGo(${bpState.page-1})" ${bpState.page===0?"disabled":""} title="Page précédente">‹</button>
       <button class="btn" onclick="plBattlesGo(${bpState.page+1})" ${bpState.page>=pages-1?"disabled":""} title="Page suivante">›</button>
       <button class="btn" onclick="plBattlesGo(${pages-1})" ${bpState.page>=pages-1?"disabled":""} title="Dernière page">»</button>
     </div>` : "";
-  $bl.innerHTML = `<div class="bl-grid">` + slice.map(b=>{
+  const listHTML = `<div class="bl-grid">` + slice.map(b=>{
     const users = Object.values(b.user_list||{});
     const me = users.find(u=>u.wizard_id===viewerId) || users[0];
     const opp = users.find(u=>u!==me);
@@ -1134,12 +1154,14 @@ async function renderBattles(battles, viewerId){
         <span class="spacer"></span>
         <span class="bc-rep" title="Identifiant du replay">#${b.replay_rid_ref??""}</span>
       </div>
-      <div class="bc-board">${bcTeamHTML(me)}<div class="bc-mid"></div>${bcTeamHTML(opp)}</div>
+      <div class="bc-board">${bcTeamHTML(me)}<div class="bc-vs">VS</div>${bcTeamHTML(opp)}</div>
       ${opp?`<div class="bc-foot">
         <span class="n" onclick="location.hash='#/player/${opp.wizard_id}'">${flag(opp.country)} ${esc(opp.wizard_name)} ↗</span>
-        <span class="s">Score ${num(opp.score)} · rang ${num(opp.rank)}</span></div>`:""}
+        <span class="s">${battleRanked(b) ? `Score ${num(opp.score)} · rang ${num(opp.rank)}` : "Combat normal (hors classement)"}</span></div>`:""}
     </div>`;
   }).join("") + `</div>` + pager;
+  $bl.innerHTML = filterBar + (slice.length ? listHTML :
+    `<div class="panel muted">Aucun combat ${filter==="ranked"?"classé":filter==="normal"?"normal":""} pour cette saison.</div>`);
 }
 /* une équipe au FORMAT PLATEAU : case isolée + carré 2x2 — le first pick a sa case isolée
    en PREMIER (son pick d'ouverture, cerclée), le second pick l'a en DERNIER (son 5e pick).
