@@ -1334,6 +1334,33 @@ async function getSubMeta(season){
   subMetaCache.set(season, d);
   return d;
 }
+/* duos / trios / oppositions agrégés depuis nos replays (build-replay-stats.mjs, nightly).
+   Lignes compactes : [ids..., n, w, nt, wt, n3, w3] — n = tout ladder, t = Guardian+, 3 = G3 */
+const aggCache = new Map();
+async function getAgg(kind, season){
+  const k = kind + season;
+  if(aggCache.has(k)) return aggCache.get(k);
+  let d = null;
+  try{
+    const r = await fetch(`api/${kind}-s${season}.json`, {cache:"no-cache"});
+    if(r.ok) d = await r.json();
+  }catch(e){}
+  aggCache.set(k, d);
+  return d;
+}
+const metaMapCache = new Map();
+async function getMetaMap(season){
+  if(metaMapCache.has(season)) return metaMapCache.get(season);
+  const m = new Map();
+  for(const s of [season, season - 1]){
+    try{
+      const r = await fetch(`api/meta-s${s}.json`, {cache:"no-cache"});
+      if(r.ok) for(const x of ((await r.json()).monsters || [])) if(!m.has(x.monster_id)) m.set(x.monster_id, x);
+    }catch(e){}
+  }
+  metaMapCache.set(season, m);
+  return m;
+}
 async function viewMonster(id){
   $app.innerHTML = '<div class="loading">Chargement de la fiche monstre…</div>';
   try{
@@ -1355,6 +1382,9 @@ async function viewMonster(id){
       fetchRunes(id)
     ]);
     const famVariants = await monFamily(id).catch(()=>[]);
+    const [duosD, triosD, vsD, metaMap] = await Promise.all([
+      getAgg("duos", season), getAgg("trios", season), getAgg("versus", season), getMetaMap(season)
+    ]);
     // saison sans données → on recule automatiquement (sauf si choisie manuellement)
     if(!sumR.data && !monState.userChose){
       const idx = seasons.indexOf(season);
@@ -1395,18 +1425,49 @@ async function viewMonster(id){
 
     // (stats de base du monstre retirées : sans intérêt ici, l'utilisateur veut les stats RTA)
 
+    const listN = monState.listN || 10;
     const pairTable = (rows, playedKey, rateKey, asc, rateLabel) => {
       // seuil adaptatif : 15 % du volume max (min 30) pour rester pertinent même en début de saison
       const maxV = Math.max(...(rows||[]).map(x=>x[playedKey]), 0);
       const th = Math.max(30, Math.round(maxV*0.15));
       const f = (rows||[]).filter(x=>x[playedKey]>=th);
       f.sort((a,b)=> asc ? a[rateKey]-b[rateKey] : b[rateKey]-a[rateKey]);
-      if(!f.length) return '<div class="muted">Pas assez de données.</div>';
+      if(!f.length) return '<div class="muted">Pas assez de données sur ce filtre.</div>';
       return `<table><thead><tr><th>Monstre</th><th>${rateLabel}</th><th>Parties</th></tr></thead><tbody>` +
-        f.slice(0,8).map(x=>`<tr class="clickable" onclick="location.hash='#/monster/${x.b_monster_id}'">
+        f.slice(0, listN).map(x=>`<tr class="clickable" onclick="location.hash='#/monster/${x.b_monster_id}'">
           <td><img class="mon-ico" src="${monImg(x.b_monster_image_filename)}" loading="lazy"> &nbsp;${esc(x.b_monster_name)}</td>
           <td><b style="color:${x[rateKey]>=0.5?'var(--win)':'var(--lose)'}">${pct(x[rateKey])}</b></td>
           <td class="muted">${num(x[playedKey])}</td></tr>`).join("") + "</tbody></table>";
+    };
+    /* lignes issues de NOS fichiers de replays : duos [a,b,n,w,nt,wt,n3,w3] / versus pareil.
+       Le tier choisit les colonnes : tout ladder = n/w, Guardian+ = nt/wt, Guardian 3 = n3/w3 */
+    const TI = monState.tier === "g3" ? [6, 7] : monState.tier === "all" ? [4, 5] : [2, 3];
+    const monMeta = mid => metaMap.get(mid) || monCache.get(mid) || {};
+    const fileRows = (d, vs) => (d?.rows || [])
+      .filter(r => vs ? r[0] === id : (r[0] === id || r[1] === id))
+      .map(r => {
+        const other = vs ? r[1] : (r[0] === id ? r[1] : r[0]);
+        const m = monMeta(other);
+        return { b_monster_id: other, b_monster_name: m.name || ("#" + other), b_monster_image_filename: m.image_filename || "",
+                 played: r[TI[0]], rate: r[TI[0]] ? r[TI[1]] / r[TI[0]] : 0 };
+      }).filter(x => x.played > 0);
+    // trios (uniquement depuis notre collecte) : [a,b,c,n,w,…] — colonnes décalées de +1
+    const trioTable = () => {
+      const rows = (triosD?.rows || [])
+        .filter(r => r[0] === id || r[1] === id || r[2] === id)
+        .map(r => ({ ids: [r[0], r[1], r[2]], n: r[TI[0] + 1], w: r[TI[1] + 1] }))
+        .filter(x => x.n > 0);
+      const maxV = Math.max(...rows.map(x => x.n), 0);
+      const th = Math.max(30, Math.round(maxV * 0.15));
+      const f = rows.filter(x => x.n >= th).map(x => ({ ...x, rate: x.w / x.n }));
+      f.sort((a, b) => b.rate - a.rate);
+      if(!f.length) return `<div class="muted">Pas assez de volume sur ce filtre${monState.tier === "g3" ? " (Guardian 3 se remplit en fin de saison)" : ""}.</div>`;
+      return `<table><thead><tr><th>Trio</th><th>Winrate</th><th>Parties</th></tr></thead><tbody>` +
+        f.slice(0, listN).map(x => `<tr>
+          <td style="white-space:nowrap">${x.ids.map(mid => `<img class="mon-ico mon-click" src="${monImg(monMeta(mid).image_filename)}" loading="lazy" title="${esc(monMeta(mid).name || mid)}" onclick="location.hash='#/monster/${mid}'">`).join(" ")}
+            &nbsp;<span style="font-size:12.5px">${x.ids.map(mid => esc(monMeta(mid).name || ("#" + mid))).join(" + ")}</span></td>
+          <td><b style="color:${x.rate >= 0.5 ? 'var(--win)' : 'var(--lose)'}">${pct(x.rate)}</b></td>
+          <td class="muted">${num(x.n)}</td></tr>`).join("") + "</tbody></table>";
     };
 
     const skillsHTML = det?.skills?.length ? `<h2>Compétences</h2><div class="panel">` +
@@ -1474,10 +1535,34 @@ async function viewMonster(id){
         <select onchange="setMonGran(this.value)" style="font-size:12.5px;padding:3px 8px;font-weight:400" title="Regroupement des points. En quotidien, un jour à un ou deux combats fait sauter le winrate à 0 ou 100 % : le regroupement additionne les combats avant de calculer le pourcentage. Le mensuel est le plus stable mais une saison dure environ un mois, il n'y reste que 2 ou 3 points.">${
           MON_GRANS.map(([v,l])=>`<option value="${v}" ${v===monState.gran?"selected":""}>${l}</option>`).join("")}</select></h2>
         <div class="panel chart-wrap" id="chartPanel">${chartPanelHTML(hist)}</div>` : ""}
-      <div class="two-col">
-        <div><h2>Meilleures synergies <span class="muted" style="font-size:12px;font-weight:400">(Guardian+)</span></h2><div class="panel tbl-wrap">${pairTable(togR.data,"total_played_together","win_together_rate",false,"WR ensemble")}</div></div>
-        <div><h2>Pires matchups <span class="muted" style="font-size:12px;font-weight:400">(il perd contre)</span></h2><div class="panel tbl-wrap">${pairTable(agR.data,"total_played_against","win_against_rate",true,"WR contre")}</div></div>
+      ${(()=>{
+        // synergies & matchups : NOS replays pour les trois filtres (les rangs portés par les
+        // replays donnent du G3 même en cours de saison, là où l'API swarena est vide) ;
+        // repli sur l'API swarena si les fichiers de collecte manquent
+        const useFile = !!(duosD?.rows?.length);
+        const provenance = (monState.tier === "ladder" ? "tout le ladder" : monState.tier === "g3" ? "Guardian 3" : "Guardian+")
+          + (useFile ? " · notre collecte de replays" : " · swarena");
+        const syn = useFile ? pairTable(fileRows(duosD, false), "played", "rate", false, "WR ensemble")
+                            : pairTable(togR.data, "total_played_together", "win_together_rate", false, "WR ensemble");
+        const mat = useFile ? pairTable(fileRows(vsD, true), "played", "rate", true, "WR contre")
+                            : pairTable(agR.data, "total_played_against", "win_against_rate", true, "WR contre");
+        return `
+      <div class="row" style="margin:26px 0 10px;gap:10px">
+        <h2 style="margin:0">Synergies, matchups & trios</h2>
+        <span class="muted" style="font-size:12px">(${provenance})</span>
+        <span class="spacer"></span>
+        <label class="muted" style="font-size:12.5px">Afficher
+          <select onchange="monState.listN=+this.value;viewMonster(${id})" style="font-size:12.5px;padding:3px 8px">${
+            [5,10,20,50].map(v=>`<option value="${v}" ${v===listN?"selected":""}>${v}</option>`).join("")}</select>
+        </label>
       </div>
+      <div class="two-col">
+        <div><h2 style="font-size:16px;margin-top:0">Meilleures synergies</h2><div class="panel tbl-wrap">${syn}</div></div>
+        <div><h2 style="font-size:16px;margin-top:0">Pires matchups <span class="muted" style="font-size:12px;font-weight:400">(il perd contre)</span></h2><div class="panel tbl-wrap">${mat}</div></div>
+      </div>
+      <h2 style="font-size:16px">Meilleurs trios <span class="muted" style="font-size:12px;font-weight:400">(winrate, joués avec lui · notre collecte de replays)</span></h2>
+      <div class="panel tbl-wrap">${trioTable()}</div>`;
+      })()}
       ${skillsHTML}
       ${runesSectionHTML(runes)}
 `;

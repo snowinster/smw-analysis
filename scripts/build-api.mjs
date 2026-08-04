@@ -123,12 +123,14 @@ for(const s of [latest, latest - 1]){
   await write(`meta-s${s}.json`, { season: s, monsters: metaBySeason[s] });
   await write(`firstpicks-s${s}.json`, { season: s, ...(await buildFirstPicks(s)) });
   await write(`leaderboard-s${s}.json`, { season: s, players: await buildLeaderboard(s) });
-  // stats SOUS Guardian (agrégées par nous depuis les replays — swarena ne publie que du Guardian+)
+  // agrégats calculés depuis les REPLAYS bruts : stats solo sous Guardian, duos, trios,
+  // oppositions — par palier (tout ladder / Guardian+ / G3). swarena ne publie rien de tout ça.
   try{
-    const { default: buildSubGuardian } = await import("./build-sub-guardian.mjs");
-    await write(`meta-sub-s${s}.json`, { season: s, source: "replays api.swarena.gg, agrégation locale", ...(await buildSubGuardian(s)) });
+    const { writeReplayStats } = await import("./build-replay-stats.mjs");
+    const r = await writeReplayStats(s, write);
+    console.log(`  replays s${s} : ${r.battles_scanned} scannés, duos ${r.duos.length}, trios ${r.trios.length}, vs ${r.versus.length}`);
   }catch(e){
-    console.log(`meta-sub-s${s}.json ignoré :`, e.message);
+    console.log(`stats replays s${s} ignorées :`, e.message);
   }
 }
 
