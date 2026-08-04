@@ -286,10 +286,6 @@ tr.clickable:hover{background:var(--card2)}
 .mb-val{font-size:23px;font-weight:800;line-height:1.1}
 .mb-lbl{font-size:10.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--muted);margin-top:2px}
 .mb-sub{font-size:11px;color:var(--muted)}
-.mstats{display:grid;grid-template-columns:repeat(auto-fit,minmax(108px,1fr));gap:10px;margin-bottom:18px}
-.mstat{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:12px 8px;text-align:center}
-.mstat .lb{font-size:10.5px;letter-spacing:.08em;color:var(--muted);text-transform:uppercase;margin-top:5px}
-.mstat .vl{font-size:18px;font-weight:800;margin-top:1px}
 @media (max-width:900px){ .mh-filters{margin-left:0;align-items:flex-start;width:100%} .mh-filters .chips{justify-content:flex-start} }
 
 /* chart */
@@ -1355,18 +1351,7 @@ async function viewMonster(id){
     const hist = histR.data || [];
     monState.hist = hist; // gardé pour que changer de granularité ne relance aucune requête
 
-    // stats de base en cartes iconées (façon lucksack)
-    const MS_SVG = (d, c) => `<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="${c}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
-    const baseStats = det ? `<div class="mstats">${[
-        ["PV",  num(det.max_lvl_hp),      '<path d="M12 20.5C6 16 3.5 12.7 3.5 9.4 3.5 7 5.3 5 7.8 5c1.6 0 3.1.8 4.2 2.3C13.1 5.8 14.6 5 16.2 5c2.5 0 4.3 2 4.3 4.4 0 3.3-2.5 6.6-8.5 11.1z"/>', "#3fca7c"],
-        ["ATK", num(det.max_lvl_attack),  '<path d="M3 21l5-1L20 8l-4-4L4 16z"/><path d="M13.5 6.5l4 4"/>', "#ff6a55"],
-        ["DEF", num(det.max_lvl_defense), '<path d="M12 21.5c4.5-2 7.5-5 7.5-9.8V5.6L12 2.8 4.5 5.6v6.1c0 4.8 3 7.8 7.5 9.8z"/>', "#57b0ff"],
-        ["VIT", det.speed??"-",           '<path d="M13 2 4 14h6l-1 8 9-12h-6z"/>', "#ffcf4d"],
-        ["Taux crit", (det.crit_rate??"-")+"%",   '<circle cx="12" cy="12" r="8"/><path d="M12 4v4M12 16v4M4 12h4M16 12h4"/>', "#ffb04e"],
-        ["Dég. crit", (det.crit_damage??"-")+"%", '<circle cx="12" cy="12" r="3"/><path d="M12 2.5v3.5M12 18v3.5M2.5 12H6M18 12h3.5M5.3 5.3l2.5 2.5M16.2 16.2l2.5 2.5M18.7 5.3l-2.5 2.5M7.8 16.2l-2.5 2.5"/>', "#ff5b8d"],
-        ["RES", (det.resistance??"-")+"%", '<path d="M12 21.5c4.5-2 7.5-5 7.5-9.8V5.6L12 2.8 4.5 5.6v6.1c0 4.8 3 7.8 7.5 9.8z"/><path d="M8.5 12h7"/>', "#4ecfe0"],
-        ["ACC", (det.accuracy??"-")+"%",   '<circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="4.5"/><circle cx="12" cy="12" r="1"/>', "#b07dff"]
-      ].map(([lb, vl, d, c])=>`<div class="mstat">${MS_SVG(d, c)}<div class="lb">${lb}</div><div class="vl">${vl}</div></div>`).join("")}</div>` : "";
+    // (stats de base du monstre retirées : sans intérêt ici, l'utilisateur veut les stats RTA)
 
     const pairTable = (rows, playedKey, rateKey, asc, rateLabel) => {
       // seuil adaptatif : 15 % du volume max (min 30) pour rester pertinent même en début de saison
@@ -1439,7 +1424,6 @@ async function viewMonster(id){
           <div class="mb-val" style="color:#d8a94e">${pct(s.lead_rate)}</div>
           <div class="mb-lbl">Lead rate</div><div class="mb-sub">en leader</div></div></div>
       </div>${(s.picks||0) < 30 ? `<div class="muted" style="font-size:12px;margin:-6px 0 16px">Échantillon très faible sur ce filtre (${num(s.picks)} pick${s.picks>1?"s":""}) — les pourcentages ne veulent pas dire grand-chose.</div>` : ""}` : `<div class="panel muted">Pas de statistiques pour la saison ${monState.season}.</div>`}
-      ${baseStats}
       ${hist.length>2 ? `<h2 style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">Tendance - Saison ${monState.season}
         <select onchange="setMonGran(this.value)" style="font-size:12.5px;padding:3px 8px;font-weight:400" title="Regroupement des points. En quotidien, un jour à un ou deux combats fait sauter le winrate à 0 ou 100 % : le regroupement additionne les combats avant de calculer le pourcentage. Le mensuel est le plus stable mais une saison dure environ un mois, il n'y reste que 2 ou 3 points.">${
           MON_GRANS.map(([v,l])=>`<option value="${v}" ${v===monState.gran?"selected":""}>${l}</option>`).join("")}</select></h2>
