@@ -242,30 +242,27 @@ tr.clickable:hover{background:var(--card2)}
 .pick.banned::after{content:"✕";position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--lose);font-size:22px;font-weight:900}
 .pick.leader::before{content:"★";position:absolute;top:-7px;left:-4px;color:var(--gold);font-size:14px;z-index:2;text-shadow:0 1px 3px #000}
 .fp-badge{font-size:10.5px;font-weight:700;color:var(--accent2);border:1px solid var(--accent2);padding:1px 7px;border-radius:10px;white-space:nowrap}
-/* combats : LIGNE compacte — résultat | équipes face à face | adversaire | replay */
-.battle.bc{display:flex;align-items:center;gap:16px;padding:9px 14px;margin-bottom:8px;flex-wrap:wrap}
+/* combats : CARTES compactes en grille (plusieurs par ligne selon la largeur),
+   équipes empilées comme avant — tes picks en haut, l'adversaire en bas */
+.bl-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(430px,100%),1fr));gap:10px;margin-bottom:10px}
+.battle.bc{margin-bottom:0;padding-bottom:10px}
 .battle.bc.win{border-left:4px solid var(--win)}
 .battle.bc.lose{border-left:4px solid var(--lose)}
-.bc-res{display:flex;flex-direction:column;align-items:flex-start;gap:2px;width:96px;flex-shrink:0}
-.bc-date{font-size:11px;color:var(--muted);white-space:nowrap}
-.bc-teams{display:flex;align-items:center;gap:10px}
-.bc-vs{color:var(--muted);font-size:14px}
-.bc-picks{display:flex;gap:4px;align-items:center}
-.battle.bc .pick,.battle.bc .pick img{width:36px;height:36px}
-.battle.bc .pick img{border-radius:7px}
-.battle.bc .pick.banned::after{font-size:16px}
+.bc-head{display:flex;align-items:center;gap:8px;padding:7px 12px;font-size:12px;color:var(--muted);background:rgba(0,0,0,.18);margin-bottom:9px}
+.bc-date{font-size:11.5px;color:var(--muted);white-space:nowrap}
+.bc-rep{font-size:11px;color:var(--muted);white-space:nowrap}
+.bc-row{display:flex;align-items:center;gap:10px;padding:0 12px;min-width:0}
+.bc-row + .bc-row{margin-top:9px;padding-top:9px;border-top:1px dashed var(--border)}
+.bc-picks{display:flex;gap:4px;align-items:center;flex-shrink:0}
+.battle.bc .pick,.battle.bc .pick img{width:38px;height:38px}
+.battle.bc .pick img{border-radius:8px}
+.battle.bc .pick.banned::after{font-size:17px}
 .battle.bc .pick.leader::before{font-size:11px;top:-6px;left:-3px}
-.bc-fpstar{font-size:9.5px;font-weight:800;color:var(--accent2);border:1px solid var(--accent2);border-radius:8px;padding:1px 4px;margin-right:2px}
-.bc-opp{margin-left:auto;display:flex;flex-direction:column;align-items:flex-end;gap:1px;min-width:150px}
-.bc-opp .n{font-weight:700;font-size:13px;cursor:pointer;white-space:nowrap}
+.bc-fpstar{font-size:9.5px;font-weight:800;color:var(--accent2);border:1px solid var(--accent2);border-radius:8px;padding:1px 4px;margin-right:2px;flex-shrink:0}
+.bc-opp{margin-left:auto;display:flex;flex-direction:column;align-items:flex-end;gap:1px;min-width:0}
+.bc-opp .n{font-weight:700;font-size:13px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:175px}
 .bc-opp .n:hover{color:var(--accent2)}
-.bc-opp .s{font-size:11.5px;color:var(--muted);white-space:nowrap}
-.bc-rep{font-size:11px;color:var(--muted);flex-shrink:0;min-width:78px;text-align:right}
-@media (max-width:860px){
-  .bc-opp{margin-left:0;align-items:flex-start;flex-direction:row;gap:8px;width:100%;min-width:0;order:5}
-  .bc-rep{display:none}
-  .battle.bc{gap:10px}
-}
+.bc-opp .s{font-size:11px;color:var(--muted);white-space:nowrap}
 
 /* chart */
 .chart-wrap{width:100%;overflow-x:auto}
@@ -924,7 +921,11 @@ async function viewPlayer(id){
     await Promise.all(allSeasons.filter(x=>plSummaries[x]===undefined).map(async x=>{
       plSummaries[x] = await api(`/player/${id}/summary?season=${x}`).then(r=>r.data||null).catch(()=>null);
     }));
-    const seasons = allSeasons.filter(x=>plSummaries[x]);
+    // onglets : toutes les saisons où le joueur a VRAIMENT joué en RTA (> 10 parties) ;
+    // les saisons anecdotiques (≤ 10 parties) sont masquées — repli sur les saisons avec
+    // données si aucune ne passe le seuil (petit compte), pour ne pas afficher une page vide
+    let seasons = allSeasons.filter(x=>(plSummaries[x]?.wizard_battles||0) > 10);
+    if(!seasons.length) seasons = allSeasons.filter(x=>plSummaries[x]);
     if(!seasons.length){ $app.innerHTML = '<div class="error-box">Ce joueur est référencé mais n\'a aucune donnée de combat exploitable.</div>'; return; }
     if(!plState.season || !seasons.includes(plState.season)) plState.season = seasons[0];
     const season = plState.season;
@@ -1117,25 +1118,26 @@ async function renderBattles(battles, viewerId){
       <button class="btn" onclick="plBattlesGo(${bpState.page+1})" ${bpState.page>=pages-1?"disabled":""} title="Page suivante">›</button>
       <button class="btn" onclick="plBattlesGo(${pages-1})" ${bpState.page>=pages-1?"disabled":""} title="Dernière page">»</button>
     </div>` : "";
-  $bl.innerHTML = slice.map(b=>{
+  $bl.innerHTML = `<div class="bl-grid">` + slice.map(b=>{
     const users = Object.values(b.user_list||{});
     const me = users.find(u=>u.wizard_id===viewerId) || users[0];
     const opp = users.find(u=>u!==me);
     const won = me && me.win_lose===1;
     return `<div class="battle bc ${won?"win":"lose"}">
-      <div class="bc-res">
+      <div class="bc-head">
         <span class="b-result">${won?"VICTOIRE":"DÉFAITE"}</span>
         <span class="bc-date">${fmtDate(b.date_add_iso)}</span>
         ${b.special_league?'<span class="fp-badge">Ligue spé.</span>':""}
+        <span class="spacer"></span>
+        <span class="bc-rep" title="Identifiant du replay">#${b.replay_rid_ref??""}</span>
       </div>
-      <div class="bc-teams">${bcTeamHTML(me)}<span class="bc-vs">⚔</span>${bcTeamHTML(opp)}</div>
-      <div class="bc-opp">${opp?`
+      <div class="bc-row">${bcTeamHTML(me)}</div>
+      <div class="bc-row">${bcTeamHTML(opp)}${opp?`<div class="bc-opp">
         <span class="n" onclick="location.hash='#/player/${opp.wizard_id}'">${flag(opp.country)} ${esc(opp.wizard_name)} ↗</span>
-        <span class="s">Score ${num(opp.score)} · rang ${num(opp.rank)}</span>`:""}
+        <span class="s">Score ${num(opp.score)} · rang ${num(opp.rank)}</span></div>`:""}
       </div>
-      <span class="bc-rep" title="Identifiant du replay">#${b.replay_rid_ref??""}</span>
     </div>`;
-  }).join("") + pager;
+  }).join("") + `</div>` + pager;
 }
 /* une équipe en ligne : 5 icônes (★ leader, ✕ ban) + pastille FP sur le côté qui ouvre la draft */
 function bcTeamHTML(u){
