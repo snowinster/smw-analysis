@@ -48,8 +48,12 @@ nav a.navlink:hover,nav a.navlink.active{color:var(--text);background:var(--card
 .auth-chip img{width:26px;height:26px;border-radius:50%;object-fit:cover;background:var(--bg2)}
 .auth-menu{position:absolute;top:115%;right:0;background:var(--card);border:1px solid var(--border);border-radius:12px;min-width:240px;box-shadow:0 12px 30px rgba(0,0,0,.5);z-index:80;overflow:hidden}
 .auth-menu .am-head{padding:11px 14px;border-bottom:1px solid var(--border);font-size:13px;line-height:1.5}
-.auth-menu .am-item{display:flex;align-items:center;gap:8px;padding:10px 14px;cursor:pointer;font-size:13.5px}
+.auth-menu .am-item{display:flex;align-items:center;gap:10px;padding:10px 14px;cursor:pointer;font-size:13.5px}
 .auth-menu .am-item:hover{background:var(--card2)}
+.auth-chip svg,.auth-menu svg{flex-shrink:0}
+.am-item svg{color:var(--muted)}
+.am-item:hover svg{color:var(--accent2)}
+.am-shield{display:inline-flex;vertical-align:-2px;color:var(--gold, #d8a94e)}
 .auth-modal{position:fixed;inset:0;background:rgba(5,8,15,.88);z-index:300;display:flex;align-items:center;justify-content:center;padding:16px}
 .auth-panel{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:22px;width:390px;max-width:96vw;max-height:94vh;overflow:auto;position:relative}
 .auth-close{position:absolute;top:10px;right:12px;background:none;border:none;color:var(--muted);font-size:20px;cursor:pointer}
@@ -2059,22 +2063,31 @@ function authAfterLogin(){
   }
 }
 /* ----- UI : pastille en haut à droite + menu ----- */
+/* icônes SVG au trait (les emojis rendent mal et jurent avec le style du site) */
+const AU_SVG = (d, extra) => `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"${extra||""}>${d}</svg>`;
+const AU_IC = {
+  user:  AU_SVG('<circle cx="12" cy="8" r="4"/><path d="M4 21c0-4.2 3.6-6.6 8-6.6s8 2.4 8 6.6"/>'),
+  link:  AU_SVG('<path d="M10.5 13.5a4.6 4.6 0 0 0 6.5 0l3.2-3.2a4.6 4.6 0 0 0-6.5-6.5L12 5.5"/><path d="M13.5 10.5a4.6 4.6 0 0 0-6.5 0l-3.2 3.2a4.6 4.6 0 0 0 6.5 6.5l1.7-1.7"/>'),
+  chart: AU_SVG('<path d="M5 20v-8"/><path d="M11 20V5"/><path d="M17 20v-5"/><path d="M2.5 20h19"/>'),
+  out:   AU_SVG('<path d="M9.5 21H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.5"/><path d="M16 16.5 20.5 12 16 7.5"/><path d="M20 12H10"/>'),
+  shield:AU_SVG('<path d="M12 21.5c4.5-2 7.5-5 7.5-9.8V5.6L12 2.8 4.5 5.6v6.1c0 4.8 3 7.8 7.5 9.8z"/>')
+};
 function renderAuthUI(){
   const $w = document.getElementById("authWrap");
   if(!$w) return;
   const u = auth.user;
   if(!u){
-    $w.innerHTML = `<button class="auth-chip" onclick="authOpenLoginPage()" title="Se connecter ou créer un compte">👤 <span class="pn">Connexion</span></button>`;
+    $w.innerHTML = `<button class="auth-chip" onclick="authOpenLoginPage()" title="Se connecter ou créer un compte">${AU_IC.user} <span class="pn">Connexion</span></button>`;
     return;
   }
-  const pic = u.playerPic ? `<img src="${esc(u.playerPic)}" onerror="this.style.display='none'">` : "👤";
+  const pic = u.playerPic ? `<img src="${esc(u.playerPic)}" onerror="this.style.display='none'">` : AU_IC.user;
   $w.innerHTML = `
     <button class="auth-chip logged" onclick="authToggleMenu(event)" title="Compte : ${esc(u.pseudo)}">${pic} <span class="pn">${esc(u.pseudo)}</span> ▾</button>
     <div class="auth-menu" id="authMenu" style="display:none">
-      <div class="am-head">Connecté : <b>${esc(u.pseudo)}</b>${u.admin ? ` <span title="Compte administrateur">🛡</span>` : ""}${u.playerName ? `<br><span class="muted">Joueur lié : ${esc(u.playerName)}</span>` : `<br><span class="muted">Aucun joueur SW lié</span>`}${u.admin ? `<br><span class="muted">Administrateur</span>` : ""}</div>
-      <div class="am-item" onclick="authOpenModal('link')">🔗 ${u.playerId ? "Changer" : "Choisir"} mon joueur SW</div>
-      ${u.playerId ? `<div class="am-item" onclick="authCloseMenu();location.hash='#/player/${u.playerId}'">📊 Mon profil joueur</div>` : ""}
-      <div class="am-item" onclick="authLogout()">🚪 Se déconnecter</div>
+      <div class="am-head">Connecté : <b>${esc(u.pseudo)}</b>${u.admin ? ` <span class="am-shield" title="Compte administrateur">${AU_IC.shield}</span>` : ""}${u.playerName ? `<br><span class="muted">Joueur lié : ${esc(u.playerName)}</span>` : `<br><span class="muted">Aucun joueur SW lié</span>`}${u.admin ? `<br><span class="muted">Administrateur</span>` : ""}</div>
+      <div class="am-item" onclick="authOpenModal('link')">${AU_IC.link} ${u.playerId ? "Changer" : "Choisir"} mon joueur SW</div>
+      ${u.playerId ? `<div class="am-item" onclick="authCloseMenu();location.hash='#/player/${u.playerId}'">${AU_IC.chart} Mon profil joueur</div>` : ""}
+      <div class="am-item" onclick="authLogout()">${AU_IC.out} Se déconnecter</div>
     </div>`;
 }
 function authToggleMenu(e){
@@ -2114,7 +2127,7 @@ function authOpenModal(mode){
   ov.innerHTML = `<div class="auth-panel">
     <button class="auth-close" onclick="document.getElementById('authModal').remove()">✕</button>
     ${mode === "link" ? `
-      <h2 style="margin:0 0 6px">🔗 Mon joueur Summoners War</h2>
+      <h2 style="margin:0 0 6px;display:flex;align-items:center;gap:8px">${AU_IC.link} Mon joueur Summoners War</h2>
       <p class="muted" style="font-size:12.5px">Ce joueur devient automatiquement le joueur A du simulateur de draft quand tu es connecté.</p>
       ${playerPicker("Rechercher ton joueur")}
       <button class="btn primary" id="auLinkOk" style="width:100%;margin-top:14px">✔ Enregistrer</button>
