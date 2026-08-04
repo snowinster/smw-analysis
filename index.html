@@ -2725,6 +2725,8 @@ const SIG_CROPS = [];
 for(const top of [0.18, 0.22, 0.26]) for(const bot of [0.04, 0.08, 0.12]) for(const side of [0.08, 0.11, 0.14]) SIG_CROPS.push({top, bot, side});
 function cropSig(b, cv){
   // dx/dy : décalage optionnel en FRACTION de la case (variantes d'alignement)
+  // scale : case virtuellement agrandie/réduite autour de son centre (variantes de taille)
+  if(cv.scale) b = [b[0]-b[2]*cv.scale/2, b[1]-b[3]*cv.scale/2, b[2]*(1+cv.scale), b[3]*(1+cv.scale)];
   const x = b[0] + b[2]*(cv.side + (cv.dx || 0)), w = b[2]*(1 - 2*cv.side);
   const y = b[1] + b[3]*(cv.top + (cv.dy || 0)),  h = b[3]*(1 - cv.top - cv.bot);
   cam.tctx.drawImage(cam.video, x, y, w, h, 0, 0, SIG_T, SIG_T);
@@ -2740,6 +2742,15 @@ const SIG_SHIFTS = [];
 for(const m of [0.03, 0.06])
   for(const [dx, dy] of [[-1,0],[1,0],[0,-1],[0,1],[-1,-1],[1,1],[-1,1],[1,-1]])
     SIG_SHIFTS.push({top:0.22, bot:0.08, side:0.11, dx:dx*m, dy:dy*m});
+/* variantes d'ÉCHELLE (±5 % et +9 %, croisées avec les décalages 6 %) : même rôle que SIG_SHIFTS
+   mais pour une case détectée à la mauvaise TAILLE — le miroir A→B propage aussi les erreurs de
+   taille. Mesuré sur un signalement réel (fenêtre 1394 px, case isolée décalée de 8 px et 5 %
+   trop grande) : Volg (faux, marge 19 %) → Bolverk (juste, d=0.83, marge 87 %) avec décalage
+   -6 % + échelle +5 % ; la case ❓ voisine (décalée de 11 px) redevient Giou (d=0.94, top-1). */
+const SIG_SCALES = [];
+for(const k of [-0.05, 0.05, 0.09])
+  for(const [dx, dy] of [[0,0],[-1,0],[1,0],[0,-1],[0,1],[-1,-1],[1,1],[-1,1],[1,-1]])
+    SIG_SCALES.push({top:0.22, bot:0.08, side:0.11, dx:dx*0.06, dy:dy*0.06, scale:k});
 /* signature du CRÂNE des cases vides (générée par scripts/gen-empty-sig.mjs depuis les captures).
    La z-norm par canal rend le motif identique quelle que soit la teinte de la case
    (sombre, beige « à toi de jouer », surbrillance dorée). Mesures sur toutes les captures
@@ -2816,14 +2827,16 @@ function camMetaDb(){
    Une VRAIE box est un filet quasi sûr (le monstre y est), la box méta reste un pari. */
 function dbForSide(side){
   const box = side==="A" ? simState.boxA : simState.boxB;
+  cam.curPlays = null; // parties jouées par monstre (a priori du départage élémentaire) : box réelle uniquement
   if(cam.db && box && box.list?.length){
     const key = side + ":" + box.list.length;
     cam.dbSub = cam.dbSub || {};
     if(cam.dbSub[side]?.key !== key){
       const ids = new Set(box.list.map(x=>x.unit_master_id));
-      cam.dbSub[side] = { key, arr: cam.db.filter(e=>ids.has(e.id)) };
+      cam.dbSub[side] = { key, arr: cam.db.filter(e=>ids.has(e.id)),
+                          plays: new Map(box.list.map(x=>[x.unit_master_id, x.plays||0])) };
     }
-    if(cam.dbSub[side].arr.length){ cam.dbTier = "box"; return cam.dbSub[side].arr; }
+    if(cam.dbSub[side].arr.length){ cam.dbTier = "box"; cam.curPlays = cam.dbSub[side].plays; return cam.dbSub[side].arr; }
   }
   const md = camMetaDb();
   if(md){ cam.dbTier = "meta"; return md; }
@@ -2850,7 +2863,7 @@ function hueCenter(a){
   }
   return c;
 }
-function camMatchSig(v, db, hue, hue4, restricted){
+function camMatchSig(v, db, hue, hue4, restricted, famDb){
   db = db || cam.db;
   if(restricted === undefined) restricted = db !== cam.db;
   let d1 = 1e9, d2 = 1e9, e1 = null, e2 = null;
@@ -2867,7 +2880,12 @@ function camMatchSig(v, db, hue, hue4, restricted){
   // : grille chromatique 4x4 en priorité — spatiale, elle voit OÙ est le rouge/vert (Stark feu vs
   // vent : 93,1% vs 87,3% mesurés par scripts/tune-family.mjs) — teinte moyenne globale en repli
   if(e1 && (hue4 || hue)){
-    const fam = db.filter(e => e !== e1 && sameFamily(e, e1) && (e.hue4 || e.hue));
+    // les variantes candidates viennent de la base COMPLÈTE, pas de la base restreinte : Odin
+    // (46 picks S38, hors top-50 méta) restait INVISIBLE quand la lecture tombait sur Bolverk —
+    // le bon élément était hors d'atteinte du départage et le mauvais restait pour toujours
+    // (signalement du 03/08). La garde de forme 1.18 reste : élargie à 1.6, la précision mesurée
+    // chute de 94,7 % à 93,2 % (9 504 crops simulés sur les 211 familles multi-variantes).
+    const fam = (famDb || cam.db || db).filter(e => e !== e1 && sameFamily(e, e1) && (e.hue4 || e.hue));
     if(fam.length && (e1.hue4 || e1.hue)){
       const hq = hue4 ? hueCenter(hue4) : null;
       const hd = e => {
@@ -2879,14 +2897,27 @@ function camMatchSig(v, db, hue, hue4, restricted){
         if(hue && e.hue) return Math.abs(hue[0]-e.hue[0]) + Math.abs(hue[1]-e.hue[1]) + Math.abs(hue[2]-e.hue[2]);
         return 1e9;
       };
-      let bestE = e1, bestH = hd(e1);
+      const cands = [{e: e1, h: hd(e1)}];
       for(const e of fam){
         let d = 0;
         for(let i=0;i<v.length;i++){ const dd = v[i]-e.v[i]; d += dd*dd; }
         d /= v.length;
-        if(d <= d1*1.18 && hd(e) < bestH){ bestH = hd(e); bestE = e; }
+        if(d <= d1*1.18) cands.push({e, h: hd(e)});
       }
-      e1 = bestE;
+      cands.sort((a,b)=>a.h-b.h);
+      let pick = cands[0];
+      // teintes quasi ex æquo (< 0.045 : l'écart Chow/Ragdoll mesuré sur un vrai crop était
+      // ~0.03, SOUS le bruit d'échantillonnage canvas/JPEG) → a priori sur les parties JOUÉES
+      // de la box adverse : un joueur à 32 parties de Ragdoll et 1 de Chow joue Ragdoll.
+      // Ne s'active qu'avec une vraie box (jamais sur la box méta) et un déséquilibre net
+      // (≥ 10 parties et ≥ 5x) — hors de ce cas, la teinte reste seule juge. (signalement 03/08)
+      if(cam.curPlays && cands.length > 1){
+        const pw = c => cam.curPlays.get(c.e.id) || 0;
+        const near = cands.filter(c => c.h <= cands[0].h + 0.045);
+        const top = near.slice().sort((a,b)=>pw(b)-pw(a))[0];
+        if(pw(top) >= 10 && pw(top) >= 5*Math.max(1, pw(cands[0]))) pick = top;
+      }
+      e1 = pick.e;
     }
   }
   const rel = (d2 - d1) / (d1 + 1e-6);
@@ -2900,9 +2931,11 @@ function camMatchSig(v, db, hue, hue4, restricted){
    exiger la vraie lumière (règle des 882 candidats) et l'afficher dans le diagnostic. */
 function camMatch2(v, sdb, hue, hue4, fdb, fromBox){
   if(fromBox === undefined) fromBox = sdb !== cam.db;
-  const m = camMatchSig(v, sdb, hue, hue4, fromBox);
+  // fdb (base complète moins les monstres déjà posés) sert aussi de vivier de VARIANTES au
+  // départage élémentaire : la règle RTA « déjà posé ailleurs = exclu » y reste respectée
+  const m = camMatchSig(v, sdb, hue, hue4, fromBox, fdb || cam.db);
   if(!fromBox) return m;
-  const mf = camMatchSig(v, fdb || cam.db, hue, hue4, false);
+  const mf = camMatchSig(v, fdb || cam.db, hue, hue4, false, fdb || cam.db);
   if(!mf.id) return m;
   if(!m.id || m.d1 > 0.9){
     // la box ne reconnaît rien de convaincant ET la base complète est très sûre
@@ -2955,6 +2988,7 @@ async function camTick(){
       if(cam.manualBoxes) for(const s of cam.slots){ s.id=null; s.diag=null; s.pend=null; s.pendN=0; s.emptyN=0; s.weak=null; s.weakN=0; s.content=false; s.unk=false; s.unkN=0; }
       else cam.slots = [];
       cam.boxMap = []; cam.fpSet = false; cam.oppTry = null; cam.oppCand = null; cam.oppRejected = null;
+      cam.oppCandInfo = null; cam.oppAdopted = false;
       camLog("⏹ sortie de la page VS — détection stoppée, cases réinitialisées");
     }
     liveStatus("🔎 en attente de l'écran VS…");
@@ -2989,6 +3023,7 @@ async function camTick(){
         simState.giLock = {A:new Set(), B:new Set()};
         if(cam.ocrSetB && simState.b){ simState.b = null; simState.boxB = null; }
         cam.oppTry = null; cam.oppCand = null; cam.ocrSetB = false; cam.oppRejected = null;
+        cam.oppCandInfo = null; cam.oppAdopted = false;
         camLog("🆕 nouveau combat détecté — picks, verrous et adversaire remis à zéro");
         renderSim();
       }
@@ -3076,6 +3111,20 @@ async function camTick(){
      && (!cam.oppTry || Date.now()-cam.oppTry.t > (simState.b ? 15000 : 5000))){
     cam.oppTry = {t: Date.now(), n: (cam.oppTry?.n||0)+1};
     camFindOpponent().catch(()=>{}); // pseudo adverse → box restreinte = reconnaissance bien plus fiable
+  }else if(!simState.b && (cam.oppTry?.n||0) >= 10 && cam.oppCandInfo && !cam.oppAdopted){
+    // essais OCR épuisés avec un candidat solide jamais confirmé ni contredit → ADOPTION :
+    // mieux vaut la box du joueur lu à 1 lettre près que pas de box du tout (ItsJeffrey resté
+    // en confirmation 1/2 après 10 essais, alors que la lecture « ItsJeffrev » était unique)
+    const c = cam.oppCandInfo;
+    cam.oppAdopted = true; cam.oppCandInfo = null;
+    if(!cam.oppRejected?.has(c.id)){
+      camLog(`🎯 adversaire adopté en fin d'essais : ${c.name} (${c.why} — lecture unique, jamais contredite)`);
+      liveStatus("🎯 adversaire identifié : " + c.name, true);
+      cam.ocrSetB = true;
+      simState.b = c.id; simState.boxB = null;
+      renderSim();
+      loadSimBox(c.id).then(b=>{ simState.boxB = b; renderSim(); }).catch(()=>{});
+    }
   }
   const gain = camGain(); // fenêtre grisée (alt-tab) → seuils lum/std compensés par l'exposition de l'emblème
   // grisage PAR CÔTÉ : le jeu assombrit le côté dont ce n'est pas le tour → niveau de fond (p80)
@@ -3124,10 +3173,12 @@ async function camTick(){
       const m = camMatch2(v, sdb, hue, hue4, fdb, fromBox);
       if(!best || best.dark || m.rel > (best.m?.rel ?? -1)) best = {m, lum, std};
       // passe normale terminée et résultat HÉSITANT (marge faible, pas un crâne) → la case est
-      // peut-être mal cadrée de quelques pixels : on ajoute les variantes décalées à la recherche
+      // peut-être mal cadrée de quelques pixels : on ajoute les variantes décalées ET les
+      // variantes d'échelle à la recherche (cadrage décalé de 8-11 px + 5 % trop grand mesurés
+      // sur une petite fenêtre : seuls décalage + échelle COMBINÉS retrouvent le bon monstre)
       if(vi === SIG_CROPS.length - 1 && best && !best.dark
          && (best.m?.rel ?? 0) < 0.35 && dEmpty >= EMPTY_TH){
-        variants.push(...SIG_SHIFTS);
+        variants.push(...SIG_SHIFTS, ...SIG_SCALES);
       }
     }
     if(!best) continue;
@@ -3621,14 +3672,21 @@ async function camFindOpponent(){
     // « why » : provenance du verrouillage, tracée dans le journal — sans elle un mauvais
     // adversaire posé par une correspondance APPROCHÉE de l'API est indiscernable d'une
     // lecture exacte, et le diagnostic est impossible après coup
-    const accept = async (p, instant, why) => {
+    const accept = async (p, instant, why, adoptable) => {
       if(cam.oppRejected?.has(p.id)) return; // écarté à la main via « ✕ mauvais joueur »
       if(!instant && cam.oppCand !== p.id){
         cam.oppCand = p.id;
+        // mémorisé pour l'ADOPTION de fin de course : un pseudo net n'est souvent lu qu'UNE fois
+        // (ItsJeffrey lu « ItsJeffrev » à l'essai 9, puis plus que des lectures vides → resté
+        // bloqué en confirmation 1/2 pour toujours). Si les 10 essais s'épuisent sans que le
+        // candidat soit confirmé NI contredit, un candidat SOLIDE (lexique, unique, distance ≤ 1,
+        // ≥ 5 caractères — « an » → •An ne passe pas) est adopté quand même par camTick.
+        cam.oppCandInfo = adoptable ? {id: p.id, name: p.wizard_name, why} : null;
         camLog(`🕐 candidat adversaire : ${p.wizard_name} (confirmation 1/2${why ? " — " + why : ""})`);
         if(cam.oppTry) cam.oppTry.t = 0; // re-vérification immédiate au prochain tick
         return;
       }
+      cam.oppCandInfo = null;
       liveStatus("🎯 adversaire identifié : " + p.wizard_name, true);
       camLog(`🎯 adversaire identifié : ${p.wizard_name} → box restreinte activée (essai ${cam.oppTry?.n || 1}${why ? ", " + why : ""})`);
       cam.ocrSetB = true; // posé par l'OCR : sera remis à zéro au prochain combat
@@ -3707,7 +3765,8 @@ async function camFindOpponent(){
         // verrouillage sur UNE lecture RÉSERVÉ aux correspondances EXACTES et uniques ;
         // le flou (d ≥ 1) repasse toujours par la confirmation x2
         await accept({id: hit.id, wizard_name: hit.name}, hit.unique && hit.d === 0 && hit.qlen >= 4,
-                     `lexique, distance ${hit.d}${hit.unique ? "" : ", NON unique"}`);
+                     `lexique, distance ${hit.d}${hit.unique ? "" : ", NON unique"}`,
+                     hit.unique && hit.d <= 1 && hit.qlen >= 5);
         return;
       }
     }
