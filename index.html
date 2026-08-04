@@ -200,6 +200,24 @@ tr.clickable:hover{background:var(--card2)}
 .beast img{width:42px;height:42px;border-radius:8px;background:var(--bg2)}
 .beast .bn{font-size:12.5px;font-weight:600;line-height:1.2}
 .beast .bs{font-size:11.5px;color:var(--muted)}
+/* podium top 3 du bestiaire */
+.b3-row{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:4px;align-items:end}
+.b3-card{position:relative;text-align:center;background:var(--card2);border:1px solid var(--border);border-radius:14px;padding:20px 12px 14px;cursor:pointer;transition:transform .15s,border-color .15s}
+.b3-card:hover{border-color:var(--accent);transform:translateY(-3px)}
+.b3-card.r1{border-color:rgba(216,169,78,.45);background:linear-gradient(180deg,rgba(216,169,78,.10),var(--card2) 60%);padding-top:26px;padding-bottom:20px}
+.b3-card.r2{background:linear-gradient(180deg,rgba(190,200,215,.08),var(--card2) 60%)}
+.b3-card.r3{background:linear-gradient(180deg,rgba(205,135,80,.08),var(--card2) 60%)}
+.b3-medal{position:absolute;top:-14px;left:50%;transform:translateX(-50%);font-size:23px;filter:drop-shadow(0 3px 6px rgba(0,0,0,.55))}
+.b3-card img{width:70px;height:70px;border-radius:14px;background:var(--bg2);border:2px solid var(--border)}
+.b3-card.r1 img{width:88px;height:88px}
+.b3-name{font-weight:700;font-size:14px;margin-top:8px;line-height:1.2}
+.b3-sub{font-size:12px;color:var(--muted);margin-top:3px}
+.b3-bar{height:7px;border-radius:4px;background:var(--bg2);margin:10px 10px 6px;overflow:hidden}
+.b3-bar div{height:100%;border-radius:4px;background:linear-gradient(90deg,var(--win),#9fe6b8)}
+.b3-card.low .b3-bar div{background:linear-gradient(90deg,var(--lose),#ff9aa8)}
+.b3-wr{font-size:12.5px;font-weight:700}
+.b3-others{font-size:11.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin:16px 0 10px}
+@media (max-width:700px){.b3-row{grid-template-columns:1fr;align-items:stretch}.b3-card.r1 img{width:70px;height:70px}}
 
 /* battles */
 .battle{border:1px solid var(--border);border-radius:12px;margin-bottom:12px;overflow:hidden;background:var(--card2)}
@@ -224,6 +242,30 @@ tr.clickable:hover{background:var(--card2)}
 .pick.banned::after{content:"✕";position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--lose);font-size:22px;font-weight:900}
 .pick.leader::before{content:"★";position:absolute;top:-7px;left:-4px;color:var(--gold);font-size:14px;z-index:2;text-shadow:0 1px 3px #000}
 .fp-badge{font-size:10.5px;font-weight:700;color:var(--accent2);border:1px solid var(--accent2);padding:1px 7px;border-radius:10px;white-space:nowrap}
+/* combats : LIGNE compacte — résultat | équipes face à face | adversaire | replay */
+.battle.bc{display:flex;align-items:center;gap:16px;padding:9px 14px;margin-bottom:8px;flex-wrap:wrap}
+.battle.bc.win{border-left:4px solid var(--win)}
+.battle.bc.lose{border-left:4px solid var(--lose)}
+.bc-res{display:flex;flex-direction:column;align-items:flex-start;gap:2px;width:96px;flex-shrink:0}
+.bc-date{font-size:11px;color:var(--muted);white-space:nowrap}
+.bc-teams{display:flex;align-items:center;gap:10px}
+.bc-vs{color:var(--muted);font-size:14px}
+.bc-picks{display:flex;gap:4px;align-items:center}
+.battle.bc .pick,.battle.bc .pick img{width:36px;height:36px}
+.battle.bc .pick img{border-radius:7px}
+.battle.bc .pick.banned::after{font-size:16px}
+.battle.bc .pick.leader::before{font-size:11px;top:-6px;left:-3px}
+.bc-fpstar{font-size:9.5px;font-weight:800;color:var(--accent2);border:1px solid var(--accent2);border-radius:8px;padding:1px 4px;margin-right:2px}
+.bc-opp{margin-left:auto;display:flex;flex-direction:column;align-items:flex-end;gap:1px;min-width:150px}
+.bc-opp .n{font-weight:700;font-size:13px;cursor:pointer;white-space:nowrap}
+.bc-opp .n:hover{color:var(--accent2)}
+.bc-opp .s{font-size:11.5px;color:var(--muted);white-space:nowrap}
+.bc-rep{font-size:11px;color:var(--muted);flex-shrink:0;min-width:78px;text-align:right}
+@media (max-width:860px){
+  .bc-opp{margin-left:0;align-items:flex-start;flex-direction:row;gap:8px;width:100%;min-width:0;order:5}
+  .bc-rep{display:none}
+  .battle.bc{gap:10px}
+}
 
 /* chart */
 .chart-wrap{width:100%;overflow-x:auto}
@@ -921,13 +963,7 @@ async function viewPlayer(id){
         <div class="card"><div class="lbl">Second pick</div><div class="big">${pct(swr)}</div><div class="muted" style="font-size:12px">${num(s.second_pick_wins)} / ${num(s.second_pick_battles)}</div></div>
       </div>
       ${hist.length ? `<h2>Évolution du score - Saison ${season}</h2><div class="panel chart-wrap" id="chartPanel">${scoreChart(hist)}</div>` : ""}
-      ${bestiary.length ? `<h2>Bestiaire (${bestiary.length} monstres)</h2><div class="panel bestiary">${
-        bestiary.map(b=>{
-          const bwr = b.plays ? Math.round(100*b.wins/b.plays) : 0;
-          return `<div class="beast mon-click" onclick="location.hash='#/monster/${b.unit_master_id}'" title="${esc(b.name)} - ${b.plays} parties, ${b.wins} victoires · cliquer pour la fiche">
-            <img src="${monImg(b.image_filename)}" loading="lazy">
-            <div><div class="bn">${esc(b.name)}</div><div class="bs">${b.plays} parties · <b style="color:${bwr>=50?'var(--win)':'var(--lose)'}">${bwr} %</b></div></div></div>`;
-        }).join("")}</div>` : ""}
+      ${bestiary.length ? `<h2>Bestiaire (${bestiary.length} monstres)</h2>${bestiaryHTML(bestiary)}` : ""}
       ${mergedBestiaryHTML(seasons)}
       <h2>Derniers combats ${battles.length?`(${num(battles.length)})`:""}</h2>
       <div id="battleList">${battles.length ? '<div class="loading">Chargement des drafts…</div>' : '<div class="panel muted">Aucun replay disponible pour cette saison.</div>'}</div>
@@ -939,6 +975,35 @@ async function viewPlayer(id){
   }catch(e){ fail(e); }
 }
 
+/* ----- bestiaire : podium des 3 monstres les plus joués, puis le reste de la box ----- */
+const ELEM_RING = {Water:"#57b0ff", Fire:"#ff6a55", Wind:"#ffcf4d", Light:"#efe6c8", Dark:"#c07dff"};
+function bestiaryHTML(list){
+  const cell = b => {
+    const bwr = b.plays ? Math.round(100*b.wins/b.plays) : 0;
+    return `<div class="beast mon-click" onclick="location.hash='#/monster/${b.unit_master_id}'" title="${esc(b.name)} - ${b.plays} parties, ${b.wins} victoires · cliquer pour la fiche">
+      <img src="${monImg(b.image_filename)}" loading="lazy">
+      <div><div class="bn">${esc(b.name)}</div><div class="bs">${b.plays} parties · <b style="color:${bwr>=50?'var(--win)':'var(--lose)'}">${bwr} %</b></div></div></div>`;
+  };
+  if(list.length < 4) return `<div class="panel bestiary">${list.map(cell).join("")}</div>`;
+  const medals = ["🥇","🥈","🥉"];
+  const card = (b, i) => {
+    const wr = b.plays ? Math.round(100*b.wins/b.plays) : 0;
+    return `<div class="b3-card r${i+1} ${wr<50?"low":""} mon-click" onclick="location.hash='#/monster/${b.unit_master_id}'" title="${esc(b.name)} · cliquer pour la fiche">
+      <div class="b3-medal">${medals[i]}</div>
+      <img src="${monImg(b.image_filename)}" loading="lazy" style="border-color:${ELEM_RING[b.element]||"var(--border)"}">
+      <div class="b3-name">${esc(b.name)}</div>
+      <div class="b3-sub">${b.plays} parties · ${b.wins} V — ${b.plays-b.wins} D</div>
+      <div class="b3-bar"><div style="width:${wr}%"></div></div>
+      <div class="b3-wr" style="color:${wr>=50?'var(--win)':'var(--lose)'}">${wr} % de victoires</div>
+    </div>`;
+  };
+  // podium visuel : 2e — 1er (au centre, plus grand) — 3e
+  return `<div class="panel">
+    <div class="b3-row">${card(list[1],1)}${card(list[0],0)}${card(list[2],2)}</div>
+    <div class="b3-others">Le reste de la box (${list.length-3})</div>
+    <div class="bestiary">${list.slice(3).map(cell).join("")}</div>
+  </div>`;
+}
 /* ----- box RTA cumulée (fusion des bestiaires de toutes les saisons déjà sondées) ----- */
 function mergedBestiaryHTML(seasons){
   // limité aux 2 dernières saisons (sauf comptes curated), le reste est trop ancien
@@ -1057,35 +1122,35 @@ async function renderBattles(battles, viewerId){
     const me = users.find(u=>u.wizard_id===viewerId) || users[0];
     const opp = users.find(u=>u!==me);
     const won = me && me.win_lose===1;
-    return `<div class="battle ${won?"win":"lose"}">
-      <div class="b-head">
+    return `<div class="battle bc ${won?"win":"lose"}">
+      <div class="bc-res">
         <span class="b-result">${won?"VICTOIRE":"DÉFAITE"}</span>
-        <span>${fmtDate(b.date_add_iso)}</span>
-        ${b.special_league?'<span class="fp-badge">Ligue spéciale</span>':""}
-        <span class="spacer"></span>
-        <span>Replay #${b.replay_rid_ref??""}</span>
+        <span class="bc-date">${fmtDate(b.date_add_iso)}</span>
+        ${b.special_league?'<span class="fp-badge">Ligue spé.</span>':""}
       </div>
-      ${sideHTML(me, viewerId)}${opp?sideHTML(opp, viewerId):""}
+      <div class="bc-teams">${bcTeamHTML(me)}<span class="bc-vs">⚔</span>${bcTeamHTML(opp)}</div>
+      <div class="bc-opp">${opp?`
+        <span class="n" onclick="location.hash='#/player/${opp.wizard_id}'">${flag(opp.country)} ${esc(opp.wizard_name)} ↗</span>
+        <span class="s">Score ${num(opp.score)} · rang ${num(opp.rank)}</span>`:""}
+      </div>
+      <span class="bc-rep" title="Identifiant du replay">#${b.replay_rid_ref??""}</span>
     </div>`;
   }).join("") + pager;
 }
-function sideHTML(u, viewerId){
+/* une équipe en ligne : 5 icônes (★ leader, ✕ ban) + pastille FP sur le côté qui ouvre la draft */
+function bcTeamHTML(u){
   if(!u) return "";
   const picks = (u.pick_info?.unit_list||[]).slice().sort((a,b)=>a.pick_slot_id-b.pick_slot_id);
   const banned = new Set(u.pick_info?.banned_slot_ids||[]);
   const leader = u.pick_info?.leader_slot_id;
-  return `<div class="b-side">
-    <div class="b-who">
-      <span class="n" onclick="location.hash='#/player/${u.wizard_id}'">${flag(u.country)} ${esc(u.wizard_name)}${u.wizard_id===viewerId?"":" ↗"}</span>
-      <span class="s">Score ${num(u.score)} · rang ${num(u.rank)} ${u.is_first_pick?'· <span class="fp-badge">First pick</span>':""}</span>
-    </div>
-    <div class="picks">${picks.map(p=>{
+  return `<div class="bc-picks">
+    ${u.is_first_pick?'<span class="bc-fpstar" title="Ce côté avait le first pick">FP</span>':""}
+    ${picks.map(p=>{
       const m = monCache.get(p.unit_master_id) || {};
       const cls = ["pick", banned.has(p.pick_slot_id)?"banned":"", p.pick_slot_id===leader?"leader":""].join(" ");
       return `<div class="${cls} mon-click" onclick="location.hash='#/monster/${p.unit_master_id}'" title="${esc(m.name||p.unit_master_id)}${p.pick_slot_id===leader?" (leader)":""}${banned.has(p.pick_slot_id)?" (banni)":""} · cliquer pour la fiche">
         <img src="${monImg(m.image_filename)}" loading="lazy"></div>`;
-    }).join("")}</div>
-  </div>`;
+    }).join("")}</div>`;
 }
 
 /* ================= runes d'un monstre (modal) ================= */
