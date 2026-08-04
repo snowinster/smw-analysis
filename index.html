@@ -5269,7 +5269,7 @@ async function renderSim(){
       title="${pct(p.c.vsScore)} vs picks adverses · ${pct(p.tog)} avec ${esc(partner?.name||"")} (${num(p.nTog)} parties)">
       <img src="${monImg(p.c.img)}" loading="lazy">
       <div class="sg-n">${esc(p.c.name)} ${!simState.boxOnly && inBox(p.c.id) ? '<span class="inbox-badge">dans ta box</span>' : ""}${p.c.banRate!=null && p.c.banRate>=0.15 ? ` <span class="ban-badge">🚫 souvent banni (${pct(p.c.banRate,0)})</span>` : ""}
-        <div class="sub">${pct(p.tog)} avec ${esc(partner?.name||"")} (${num(p.nTog)} parties) · ${pct(p.c.vsScore)} vs sa draft</div></div>
+        <div class="sub">${pct(p.tog)} avec ${esc(partner?.name||"")} (${num(p.nTog)} parties) · ${pct(p.c.vsScore)} vs sa draft${p.trioFit!=null?` · <b>trio avec tes picks ${pct(p.trioFit)}</b>`:""}</div></div>
       <span class="sg-wr" style="color:${p.score>=0.5?'var(--win)':'var(--lose)'}">${pct(p.score)}</span></div>`);
   const duoRowsArr = duos.map(d=>
     `<div class="sugg" onclick="simPickDuo(${d.c1.id},${d.c2.id})" title="Picker les deux · ${pct(d.vs)} vs picks adverses · ${pct(d.tog)} ensemble (${num(d.nTog)} parties)">
@@ -5277,7 +5277,7 @@ async function renderSim(){
       <span style="color:var(--muted);font-weight:800">+</span>
       <img src="${monImg(d.c2.img)}" loading="lazy" class="mon-click" draggable="true" data-drag-id="${d.c2.id}" title="Picker uniquement ${esc(d.c2.name)}" onclick="event.stopPropagation();simPick(${d.c2.id},'A')">
       <div class="sg-n">${esc(d.c1.name)} + ${esc(d.c2.name)}
-        <div class="sub">${pct(d.vs)} vs picks adverses · ${pct(d.tog)} ensemble (${num(d.nTog)} parties)${d.myFit!=null?` · synergie avec tes picks ${pct(d.myFit)}`:""}</div></div>
+        <div class="sub">${pct(d.vs)} vs picks adverses · ${pct(d.tog)} ensemble (${num(d.nTog)} parties)${d.trioFit!=null?` · <b>trio avec tes picks ${pct(d.trioFit)}</b>`:""}${d.myFit!=null?` · synergie picks ${pct(d.myFit)}`:""}</div></div>
       <span class="sg-wr" style="color:${d.score>=0.5?'var(--win)':'var(--lose)'}">${pct(d.score)}</span></div>`);
   const pagedPanel = key => `<div id="sgList-${key}"></div><div id="sgPager-${key}"></div>`;
   $s.innerHTML = (fpMode ? `
