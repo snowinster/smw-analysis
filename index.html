@@ -40,6 +40,40 @@ nav a.navlink:hover,nav a.navlink.active{color:var(--text);background:var(--card
 .search-results .sr-item:hover{background:var(--card2)}
 .search-results img{width:30px;height:30px;border-radius:6px;object-fit:cover;background:var(--bg2)}
 
+/* ---------- Compte (connexion) ---------- */
+.authwrap{position:relative;flex-shrink:0}
+.auth-chip{display:inline-flex;align-items:center;gap:8px;background:var(--card);border:1px solid var(--border);border-radius:20px;padding:6px 13px;cursor:pointer;font-size:13.5px;font-weight:600;color:var(--text);white-space:nowrap}
+.auth-chip.logged{padding:4px 12px 4px 5px}
+.auth-chip:hover{border-color:var(--accent)}
+.auth-chip img{width:26px;height:26px;border-radius:50%;object-fit:cover;background:var(--bg2)}
+.auth-menu{position:absolute;top:115%;right:0;background:var(--card);border:1px solid var(--border);border-radius:12px;min-width:240px;box-shadow:0 12px 30px rgba(0,0,0,.5);z-index:80;overflow:hidden}
+.auth-menu .am-head{padding:11px 14px;border-bottom:1px solid var(--border);font-size:13px;line-height:1.5}
+.auth-menu .am-item{display:flex;align-items:center;gap:8px;padding:10px 14px;cursor:pointer;font-size:13.5px}
+.auth-menu .am-item:hover{background:var(--card2)}
+.auth-modal{position:fixed;inset:0;background:rgba(5,8,15,.88);z-index:300;display:flex;align-items:center;justify-content:center;padding:16px}
+.auth-panel{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:22px;width:390px;max-width:96vw;max-height:94vh;overflow:auto;position:relative}
+.auth-close{position:absolute;top:10px;right:12px;background:none;border:none;color:var(--muted);font-size:20px;cursor:pointer}
+.auth-close:hover{color:var(--text)}
+.auth-tabs{display:flex;gap:6px;margin-bottom:16px}
+.auth-tabs button{flex:1;padding:8px;border-radius:9px;border:1px solid var(--border);background:var(--card2);color:var(--muted);font-weight:700;cursor:pointer;font-size:14px}
+.auth-tabs button.active{background:var(--accent);border-color:var(--accent);color:#fff}
+.auth-panel label{display:block;font-size:12.5px;color:var(--muted);margin:11px 0 4px}
+.auth-panel input[type=text],.auth-panel input[type=password]{width:100%;padding:9px 12px;border-radius:9px;border:1px solid var(--border);background:var(--card2);color:var(--text);font-size:14px;outline:none}
+.auth-panel input:focus{border-color:var(--accent)}
+.auth-err{color:#ffb4c0;font-size:12.5px;margin-top:9px;min-height:16px}
+.auth-google{display:flex;align-items:center;justify-content:center;gap:10px;width:100%;margin-top:4px;padding:9px;border-radius:9px;border:1px solid var(--border);background:#fff;color:#1a1a1a;font-weight:700;font-size:14px;cursor:pointer}
+.auth-google:hover{filter:brightness(.94)}
+.auth-sep{display:flex;align-items:center;gap:10px;color:var(--muted);font-size:12px;margin:15px 0 11px}
+.auth-sep::before,.auth-sep::after{content:"";flex:1;height:1px;background:var(--border)}
+.auth-player{display:flex;align-items:center;gap:8px;margin-top:7px;font-size:13px;min-height:20px}
+.auth-player img{width:26px;height:26px;border-radius:6px;object-fit:cover;background:var(--bg2)}
+.auth-player .chip-x{cursor:pointer;color:var(--muted)}
+.auth-results{border:1px solid var(--border);border-radius:9px;margin-top:4px;max-height:210px;overflow-y:auto;display:none;background:var(--card)}
+.auth-results .sr-item{display:flex;align-items:center;gap:10px;padding:8px 12px;cursor:pointer;font-size:14px}
+.auth-results .sr-item:hover{background:var(--card2)}
+.auth-results img{width:26px;height:26px;border-radius:6px;object-fit:cover;background:var(--bg2)}
+@media (max-width:900px){ .authwrap{margin-left:auto} .auth-chip .pn{display:none} }
+
 /* ---------- Layout ---------- */
 main{max-width:1750px;margin:0 auto;padding:28px 20px 28px;position:relative}
 h1{font-size:26px;margin-bottom:18px}
@@ -432,6 +466,7 @@ td.best{color:var(--win);font-weight:800}
     <input id="search" type="text" placeholder="Rechercher un joueur ou un monstre…" autocomplete="off">
     <div class="search-results" id="searchResults" style="display:none"></div>
   </div>
+  <div class="authwrap" id="authWrap"></div>
 </nav>
 
 <main id="app"><div class="loading">Chargement…</div></main>
@@ -1662,25 +1697,355 @@ async function loadSimBox(id){
   const raw = [...merged.values()];
   return { raw, list:applyBoxCustom(id, raw), name, pic, ok:probe.seasons.length>0 };
 }
+/* ================= comptes utilisateurs (connexion, en haut à droite) =================
+   Deux modes, choisis automatiquement :
+   - FIREBASE_CONFIG à null (défaut) → comptes LOCAUX à ce navigateur : création/connexion
+     pseudo + mot de passe (haché PBKDF2, jamais stocké en clair), joueur SW lié. Tout marche
+     immédiatement, mais le compte n'existe que dans ce navigateur et Google est inactif.
+   - FIREBASE_CONFIG renseigné → vrais comptes cloud (pseudo+mdp ET Google), partagés entre
+     appareils, profil stocké dans Firestore. Le site étant 100 % statique (GitHub Pages),
+     c'est le seul moyen d'avoir des comptes globaux : créer un projet Firebase (gratuit)
+     et coller sa config ici — marche à suivre détaillée dans le README, section « Comptes ». */
+const FIREBASE_CONFIG = null; /* ex : {apiKey:"…", authDomain:"xxx.firebaseapp.com", projectId:"xxx", appId:"…"} */
+const auth = { user:null, ready:false };
+const AUTH_ACC_KEY = "swaLocalAccounts_v1", AUTH_SES_KEY = "swaSession_v1";
+const lsGetJ = k => { try{ return JSON.parse(localStorage.getItem(k)); }catch(e){ return null; } };
+const lsSetJ = (k, v) => { try{ localStorage.setItem(k, JSON.stringify(v)); }catch(e){} };
+const randHex = n => {
+  const a = new Uint8Array(n);
+  try{ crypto.getRandomValues(a); }catch(e){ for(let i=0;i<n;i++) a[i] = Math.floor(Math.random()*256); }
+  return [...a].map(b=>b.toString(16).padStart(2,"0")).join("");
+};
+async function hashPass(psw, saltHex){
+  try{
+    const enc = new TextEncoder();
+    const key = await crypto.subtle.importKey("raw", enc.encode(psw), "PBKDF2", false, ["deriveBits"]);
+    const salt = new Uint8Array((saltHex.match(/../g)||[]).map(h=>parseInt(h,16)));
+    const bits = await crypto.subtle.deriveBits({name:"PBKDF2", salt, iterations:60000, hash:"SHA-256"}, key, 256);
+    return [...new Uint8Array(bits)].map(b=>b.toString(16).padStart(2,"0")).join("");
+  }catch(e){
+    // repli sans WebCrypto (ouverture en file://) : empreinte simple — comptes locaux uniquement
+    let h1 = 0x811c9dc5, h2 = 0x1000193;
+    const s = saltHex + "|" + psw;
+    for(let i=0;i<s.length;i++){ h1 = ((h1 ^ s.charCodeAt(i)) * 16777619) >>> 0; h2 = (h2 + s.charCodeAt(i)*31 + i) >>> 0; }
+    return "x" + h1.toString(16) + h2.toString(16);
+  }
+}
+const localAccounts = () => lsGetJ(AUTH_ACC_KEY) || { accounts:{} };
+async function authSignupLocal(pseudo, psw, player){
+  const p = (pseudo||"").trim();
+  if(p.length < 3 || p.length > 24) throw new Error("Pseudo : 3 à 24 caractères.");
+  if((psw||"").length < 4) throw new Error("Mot de passe : 4 caractères minimum.");
+  const db = localAccounts();
+  const key = p.toLowerCase();
+  if(db.accounts[key]) throw new Error("Ce pseudo a déjà un compte ici. Connecte-toi.");
+  const salt = randHex(16);
+  db.accounts[key] = { pseudo:p, salt, hash: await hashPass(psw, salt),
+    playerId: player?.id ?? null, playerName: player?.name ?? "", playerPic: player?.pic ?? "",
+    created: Date.now() };
+  lsSetJ(AUTH_ACC_KEY, db);
+  lsSetJ(AUTH_SES_KEY, {mode:"local", key});
+  auth.user = { mode:"local", key, pseudo:p, playerId:db.accounts[key].playerId,
+    playerName:db.accounts[key].playerName, playerPic:db.accounts[key].playerPic };
+}
+async function authLoginLocal(pseudo, psw){
+  const key = (pseudo||"").trim().toLowerCase();
+  const a = localAccounts().accounts[key];
+  if(!a) throw new Error("Compte inconnu dans ce navigateur." + (FIREBASE_CONFIG ? "" : " (Les comptes sont locaux à chaque navigateur.)"));
+  if(a.hash !== await hashPass(psw, a.salt)) throw new Error("Mot de passe incorrect.");
+  lsSetJ(AUTH_SES_KEY, {mode:"local", key});
+  auth.user = { mode:"local", key, pseudo:a.pseudo, playerId:a.playerId, playerName:a.playerName, playerPic:a.playerPic };
+}
+function authRestoreLocal(){
+  const s = lsGetJ(AUTH_SES_KEY);
+  if(s?.mode !== "local") return;
+  const a = localAccounts().accounts[s.key];
+  if(a) auth.user = { mode:"local", key:s.key, pseudo:a.pseudo, playerId:a.playerId, playerName:a.playerName, playerPic:a.playerPic };
+}
+/* ----- Firebase (actif seulement si FIREBASE_CONFIG est renseigné) ----- */
+let fbAuth = null, fbDb = null;
+const FB_MAIL = p => p.trim().toLowerCase().replace(/[^a-z0-9._-]/g, "_") + "@users.swanalysis.app";
+async function fbInit(){
+  if(fbAuth) return true;
+  if(!FIREBASE_CONFIG) return false;
+  const load = src => new Promise((ok, ko)=>{ const s = document.createElement("script"); s.src = src; s.onload = ok; s.onerror = ko; document.head.appendChild(s); });
+  const V = "10.14.1";
+  await load(`https://www.gstatic.com/firebasejs/${V}/firebase-app-compat.js`);
+  await load(`https://www.gstatic.com/firebasejs/${V}/firebase-auth-compat.js`);
+  await load(`https://www.gstatic.com/firebasejs/${V}/firebase-firestore-compat.js`);
+  firebase.initializeApp(FIREBASE_CONFIG);
+  fbAuth = firebase.auth(); fbDb = firebase.firestore();
+  await new Promise(res => {
+    let first = true;
+    fbAuth.onAuthStateChanged(async u => {
+      if(u){
+        let prof = {};
+        try{ prof = (await fbDb.collection("users").doc(u.uid).get()).data() || {}; }catch(e){}
+        auth.user = { mode:"firebase", uid:u.uid,
+          pseudo: prof.pseudo || u.displayName || (u.email||"").split("@")[0],
+          playerId: prof.playerId ?? null, playerName: prof.playerName || "", playerPic: prof.playerPic || "" };
+      }else if(auth.user?.mode === "firebase"){
+        auth.user = null;
+      }
+      renderAuthUI();
+      // session cloud restaurée APRÈS l'ouverture du simulateur : le joueur lié s'applique quand même
+      if(auth.user?.playerId && location.hash.startsWith("#/simulator") && !simState.a) setSimA(auth.user.playerId);
+      if(first){ first = false; res(); }
+    });
+  });
+  return true;
+}
+const fbErr = e => ({
+  "auth/email-already-in-use":"Ce pseudo a déjà un compte.",
+  "auth/invalid-credential":"Pseudo ou mot de passe incorrect.",
+  "auth/wrong-password":"Mot de passe incorrect.",
+  "auth/user-not-found":"Compte inconnu.",
+  "auth/weak-password":"Mot de passe trop court (6 caractères minimum).",
+  "auth/popup-closed-by-user":"Fenêtre Google fermée avant la fin.",
+  "auth/unauthorized-domain":"Domaine non autorisé dans la console Firebase (Authentication → Settings → Authorized domains)."
+}[e?.code] || e?.message || String(e));
+async function fbSaveProfile(patch){
+  if(auth.user?.mode !== "firebase") return;
+  try{ await fbDb.collection("users").doc(auth.user.uid).set(patch, {merge:true}); }catch(e){}
+}
+/* ----- API commune (choisit local ou Firebase) ----- */
+async function authSignup(pseudo, psw, player){
+  if(FIREBASE_CONFIG){
+    await fbInit();
+    try{
+      const cred = await fbAuth.createUserWithEmailAndPassword(FB_MAIL(pseudo), psw);
+      await cred.user.updateProfile({displayName: pseudo.trim()}).catch(()=>{});
+      auth.user = { mode:"firebase", uid:cred.user.uid, pseudo:pseudo.trim(),
+        playerId: player?.id ?? null, playerName: player?.name ?? "", playerPic: player?.pic ?? "" };
+      await fbSaveProfile({pseudo:pseudo.trim(), playerId:auth.user.playerId, playerName:auth.user.playerName, playerPic:auth.user.playerPic});
+    }catch(e){ throw new Error(fbErr(e)); }
+  }else{
+    await authSignupLocal(pseudo, psw, player);
+  }
+}
+async function authLogin(pseudo, psw){
+  if(FIREBASE_CONFIG){
+    await fbInit();
+    try{ await fbAuth.signInWithEmailAndPassword(FB_MAIL(pseudo), psw); }
+    catch(e){ throw new Error(fbErr(e)); }
+  }else{
+    await authLoginLocal(pseudo, psw);
+  }
+}
+async function authGoogle(){
+  if(!FIREBASE_CONFIG)
+    throw new Error("La connexion Google n'est pas encore activée : elle nécessite un projet Firebase (gratuit, ~5 min). Marche à suivre dans le README, section « Comptes ». En attendant, crée un compte pseudo + mot de passe.");
+  await fbInit();
+  try{
+    const cred = await fbAuth.signInWithPopup(new firebase.auth.GoogleAuthProvider());
+    const u = cred.user;
+    const doc = await fbDb.collection("users").doc(u.uid).get().catch(()=>null);
+    if(!doc?.exists) await fbSaveProfile({pseudo: u.displayName || (u.email||"").split("@")[0]});
+  }catch(e){ throw new Error(fbErr(e)); }
+}
+function authLogout(){
+  authCloseMenu();
+  if(auth.user?.mode === "firebase" && fbAuth) fbAuth.signOut().catch(()=>{});
+  auth.user = null;
+  try{ localStorage.removeItem(AUTH_SES_KEY); }catch(e){}
+  renderAuthUI();
+}
+/* rattache (ou change) le joueur SW du compte connecté */
+async function authSetPlayer(player){
+  if(!auth.user) return;
+  auth.user.playerId = player?.id ?? null;
+  auth.user.playerName = player?.name ?? "";
+  auth.user.playerPic = player?.pic ?? "";
+  if(auth.user.mode === "local"){
+    const db = localAccounts();
+    const a = db.accounts[auth.user.key];
+    if(a){ a.playerId = auth.user.playerId; a.playerName = auth.user.playerName; a.playerPic = auth.user.playerPic; lsSetJ(AUTH_ACC_KEY, db); }
+  }else{
+    await fbSaveProfile({playerId:auth.user.playerId, playerName:auth.user.playerName, playerPic:auth.user.playerPic});
+  }
+  authAfterLogin();
+}
+/* après connexion/inscription/liaison : le joueur du compte devient le joueur A par défaut */
+function authAfterLogin(){
+  renderAuthUI();
+  const u = auth.user;
+  if(u?.playerId){
+    rememberAccountA(u.playerId, u.playerName || ("Joueur " + u.playerId), u.playerPic || "");
+    if(location.hash.startsWith("#/simulator")) setSimA(u.playerId);
+  }
+}
+/* ----- UI : pastille en haut à droite + menu ----- */
+function renderAuthUI(){
+  const $w = document.getElementById("authWrap");
+  if(!$w) return;
+  const u = auth.user;
+  if(!u){
+    $w.innerHTML = `<button class="auth-chip" onclick="authOpenModal('login')" title="Se connecter ou créer un compte">👤 <span class="pn">Connexion</span></button>`;
+    return;
+  }
+  const pic = u.playerPic ? `<img src="${esc(u.playerPic)}" onerror="this.style.display='none'">` : "👤";
+  $w.innerHTML = `
+    <button class="auth-chip logged" onclick="authToggleMenu(event)" title="Compte : ${esc(u.pseudo)}">${pic} <span class="pn">${esc(u.pseudo)}</span> ▾</button>
+    <div class="auth-menu" id="authMenu" style="display:none">
+      <div class="am-head">Connecté : <b>${esc(u.pseudo)}</b>${u.playerName ? `<br><span class="muted">Joueur lié : ${esc(u.playerName)}</span>` : `<br><span class="muted">Aucun joueur SW lié</span>`}</div>
+      <div class="am-item" onclick="authOpenModal('link')">🔗 ${u.playerId ? "Changer" : "Choisir"} mon joueur SW</div>
+      ${u.playerId ? `<div class="am-item" onclick="authCloseMenu();location.hash='#/player/${u.playerId}'">📊 Mon profil joueur</div>` : ""}
+      <div class="am-item" onclick="authLogout()">🚪 Se déconnecter</div>
+    </div>`;
+}
+function authToggleMenu(e){
+  e.stopPropagation();
+  const m = document.getElementById("authMenu");
+  if(m) m.style.display = m.style.display === "none" ? "" : "none";
+}
+function authCloseMenu(){
+  const m = document.getElementById("authMenu");
+  if(m) m.style.display = "none";
+}
+document.addEventListener("click", e => { if(!e.target.closest("#authWrap")) authCloseMenu(); });
+/* ----- modale connexion / création / liaison joueur ----- */
+let authSelPlayer = null;
+function authOpenModal(mode){
+  authCloseMenu();
+  document.getElementById("authModal")?.remove();
+  authSelPlayer = auth.user?.playerId ? {id:auth.user.playerId, name:auth.user.playerName, pic:auth.user.playerPic} : null;
+  const ov = document.createElement("div");
+  ov.className = "auth-modal"; ov.id = "authModal";
+  const googleBtn = `
+    <button class="auth-google" id="auGoogle" type="button">
+      <svg width="18" height="18" viewBox="0 0 48 48"><path fill="#FFC107" d="M43.6 20.1H42V20H24v8h11.3C33.7 32.7 29.3 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.9 1.2 8 3l5.7-5.7C34.1 6.1 29.3 4 24 4 13 4 4 13 4 24s9 20 20 20 20-9 20-20c0-1.3-.1-2.6-.4-3.9z"/><path fill="#FF3D00" d="M6.3 14.7l6.6 4.8C14.7 15.1 19 12 24 12c3.1 0 5.9 1.2 8 3l5.7-5.7C34.1 6.1 29.3 4 24 4 16.3 4 9.7 8.3 6.3 14.7z"/><path fill="#4CAF50" d="M24 44c5.2 0 9.9-2 13.4-5.2l-6.2-5.2C29.2 35.1 26.7 36 24 36c-5.3 0-9.7-3.3-11.3-8l-6.5 5C9.6 39.6 16.3 44 24 44z"/><path fill="#1976D2" d="M43.6 20.1H42V20H24v8h11.3c-.8 2.2-2.2 4.1-4.1 5.5l6.2 5.2C41.4 34.9 44 30 44 24c0-1.3-.1-2.6-.4-3.9z"/></svg>
+      Continuer avec Google</button>`;
+  const playerPicker = label => `
+    <label>${label}</label>
+    <input type="text" id="auPlayerQ" placeholder="🔍 Ton pseudo en jeu…" autocomplete="off">
+    <div class="auth-results" id="auPlayerR"></div>
+    <div class="auth-player" id="auPlayerSel"></div>`;
+  ov.innerHTML = `<div class="auth-panel">
+    <button class="auth-close" onclick="document.getElementById('authModal').remove()">✕</button>
+    ${mode === "link" ? `
+      <h2 style="margin:0 0 6px">🔗 Mon joueur Summoners War</h2>
+      <p class="muted" style="font-size:12.5px">Ce joueur devient automatiquement le joueur A du simulateur de draft quand tu es connecté.</p>
+      ${playerPicker("Rechercher ton joueur")}
+      <button class="btn primary" id="auLinkOk" style="width:100%;margin-top:14px">✔ Enregistrer</button>
+      <div class="auth-err" id="auErr"></div>` : `
+      <div class="auth-tabs">
+        <button id="auTabLogin" class="${mode==="login"?"active":""}">Connexion</button>
+        <button id="auTabSignup" class="${mode==="signup"?"active":""}">Créer un compte</button>
+      </div>
+      <div id="auFormLogin" style="display:${mode==="login"?"":"none"}">
+        <label>Pseudo</label><input type="text" id="auLoginPseudo" autocomplete="username">
+        <label>Mot de passe</label><input type="password" id="auLoginPsw" autocomplete="current-password">
+        <button class="btn primary" id="auLoginOk" style="width:100%;margin-top:14px">Se connecter</button>
+      </div>
+      <div id="auFormSignup" style="display:${mode==="signup"?"":"none"}">
+        <label>Pseudo</label><input type="text" id="auSignPseudo" autocomplete="username">
+        <label>Mot de passe</label><input type="password" id="auSignPsw" autocomplete="new-password">
+        <label>Confirme le mot de passe</label><input type="password" id="auSignPsw2" autocomplete="new-password">
+        ${playerPicker("Ton joueur Summoners War (optionnel, modifiable ensuite)")}
+        <button class="btn primary" id="auSignOk" style="width:100%;margin-top:14px">Créer mon compte</button>
+      </div>
+      <div class="auth-sep">ou</div>
+      ${googleBtn}
+      ${FIREBASE_CONFIG ? "" : `<p class="muted" style="font-size:11.5px;margin-top:9px">⚠ Comptes stockés dans CE navigateur pour l'instant. Google et la synchronisation entre appareils s'activent via Firebase (voir README).</p>`}
+      <div class="auth-err" id="auErr"></div>`}
+  </div>`;
+  document.body.appendChild(ov);
+  ov.addEventListener("mousedown", e => { if(e.target === ov) ov.remove(); });
+  const err = m => { const $e = document.getElementById("auErr"); if($e) $e.textContent = m || ""; };
+  const busy = (btn, on) => { if(btn){ btn.disabled = on; btn.style.opacity = on ? .6 : 1; } };
+  // bascule d'onglet
+  const swap = m => { authOpenModal(m); };
+  document.getElementById("auTabLogin")?.addEventListener("click", ()=>swap("login"));
+  document.getElementById("auTabSignup")?.addEventListener("click", ()=>swap("signup"));
+  // recherche de joueur (inscription + liaison)
+  const $q = document.getElementById("auPlayerQ"), $r = document.getElementById("auPlayerR");
+  const renderSel = () => {
+    const $s = document.getElementById("auPlayerSel");
+    if($s) $s.innerHTML = authSelPlayer
+      ? `${authSelPlayer.pic?`<img src="${esc(authSelPlayer.pic)}" onerror="this.style.display='none'">`:""}<b>${esc(authSelPlayer.name)}</b>
+         <span class="chip-x" title="Retirer" onclick="this.parentNode.innerHTML='';window.__auClearSel&&window.__auClearSel()">✕</span>`
+      : `<span class="muted">Aucun joueur choisi</span>`;
+  };
+  window.__auClearSel = () => { authSelPlayer = null; renderSel(); };
+  if($q){
+    renderSel();
+    let t = null;
+    $q.addEventListener("input", ()=>{
+      clearTimeout(t);
+      const q = $q.value.trim();
+      if(q.length < 2){ $r.style.display = "none"; return; }
+      t = setTimeout(async ()=>{
+        $r.style.display = "block";
+        $r.innerHTML = '<div class="sr-item muted">Recherche…</div>';
+        try{
+          const r = await api("/player/search/" + encodeURIComponent(q));
+          const rows = (r.data||[]).slice(0,8);
+          $r.innerHTML = rows.length ? rows.map(p=>
+            `<div class="sr-item" data-pid="${p.id}" data-pname="${esc(p.wizard_name)}" data-ppic="${esc(p.wizard_picture_url||"")}">
+               <img src="${esc(p.wizard_picture_url||"")}" onerror="this.style.visibility='hidden'"><span>${esc(p.wizard_name)}</span></div>`).join("")
+            : '<div class="sr-item muted">Aucun résultat</div>';
+          $r.querySelectorAll("[data-pid]").forEach(el => el.onclick = ()=>{
+            authSelPlayer = {id:+el.dataset.pid, name:el.dataset.pname, pic:el.dataset.ppic};
+            $r.style.display = "none"; $q.value = "";
+            renderSel();
+          });
+        }catch(e){ $r.innerHTML = '<div class="sr-item muted">Erreur</div>'; }
+      }, 300);
+    });
+  }
+  // actions
+  const closeOk = () => { ov.remove(); authAfterLogin(); };
+  document.getElementById("auLoginOk")?.addEventListener("click", async function(){
+    err(""); busy(this, true);
+    try{ await authLogin(document.getElementById("auLoginPseudo").value, document.getElementById("auLoginPsw").value); closeOk(); }
+    catch(e){ err(e.message); busy(this, false); }
+  });
+  document.getElementById("auSignOk")?.addEventListener("click", async function(){
+    err("");
+    const p1 = document.getElementById("auSignPsw").value, p2 = document.getElementById("auSignPsw2").value;
+    if(p1 !== p2) return err("Les deux mots de passe ne correspondent pas.");
+    busy(this, true);
+    try{ await authSignup(document.getElementById("auSignPseudo").value, p1, authSelPlayer); closeOk(); }
+    catch(e){ err(e.message); busy(this, false); }
+  });
+  document.getElementById("auLinkOk")?.addEventListener("click", async function(){
+    err(""); busy(this, true);
+    try{ await authSetPlayer(authSelPlayer); ov.remove(); }
+    catch(e){ err(e.message); busy(this, false); }
+  });
+  document.getElementById("auGoogle")?.addEventListener("click", async function(){
+    err(""); busy(this, true);
+    try{ await authGoogle(); closeOk(); }
+    catch(e){ err(e.message); busy(this, false); }
+  });
+  // Entrée = valider le formulaire visible
+  ov.addEventListener("keydown", e => {
+    if(e.key !== "Enter" || e.target.id === "auPlayerQ") return;
+    (mode === "link" ? document.getElementById("auLinkOk")
+      : document.getElementById("auFormLogin")?.style.display !== "none"
+        ? document.getElementById("auLoginOk") : document.getElementById("auSignOk"))?.click();
+  });
+  (document.getElementById(mode === "link" ? "auPlayerQ" : mode === "signup" ? "auSignPseudo" : "auLoginPseudo"))?.focus();
+}
+/* démarrage : restaure la session locale tout de suite, Firebase en arrière-plan s'il est configuré */
+function authInit(){
+  authRestoreLocal();
+  renderAuthUI();
+  if(FIREBASE_CONFIG) fbInit().catch(()=>{});
+}
+
 /* ----- comptes favoris (joueur A), persistés dans localStorage ----- */
 const SIM_ACC_KEY = "simAccounts_v1";
-const SIM_SEEDS = [
-  {id:2091173, name:"Julien_bnrch", pic:"https://hiveprofile-fn.qpyou.cn/hubweb/hive_img/profile/U/2020/09/07/22/187018396_49b26985bfcfc7d1a341e7a9c9766759.jpg"},
-  {id:1117059, name:"Gpaletime",   pic:"https://hiveprofile-fn.qpyou.cn/hubweb/hive_img/profile/U/2026/07/06/09/185485658_04da767822d1bcb21d342118dd47a7f0.jpg"}
-];
+/* plus AUCUN compte pré-rempli : un nouveau visiteur arrive sur un simulateur vierge.
+   Le joueur A par défaut vient du COMPTE connecté (joueur SW lié), sinon du dernier
+   compte utilisé dans ce navigateur ; les favoris s'ajoutent/retirent comme avant. */
 function simAccounts(){
   let s = null;
   try{
     const p = JSON.parse(localStorage.getItem(SIM_ACC_KEY));
     if(p && Array.isArray(p.list)) s = p;
   }catch(e){}
-  if(!s) s = { list:[...SIM_SEEDS], lastId:SIM_SEEDS[0].id, seedV:2 };
-  // migration : injecte les comptes pré-enregistrés manquants (une seule fois)
-  if((s.seedV||1) < 2){
-    for(const seed of SIM_SEEDS) if(!s.list.some(x=>x.id===seed.id)) s.list.push({...seed});
-    s.seedV = 2;
-    saveSimAccounts(s);
-  }
+  if(!s) s = { list:[], lastId:null, seedV:3 };
   return s;
 }
 function saveSimAccounts(a){ try{ localStorage.setItem(SIM_ACC_KEY, JSON.stringify(a)); }catch(e){} }
@@ -1819,10 +2184,14 @@ async function viewSimulator(){
       if(id) simPick(id, z.dataset.dropSide);
     });
     renderFavChips();
-    // auto-sélection du dernier compte utilisé pour le joueur A
+    // auto-sélection du joueur A : le joueur du COMPTE connecté d'abord,
+    // sinon le dernier compte utilisé dans ce navigateur
     if(!simState.a){
-      const fav = simAccounts();
-      if(fav.lastId) setSimA(fav.lastId);
+      if(auth.user?.playerId) setSimA(auth.user.playerId);
+      else{
+        const fav = simAccounts();
+        if(fav.lastId) setSimA(fav.lastId);
+      }
     }
     if(simState.a && simState.b){
       if(!simState.boxA) simState.boxA = await loadSimBox(simState.a);
@@ -4564,6 +4933,7 @@ function attachMonSearch(inputId, listId, onPick){
 
 
 /* go */
+authInit();
 route();
 </script>
 </body>
