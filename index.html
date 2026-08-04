@@ -96,6 +96,7 @@ select,.btn{background:var(--card2);color:var(--text);border:1px solid var(--bor
 .switch input:checked + .tk::after{transform:translateX(18px);background:#fff}
 .switch input:checked ~ span:last-child{color:var(--text)}
 .btn:hover{border-color:var(--accent)}
+.btn:disabled{opacity:.35;cursor:default;pointer-events:none}
 .btn.primary{background:var(--accent);border-color:var(--accent);font-weight:700}
 .loading{text-align:center;padding:50px;color:var(--muted);font-size:15px}
 .error-box{background:#3a1e26;border:1px solid #74303f;color:#ffb4c0;border-radius:12px;padding:16px;margin:14px 0}
@@ -888,7 +889,7 @@ async function viewPlayer(id){
 
     const [histR, lbR] = await Promise.all([
       api(`/player/${id}/history?season=${season}`).catch(()=>({data:[]})),
-      api(`/player/${id}/last-battles?season=${season}`).catch(()=>({data:[]}))
+      api(`/player/${id}/last-battles?season=${season}&limit=500`).catch(()=>({data:[]}))
     ]);
     const s = plSummaries[season] || {};
     const hist = histR.data || [];
@@ -928,11 +929,12 @@ async function viewPlayer(id){
             <div><div class="bn">${esc(b.name)}</div><div class="bs">${b.plays} parties · <b style="color:${bwr>=50?'var(--win)':'var(--lose)'}">${bwr} %</b></div></div></div>`;
         }).join("")}</div>` : ""}
       ${mergedBestiaryHTML(seasons)}
-      <h2>Derniers combats ${battles.length?`(${battles.length})`:""}</h2>
+      <h2>Derniers combats ${battles.length?`(${num(battles.length)})`:""}</h2>
       <div id="battleList">${battles.length ? '<div class="loading">Chargement des drafts…</div>' : '<div class="panel muted">Aucun replay disponible pour cette saison.</div>'}</div>
 `;
 
     attachChartTips();
+    bpState.page = 0; bpState.list = battles; bpState.viewer = id;
     if(battles.length) renderBattles(battles, id);
   }catch(e){ fail(e); }
 }
@@ -1008,15 +1010,49 @@ function attachChartTips(){
 }
 
 /* ----- rendu des combats ----- */
+/* pagination des derniers combats : l'API renvoie jusqu'à 500 replays, on n'affiche
+   (et ne précharge les icônes) que la page courante — navigation en bas de liste */
+const bpState = { page:0, list:[], viewer:null };
+function plBattlesPer(){
+  try{ const v = parseInt(localStorage.getItem("plBattlesPer_v1"), 10); if([5,10,25,50].includes(v)) return v; }catch(e){}
+  return 10;
+}
+function plBattlesGo(p){
+  bpState.page = p;
+  renderBattles(bpState.list, bpState.viewer);
+  document.getElementById("battleList")?.scrollIntoView({behavior:"smooth", block:"start"});
+}
+function plBattlesSetPer(v){
+  try{ localStorage.setItem("plBattlesPer_v1", String(v)); }catch(e){}
+  bpState.page = 0;
+  renderBattles(bpState.list, bpState.viewer);
+}
 async function renderBattles(battles, viewerId){
+  const per = plBattlesPer();
+  const pages = Math.max(1, Math.ceil(battles.length/per));
+  bpState.page = Math.min(Math.max(0, bpState.page), pages-1);
+  const start = bpState.page*per;
+  const slice = battles.slice(start, start+per);
   const ids = [];
-  for(const b of battles) for(const k in (b.user_list||{})){
+  for(const b of slice) for(const k in (b.user_list||{})){
     for(const u of (b.user_list[k].pick_info?.unit_list||[])) ids.push(u.unit_master_id);
   }
   await preloadMonsters(ids);
   const $bl = document.getElementById("battleList");
   if(!$bl) return;
-  $bl.innerHTML = battles.map(b=>{
+  const pager = pages > 1 || battles.length > 5 ? `
+    <div class="row" style="justify-content:flex-end;gap:12px;margin-top:2px">
+      <label class="muted" style="font-size:13px">Par page
+        <select onchange="plBattlesSetPer(+this.value)" style="font-size:13px;padding:4px 8px">${
+          [5,10,25,50].map(v=>`<option value="${v}" ${v===per?"selected":""}>${v}</option>`).join("")}</select>
+      </label>
+      <span class="muted" style="font-size:13px">${num(start+1)}–${num(start+slice.length)} sur ${num(battles.length)}</span>
+      <button class="btn" onclick="plBattlesGo(0)" ${bpState.page===0?"disabled":""} title="Première page">«</button>
+      <button class="btn" onclick="plBattlesGo(${bpState.page-1})" ${bpState.page===0?"disabled":""} title="Page précédente">‹</button>
+      <button class="btn" onclick="plBattlesGo(${bpState.page+1})" ${bpState.page>=pages-1?"disabled":""} title="Page suivante">›</button>
+      <button class="btn" onclick="plBattlesGo(${pages-1})" ${bpState.page>=pages-1?"disabled":""} title="Dernière page">»</button>
+    </div>` : "";
+  $bl.innerHTML = slice.map(b=>{
     const users = Object.values(b.user_list||{});
     const me = users.find(u=>u.wizard_id===viewerId) || users[0];
     const opp = users.find(u=>u!==me);
@@ -1031,7 +1067,7 @@ async function renderBattles(battles, viewerId){
       </div>
       ${sideHTML(me, viewerId)}${opp?sideHTML(opp, viewerId):""}
     </div>`;
-  }).join("");
+  }).join("") + pager;
 }
 function sideHTML(u, viewerId){
   if(!u) return "";
