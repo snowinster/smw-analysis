@@ -1460,7 +1460,7 @@ async function viewMonster(id){
          Ethna+Stark apparaissait chez Ethna (peu jouée, seuil bas) mais pas chez Stark (très
          joué, seuil à plusieurs milliers). Avec la pagination, un seuil bas ne pollue plus :
          le shrink relègue naturellement les petits échantillons. */
-      const f = (rows||[]).filter(x=>x[playedKey] >= 50);
+      const f = (rows||[]).filter(x=>x[playedKey] >= MIN_DUO_GAMES);
       f.sort((a,b)=> asc
         ? shrink(a[rateKey], a[playedKey]) - shrink(b[rateKey], b[playedKey])
         : shrink(b[rateKey], b[playedKey]) - shrink(a[rateKey], a[playedKey]));
@@ -1654,8 +1654,8 @@ function monTrioPaint(){
     };
     rows = rows.filter(matches);
   }else{
-    // sans recherche : seuil fixe (50 parties) — la pagination et le tri ajusté font le reste
-    rows = rows.filter(x=>x.n >= 50);
+    // sans recherche : plancher global des trios — la pagination et le tri ajusté font le reste
+    rows = rows.filter(x=>x.n >= MIN_TRIO_GAMES);
   }
   rows = rows.slice().sort((a,b)=>shrink(b.rate, b.n) - shrink(a.rate, a.n));
   if(!rows.length){
@@ -2020,6 +2020,14 @@ const getPairsTogether = id => getPairs(id, "total_played_together");
 const adaptTh = (rows, key) => Math.max(30, Math.round(Math.max(...rows.map(x=>x[key]), 0) * 0.15));
 // rétrécissement bayésien : tire un WR vers 50 % selon le volume (évite qu'un 71 % sur 30 parties batte un 60 % sur 700)
 const shrink = (wr, n, k=80) => 0.5 + (wr - 0.5) * (n / (n + k));
+/* planchers GLOBAUX de parties — identiques pour tous les monstres, choisis sur les
+   distributions réelles de la S38 (saison en cours) :
+   - DUOS (et matchups affichés) : 200 parties (±7 pts). Même un monstre de niche garde
+     13-15 partenaires listés ; à 300 il n'en resterait que 5.
+   - TRIOS : 100 parties (±10 pts). Plancher plus bas car un trio précis a mécaniquement
+     moins d'occurrences qu'une paire — au-delà, les monstres moyens perdent leurs tableaux. */
+const MIN_DUO_GAMES = 200;
+const MIN_TRIO_GAMES = 100;
 /* stats méta globales de la saison (WR/pick rate du jeu, pas du joueur) */
 const metaCache = new Map();
 async function getMetaStats(){
@@ -4998,7 +5006,7 @@ async function renderSim(){
   if(token !== simRenderToken) return;
   // parties MINIMUM pour qu'une mesure de nos replays compte dans les conseils : en dessous,
   // le chiffre est trop bruité pour orienter un pick (colonnes « tout le ladder », ~480k équipes)
-  const AGG_MIN = { duo: 50, trio: 50, vs: 80 };
+  const AGG_MIN = { duo: MIN_DUO_GAMES, trio: MIN_TRIO_GAMES, vs: 300 };
   const duoWr = (a,b) => { const e = agg.dm.get(duoKey(a,b)); return e && e[0] >= AGG_MIN.duo ? shrink(e[1]/e[0], e[0]) : null; };
   // trioWrRaw : même les trios SOUS le minimum sont renvoyés (marqués ok:false) — ils ne
   // comptent pas dans le score mais s'affichent en grisé, sinon « pourquoi pas de trio ? »
@@ -5300,7 +5308,7 @@ async function renderSim(){
     const lbl = (x.teamSize||3) > 3 ? "équipe" : "trio";
     return x.trioFit != null
       ? sgChip(lbl, `${pct(x.trioFit)} (${num(x.trioN)} p.)`, "#d8a94e", `Winrate réel de ${lbl === "équipe" ? "l'équipe résultante (moyenne pondérée de tous ses trios mesurés)" : "ce trio"} dans nos replays — compte pour 22 % du score`)
-      : x.trioSmall ? `<span class="muted" title="Mesuré mais sous le minimum de 50 parties : affiché pour information, ne pèse PAS dans le score">${lbl} ${pct(x.trioSmall.wr)} (${num(x.trioSmall.n)} p. — non compté)</span>` : "";
+      : x.trioSmall ? `<span class="muted" title="Mesuré mais sous le minimum de ${MIN_TRIO_GAMES} parties : affiché pour information, ne pèse PAS dans le score">${lbl} ${pct(x.trioSmall.wr)} (${num(x.trioSmall.n)} p. — non compté)</span>` : "";
   };
   const pairRowsArr = pairWith.map(p=>{
     const bits = [
@@ -5352,7 +5360,7 @@ async function renderSim(){
 ;
   simSuggLists.fp   = { rows: fpRowsArr,  page:0, empty: '<div class="muted">Analyse des replays en cours ou pas assez de données pour cette saison.</div>' };
   simSuggLists.box  = { rows: boxRowsArr, page:0, empty: boxEmpty };
-  simSuggLists.pair = { rows: pairRowsArr, page:0, empty: `<div class="muted">Aucune synergie mesurée avec ${esc(partner?.name||"ce monstre")} (moins de 20 parties ensemble) - fie-toi au classement de gauche.</div>` };
+  simSuggLists.pair = { rows: pairRowsArr, page:0, empty: `<div class="muted">Aucune synergie mesurée avec ${esc(partner?.name||"ce monstre")} sur assez de parties - fie-toi au classement de gauche.</div>` };
   simSuggLists.duo  = { rows: duoRowsArr, page:0, empty: '<div class="muted">Pas assez de données pour former des duos fiables contre ces picks.</div>' };
   ["fp","box","pair","duo"].forEach(simSuggPaint);
   wireSimAdd();
