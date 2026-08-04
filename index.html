@@ -5187,16 +5187,16 @@ async function renderSim(){
     for(const c of base){ await getPairsTogether(c.id); if(token !== simRenderToken) return; }
     for(let i=0;i<base.length;i++) for(let k=i+1;k<base.length;k++){
       const c1 = base[i], c2 = base[k];
+      // duo : NOTRE mesure tout-ladder d'abord (même source que « Meilleures synergies » de la
+      // fiche monstre, volume bien supérieur) ; repli sur les paires swarena (Guardian+) sinon
       const rows = cachedPairs(c1.id, "total_played_together");
       const row = rows.find(r=>r.b_monster_id===c2.id);
+      const e2 = agg.dm.get(duoKey(c1.id, c2.id));
       let tog, nTog;
-      if(row && row.total_played_together >= 20){ tog = row.win_together_rate; nTog = row.total_played_together; }
-      else{
-        // paire absente des pairs swarena → NOS replays la mesurent peut-être
-        const e2 = agg.dm.get(duoKey(c1.id, c2.id));
-        if(!e2) continue;
-        tog = e2[1]/e2[0]; nTog = e2[0];
-      }
+      if(e2 && e2[0] >= AGG_MIN.duo){ tog = e2[1]/e2[0]; nTog = e2[0]; }
+      else if(row && row.total_played_together >= 20){ tog = row.win_together_rate; nTog = row.total_played_together; }
+      else if(e2){ tog = e2[1]/e2[0]; nTog = e2[0]; }
+      else continue;
       const togAdj = shrink(tog, nTog);
       const vs = ((c1.vsScore ?? c1.avg) + (c2.vsScore ?? c2.avg)) / 2;
       const fits = [c1.myFit, c2.myFit].filter(x=>x!=null);
@@ -5221,14 +5221,14 @@ async function renderSim(){
     if(token !== simRenderToken) return;
     const rows = cachedPairs(partner.id, "total_played_together");
     for(const c of boxVs){
+      // même règle que les paires : notre mesure tout-ladder d'abord, swarena en repli
       const row = rows.find(r=>r.b_monster_id===c.id);
+      const e2 = agg.dm.get(duoKey(partner.id, c.id));
       let tog, nTog;
-      if(row && row.total_played_together >= 20){ tog = row.win_together_rate; nTog = row.total_played_together; }
-      else{
-        const e2 = agg.dm.get(duoKey(partner.id, c.id)); // paire absente chez swarena → nos replays
-        if(!e2) continue;
-        tog = e2[1]/e2[0]; nTog = e2[0];
-      }
+      if(e2 && e2[0] >= AGG_MIN.duo){ tog = e2[1]/e2[0]; nTog = e2[0]; }
+      else if(row && row.total_played_together >= 20){ tog = row.win_together_rate; nTog = row.total_played_together; }
+      else if(e2){ tog = e2[1]/e2[0]; nTog = e2[0]; }
+      else continue;
       const togAdj = shrink(tog, nTog);
       let score = c.myFit!=null ? 0.45*c.vsScore + 0.35*togAdj + 0.20*c.myFit
                                 : 0.55*c.vsScore + 0.45*togAdj;
@@ -5362,7 +5362,7 @@ function simSuggPaint(key){
   const L = simSuggLists[key];
   const el = document.getElementById("sgList-" + key), pg = document.getElementById("sgPager-" + key);
   if(!L || !el || !pg) return;
-  const PER = 5;
+  const PER = key === "fp" ? 5 : 3; // picks théoriques / paires : 3 par page (lignes hautes)
   if(!L.rows.length){ el.innerHTML = L.empty; pg.innerHTML = ""; return; }
   const pages = Math.max(1, Math.ceil(L.rows.length/PER));
   L.page = Math.min(Math.max(0, L.page), pages-1);
