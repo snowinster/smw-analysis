@@ -12,7 +12,7 @@ Alternative hors navigateur : le compagnon Python `companion/watch.py` fait la m
 
 ## Comptes (connexion en haut à droite)
 
-Le bouton « 👤 Connexion » permet de créer un compte (pseudo + mot de passe) et de lui **lier un joueur Summoners War** : ce joueur devient automatiquement le joueur A du simulateur de draft à chaque connexion. Les favoris (« Mes comptes ») restent modifiables librement.
+Le bouton « 👤 Connexion » ouvre la page de connexion (`login.html`) : créer un compte (pseudo + mot de passe) ou continuer avec Google. **Lier son joueur Summoners War est obligatoire** — à l'inscription, et imposé à la première connexion Google ou aux anciens comptes jamais liés : aucun compte ne peut exister sans joueur. Ce joueur devient automatiquement le joueur A du simulateur de draft à chaque connexion ; les favoris (« Mes comptes ») restent modifiables librement.
 
 Le site étant 100 % statique (GitHub Pages, aucun serveur), il existe deux modes :
 

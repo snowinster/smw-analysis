@@ -240,7 +240,7 @@ function render(){
       <label>Pseudo</label><input type="text" id="fPseudo" autocomplete="username" placeholder="3 à 24 caractères">
       <label>Mot de passe</label><input type="password" id="fPsw" autocomplete="new-password" placeholder="6 caractères minimum">
       <label>Confirme le mot de passe</label><input type="password" id="fPsw2" autocomplete="new-password">
-      ${playerPickerHTML("Ton joueur Summoners War (optionnel)")}
+      ${playerPickerHTML("Ton joueur Summoners War")}
       <button class="gbtn" id="go">✨ Créer mon compte</button>`}
     <div class="sep">ou</div>
     <button class="google" id="goGoogle">
@@ -319,20 +319,54 @@ async function submit(){
   try{
     if(mode === "signup"){
       if(psw !== (document.getElementById("fPsw2")?.value || "")){ busy(false); return err("Les deux mots de passe ne correspondent pas."); }
+      // le joueur SW est OBLIGATOIRE à l'inscription : aucun compte sans joueur lié
+      if(!selPlayer){ busy(false); return err("Choisis ton joueur Summoners War : tape ton pseudo en jeu dans la recherche et clique sur ton profil."); }
       const cred = await fbAuth.createUserWithEmailAndPassword(FB_MAIL(pseudo), psw);
       await cred.user.updateProfile({displayName: pseudo}).catch(()=>{});
       await fbDb.collection("users").doc(cred.user.uid).set({
-        pseudo, playerId: selPlayer?.id ?? null, playerName: selPlayer?.name ?? "", playerPic: selPlayer?.pic ?? ""
+        pseudo, playerId: selPlayer.id, playerName: selPlayer.name, playerPic: selPlayer.pic || ""
       }, {merge:true});
-      renderLogged({pseudo, playerName:selPlayer?.name, playerPic:selPlayer?.pic}, true);
+      renderLogged({pseudo, playerName:selPlayer.name, playerPic:selPlayer.pic}, true);
+      done();
     }else{
       const cred = await fbAuth.signInWithEmailAndPassword(FB_MAIL(pseudo), psw);
       let prof = {};
       try{ prof = (await fbDb.collection("users").doc(cred.user.uid).get()).data() || {}; }catch(e){}
+      // compte d'avant cette règle, sans joueur lié → l'étape est imposée maintenant
+      if(!prof.playerId){ renderLinkStep(cred.user.uid, prof.pseudo || pseudo, prof.playerPic); return; }
       renderLogged({pseudo: prof.pseudo || pseudo, playerName: prof.playerName, playerPic: prof.playerPic}, true);
+      done();
     }
-    done();
   }catch(e){ busy(false); err(fbErr(e)); }
+}
+/* étape imposée quand un compte arrive SANS joueur lié (connexion Google, ancien compte) :
+   pas de retour au site tant que le joueur n'est pas choisi */
+function renderLinkStep(uid, pseudo, pic){
+  freshLogin = true; // l'écran « déjà connecté » ne doit pas reprendre la main
+  selPlayer = null;
+  $c.innerHTML = `
+    <div class="who">
+      ${pic ? `<img src="${esc(pic)}" onerror="this.remove()">` : ""}
+      <div style="font-size:17px;font-weight:800">Bienvenue, ${esc(pseudo)} !</div>
+      <div class="muted" style="font-size:13px;line-height:1.5">Dernière étape : lie ton <b>joueur Summoners War</b>.<br>Il devient le joueur A du simulateur de draft à chaque connexion.</div>
+    </div>
+    ${playerPickerHTML("Ton joueur Summoners War")}
+    <button class="gbtn" id="go">✔ Lier et continuer</button>
+    <div class="err" id="err"></div>`;
+  wirePicker();
+  document.getElementById("go").onclick = async ()=>{
+    err("");
+    if(!selPlayer) return err("Tape ton pseudo en jeu dans la recherche et clique sur ton profil.");
+    busy(true);
+    try{
+      await fbDb.collection("users").doc(uid).set({
+        pseudo, playerId: selPlayer.id, playerName: selPlayer.name, playerPic: selPlayer.pic || ""
+      }, {merge:true});
+      renderLogged({pseudo, playerName: selPlayer.name, playerPic: selPlayer.pic || pic}, true);
+      done();
+    }catch(e){ busy(false); err(fbErr(e)); }
+  };
+  document.getElementById("pq").focus();
 }
 async function google(){
   err("");
@@ -346,6 +380,8 @@ async function google(){
       prof.pseudo = u.displayName || (u.email||"").split("@")[0];
       await ref.set({pseudo: prof.pseudo}, {merge:true}).catch(()=>{});
     }
+    // premier passage Google (ou compte jamais lié) → le choix du joueur SW est imposé
+    if(!prof.playerId){ renderLinkStep(u.uid, prof.pseudo, u.photoURL || ""); return; }
     renderLogged({pseudo: prof.pseudo, playerName: prof.playerName, playerPic: prof.playerPic || u.photoURL || ""}, true);
     done();
   }catch(e){ err(fbErr(e)); }

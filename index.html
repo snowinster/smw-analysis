@@ -2008,7 +2008,7 @@ function authOpenModal(mode){
         <label>Pseudo</label><input type="text" id="auSignPseudo" autocomplete="username">
         <label>Mot de passe</label><input type="password" id="auSignPsw" autocomplete="new-password">
         <label>Confirme le mot de passe</label><input type="password" id="auSignPsw2" autocomplete="new-password">
-        ${playerPicker("Ton joueur Summoners War (optionnel, modifiable ensuite)")}
+        ${playerPicker("Ton joueur Summoners War")}
         <button class="btn primary" id="auSignOk" style="width:100%;margin-top:14px">Créer mon compte</button>
       </div>
       <div class="auth-sep">ou</div>
@@ -2071,6 +2071,7 @@ function authOpenModal(mode){
     err("");
     const p1 = document.getElementById("auSignPsw").value, p2 = document.getElementById("auSignPsw2").value;
     if(p1 !== p2) return err("Les deux mots de passe ne correspondent pas.");
+    if(!authSelPlayer) return err("Choisis ton joueur Summoners War (tape ton pseudo en jeu dans la recherche).");
     busy(this, true);
     try{ await authSignup(document.getElementById("auSignPseudo").value, p1, authSelPlayer); closeOk(); }
     catch(e){ err(e.message); busy(this, false); }
