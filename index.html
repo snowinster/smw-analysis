@@ -5104,6 +5104,7 @@ async function renderSim(){
        collectés et préchargés juste au-dessus — donc aucun appel réseau supplémentaire pour
        constituer la liste, et un vivier borné à 40 au lieu des ~400 monstres du jeu.
      Les deux passent ensuite par le MÊME calcul de score, seuls les candidats changent. */
+  const lastPickTurn = !fpMode && simState.picksA.length === 4; // ton 5e monstre = dernier de TA draft
   if(enemyPicks.length){
     const boxCandidates = simState.boxOnly
       ? my.list.filter(x=>!pickedIds.has(x.unit_master_id) && keepLD(x.unit_master_id, x.element))
@@ -5164,7 +5165,16 @@ async function renderSim(){
       }
       const banRate = meta.get(bx.unit_master_id)?.ban_rate ?? 0;
       let score = myFit!=null ? 0.75*vsScore + 0.25*myFit : vsScore;
-      score -= 0.08*banRate; // pénalité : un monstre très banni risque de ne jamais combattre
+      if(lastPickTurn){
+        /* DERNIER pick : le ban adverse tombe sur le plus gros aimant de ton équipe FINALE.
+           On ne pénalise donc que l'EXCÈS de ban rate du candidat par rapport à ton meilleur
+           aimant déjà posé — si ton Leo attire déjà le ban, un Beelzebub de fin de draft
+           passe souvent : les « bombes » très bannies mais bien adaptées redeviennent jouables. */
+        const myMaxBan = Math.max(0, ...myPicks.map(p=>meta.get(p.id)?.ban_rate ?? 0));
+        score -= 0.15*Math.max(0, banRate - myMaxBan);
+      }else{
+        score -= 0.08*banRate; // pénalité : un monstre très banni risque de ne jamais combattre
+      }
       boxVs.push({
         id:bx.unit_master_id, name:bx.name, img:bx.image_filename, element:bx.element,
         avg:score, vsScore, myFit, delta: vsScore - baseline, cover, det,
@@ -5174,7 +5184,7 @@ async function renderSim(){
     boxVs.sort((a,b)=> b.avg-a.avg || b.cover-a.cover);
     boxVs = boxVs.slice(0,15);
   }
-  const lastPick = !fpMode && simState.picksA.length === 4;
+  const lastPick = lastPickTurn;
   /* Combien d'emplacements consécutifs me restent dans CE tour, et suis-je en train de compléter
      une paire ? La séquence RTA 1-2-2-2-2-1 donne des tours à deux picks : dès que le premier
      des deux est posé, il ne reste qu'UN emplacement, et proposer des paires devient absurde
@@ -5261,7 +5271,7 @@ async function renderSim(){
     boxRowsArr = boxVs.map((c,i)=>
       `<div class="sugg" draggable="true" data-drag-id="${c.id}" onclick="simPick(${c.id},'A')"
         title="${c.det.join(" · ")}${c.myFit!=null?` · synergie picks ${pct(c.myFit)}`:""} — score ajusté au volume${c.banRate>=0.15?", pénalité de ban":""}">
-        <img src="${monImg(c.img)}" loading="lazy"><div class="sg-n">${esc(c.name)} ${!simState.boxOnly && inBox(c.id) ? '<span class="inbox-badge">dans ta box</span>' : ""} ${c.delta>=0.03?`<span class="inbox-badge" title="Gagne ${(c.delta*100).toFixed(0)} pts de plus contre cette draft que son winrate habituel">🎯 counter +${(c.delta*100).toFixed(0)} pts</span>`:""} ${c.banRate!=null && c.banRate>=0.15 ? `<span class="ban-badge">🚫 souvent banni (${pct(c.banRate,0)})</span>` : ""}
+        <img src="${monImg(c.img)}" loading="lazy"><div class="sg-n">${esc(c.name)} ${!simState.boxOnly && inBox(c.id) ? '<span class="inbox-badge">dans ta box</span>' : ""} ${c.delta>=0.03?`<span class="inbox-badge" title="Gagne ${(c.delta*100).toFixed(0)} pts de plus contre cette draft que son winrate habituel">🎯 counter +${(c.delta*100).toFixed(0)} pts</span>`:""} ${lastPick && c.banRate>=0.25 ? `<span class="inbox-badge" title="Très banni d'habitude — mais en DERNIER pick, si ton équipe a déjà un aimant à ban plus gros, sa menace passe souvent">💣 bombe finale</span>` : ""} ${c.banRate!=null && c.banRate>=0.15 ? `<span class="ban-badge">🚫 souvent banni (${pct(c.banRate,0)})</span>` : ""}
           <div class="sub">mesuré ${c.cover}/${enemyPicks.length} pick${enemyPicks.length>1?"s":""} · ${c.det.join(" · ")}${c.myFit!=null?` · synergie picks ${pct(c.myFit)}`:""} · perso : ${c.myWr!=null?pct(c.myWr):"-"} (${c.myPlays} parties)</div></div>
         <span class="sg-wr" style="color:${c.avg>=0.5?'var(--win)':'var(--lose)'}">${pct(c.avg)}</span></div>`);
     boxEmpty = `<div class="muted">Pas assez de données de matchup ${simState.boxOnly ? "pour les monstres de ta box" : "sur les counters connus"} contre ces picks.</div>`;
