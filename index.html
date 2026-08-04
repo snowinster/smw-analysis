@@ -5002,6 +5002,29 @@ async function renderSim(){
   // comptent pas dans le score mais s'affichent en grisé, sinon « pourquoi pas de trio ? »
   const trioWrRaw = (a,b,c) => { const e = agg.tm.get(trioKey(a,b,c)); return e ? { wr: e[1]/e[0], adj: shrink(e[1]/e[0], e[0]), n: e[0], ok: e[0] >= AGG_MIN.trio } : null; };
   const trioWr = (a,b,c) => { const t = trioWrRaw(a,b,c); return t?.ok ? t.adj : null; };
+  /* cohérence de l'ÉQUIPE résultante (tes picks posés + la proposition) : moyenne pondérée
+     de TOUS les trios mesurés de cette équipe qui contiennent au moins un des nouveaux
+     monstres. 3 monstres au total → c'est LE trio ; 4+ → on la nomme « équipe » (les
+     quatuors complets ne sont pas mesurables, les trios qui la composent en sont la
+     meilleure approximation). Sous-minimum : renvoyé à part, affiché grisé, jamais compté. */
+  const teamTrios = (newIds, placedIds) => {
+    const T = [...placedIds, ...newIds];
+    const all = [];
+    for(let i=0;i<T.length;i++) for(let k=i+1;k<T.length;k++) for(let m=k+1;m<T.length;m++){
+      if(!(newIds.includes(T[i]) || newIds.includes(T[k]) || newIds.includes(T[m]))) continue;
+      const t = trioWrRaw(T[i], T[k], T[m]);
+      if(t) all.push(t);
+    }
+    const ok = all.filter(x=>x.ok);
+    const nOk = ok.reduce((s,x)=>s+x.n, 0);
+    const nAll = all.reduce((s,x)=>s+x.n, 0);
+    return {
+      teamSize: T.length,
+      fit: ok.length ? ok.reduce((s,x)=>s+x.adj*x.n, 0)/nOk : null,
+      n: nOk,
+      small: (!ok.length && all.length) ? { wr: all.reduce((s,x)=>s+x.wr*x.n, 0)/nAll, n: nAll } : null
+    };
+  };
   const vsWrOur = (a,b) => { const e = agg.vm.get(a+"|"+b); return e && e[0] >= AGG_MIN.vs ? shrink(e[1]/e[0], e[0]) : null; };
   const teamFit = (cid, mineIds) => {
     const vals = [];
@@ -5180,18 +5203,11 @@ async function renderSim(){
       const myFit = fits.length ? fits.reduce((a,x)=>a+x,0)/fits.length : null;
       // 45 % counter + 35 % synergie du duo + 20 % cohérence avec tes picks posés
       let score = myFit!=null ? 0.45*vs + 0.35*togAdj + 0.20*myFit : 0.55*vs + 0.45*togAdj;
-      // cohérence de TRIO (nos replays) avec chaque pick déjà posé — le cas type : tu as le
-      // first pick, il a répondu par deux, tu poses ces deux-là → ton équipe démarre sur
-      // le trio (ton FP + cette paire). Moyenne PONDÉRÉE par le volume, minimum 50 parties ;
-      // un trio mesuré mais sous le minimum est affiché en grisé, sans peser dans le score.
-      const tAll = myPicks.map(p=>trioWrRaw(c1.id, c2.id, p.id)).filter(Boolean);
-      const tOk = tAll.filter(x=>x.ok);
-      const trioN = tOk.reduce((s,x)=>s+x.n, 0);
-      const tf = tOk.length ? tOk.reduce((s,x)=>s+x.adj*x.n, 0)/trioN : null;
-      if(tf != null) score = 0.78*score + 0.22*tf;
-      const smallN = tAll.reduce((s,x)=>s+x.n, 0);
-      const trioSmall = (!tOk.length && tAll.length) ? { wr: tAll.reduce((s,x)=>s+x.wr*x.n, 0)/smallN, n: smallN } : null;
-      duos.push({ c1, c2, tog, vs, myFit, score, nTog, trioFit: tf, trioN, trioSmall });
+      // cohérence de l'ÉQUIPE résultante (tes picks + cette paire) : moyenne pondérée de tous
+      // les trios mesurés qui la composent — 22 % du score final quand elle est mesurable
+      const tt = teamTrios([c1.id, c2.id], myPicks.map(p=>p.id));
+      if(tt.fit != null) score = 0.78*score + 0.22*tt.fit;
+      duos.push({ c1, c2, tog, vs, myFit, score, nTog, trioFit: tt.fit, trioN: tt.n, trioSmall: tt.small, teamSize: tt.teamSize });
     }
     duos.sort((a,b)=>b.score-a.score);
     duos = duos.slice(0,15);
@@ -5216,17 +5232,10 @@ async function renderSim(){
       const togAdj = shrink(tog, nTog);
       let score = c.myFit!=null ? 0.45*c.vsScore + 0.35*togAdj + 0.20*c.myFit
                                 : 0.55*c.vsScore + 0.45*togAdj;
-      // trio formé avec le partenaire + chacun des autres picks posés (nos replays,
-      // moyenne pondérée par le volume, minimum 50 parties, sous-minimum affiché en grisé)
-      const others = myPicks.filter(p=>p.id!==partner.id);
-      const tAll = others.map(o=>trioWrRaw(c.id, partner.id, o.id)).filter(Boolean);
-      const tOk = tAll.filter(x=>x.ok);
-      const trioN = tOk.reduce((s,x)=>s+x.n, 0);
-      const tf = tOk.length ? tOk.reduce((s,x)=>s+x.adj*x.n, 0)/trioN : null;
-      if(tf != null) score = 0.78*score + 0.22*tf;
-      const smallN = tAll.reduce((s,x)=>s+x.n, 0);
-      const trioSmall = (!tOk.length && tAll.length) ? { wr: tAll.reduce((s,x)=>s+x.wr*x.n, 0)/smallN, n: smallN } : null;
-      pairWith.push({c, tog, nTog, score, trioFit: tf, trioN, trioSmall});
+      // cohérence de l'équipe résultante (tes picks posés, partenaire compris, + ce candidat)
+      const tt = teamTrios([c.id], myPicks.map(p=>p.id));
+      if(tt.fit != null) score = 0.78*score + 0.22*tt.fit;
+      pairWith.push({c, tog, nTog, score, trioFit: tt.fit, trioN: tt.n, trioSmall: tt.small, teamSize: tt.teamSize});
     }
     pairWith.sort((a,b)=>b.score-a.score);
     pairWith = pairWith.slice(0,15);
@@ -5284,9 +5293,13 @@ async function renderSim(){
      vs adverse (orange) · duo (bleu) · trio (doré, gras — grisé si trop peu de parties
      pour compter) · compo (violet). L'explication complète est au survol de chaque libellé. */
   const sgChip = (lbl, val, color, title) => `<span style="color:${color}" title="${esc(title)}">${lbl} <b>${val}</b></span>`;
-  const sgTrioChip = x => x.trioFit != null
-    ? sgChip("trio", `${pct(x.trioFit)} (${num(x.trioN)} p.)`, "#d8a94e", "Winrate RÉEL du trio formé par tes picks posés + cette proposition, mesuré dans nos replays — compte pour 22 % du score")
-    : x.trioSmall ? `<span class="muted" title="Trio mesuré mais sous le minimum de 50 parties : affiché pour information, il ne pèse PAS dans le score">trio ${pct(x.trioSmall.wr)} (${num(x.trioSmall.n)} p. — non compté)</span>` : "";
+  // libellé selon la taille de l'équipe résultante : 3 monstres = « trio », 4+ = « équipe »
+  const sgTrioChip = x => {
+    const lbl = (x.teamSize||3) > 3 ? "équipe" : "trio";
+    return x.trioFit != null
+      ? sgChip(lbl, `${pct(x.trioFit)} (${num(x.trioN)} p.)`, "#d8a94e", `Winrate réel de ${lbl === "équipe" ? "l'équipe résultante (moyenne pondérée de tous ses trios mesurés)" : "ce trio"} dans nos replays — compte pour 22 % du score`)
+      : x.trioSmall ? `<span class="muted" title="Mesuré mais sous le minimum de 50 parties : affiché pour information, ne pèse PAS dans le score">${lbl} ${pct(x.trioSmall.wr)} (${num(x.trioSmall.n)} p. — non compté)</span>` : "";
+  };
   const pairRowsArr = pairWith.map(p=>{
     const bits = [
       sgChip("vs adverse", pct(p.c.vsScore), "#ff9f6b", "Winrate moyen de ce monstre contre les picks adverses posés"),
