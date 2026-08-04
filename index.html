@@ -5307,7 +5307,7 @@ async function renderSim(){
   const sgTrioChip = x => {
     const lbl = (x.teamSize||3) > 3 ? "équipe" : "trio";
     return x.trioFit != null
-      ? sgChip(lbl, `${pct(x.trioFit)} (${num(x.trioN)} p.)`, "#d8a94e", `Winrate réel de ${lbl === "équipe" ? "l'équipe résultante (moyenne pondérée de tous ses trios mesurés)" : "ce trio"} dans nos replays — compte pour 22 % du score`)
+      ? sgChip(lbl, `${pct(x.trioFit)} (${num(x.trioN)} p.)`, "#d8a94e", `MESURÉ : winrate réel de ${lbl === "équipe" ? "l'équipe résultante (moyenne pondérée de tous ses trios réellement joués)" : "ce trio, réellement joué"} dans les replays — observation directe, d'où le nombre de parties. Compte pour 22 % du score.`)
       : x.trioSmall ? `<span class="muted" title="Mesuré mais sous le minimum de ${MIN_TRIO_GAMES} parties : affiché pour information, ne pèse PAS dans le score">${lbl} ${pct(x.trioSmall.wr)} (${num(x.trioSmall.n)} p. — non compté)</span>` : "";
   };
   const pairRowsArr = pairWith.map(p=>{
@@ -5315,7 +5315,7 @@ async function renderSim(){
       sgChip("vs adverse", pct(p.c.vsScore), "#ff9f6b", "Winrate moyen de ce monstre contre les picks adverses posés"),
       sgChip("duo", `${pct(p.tog)} (${num(p.nTog)} p.)`, "#57b0ff", `Winrate des deux joués ensemble : ${partner?.name||""} + lui`),
       sgTrioChip(p),
-      p.c.myFit != null ? sgChip("compo", pct(p.c.myFit), "#b07dff", "Cohérence avec tes picks posés (paires mesurées chez swarena et dans nos replays)") : ""
+      p.c.myFit != null ? sgChip("compo", pct(p.c.myFit), "#b07dff", "ESTIMÉ : cohérence reconstituée en recoupant les synergies de PAIRES avec tes picks posés — pas d'observation directe de l'équipe entière. Compte pour 20 % du score de base.") : ""
     ].filter(Boolean);
     return `<div class="sugg" draggable="true" data-drag-id="${p.c.id}" onclick="simPick(${p.c.id},'A')">
       <img src="${monImg(p.c.img)}" loading="lazy">
@@ -5328,7 +5328,7 @@ async function renderSim(){
       sgChip("vs adverse", pct(d.vs), "#ff9f6b", "Winrate moyen de la paire contre les picks adverses posés"),
       sgChip("duo", `${pct(d.tog)} (${num(d.nTog)} p.)`, "#57b0ff", "Winrate des deux monstres joués ensemble"),
       sgTrioChip(d),
-      d.myFit != null ? sgChip("compo", pct(d.myFit), "#b07dff", "Cohérence de la paire avec tes picks posés (paires mesurées chez swarena et dans nos replays)") : ""
+      d.myFit != null ? sgChip("compo", pct(d.myFit), "#b07dff", "ESTIMÉ : cohérence reconstituée en recoupant les synergies de PAIRES entre cette proposition et tes picks posés — pas d'observation directe de l'équipe entière (d'où l'absence de nombre de parties). Compte pour 20 % du score de base.") : ""
     ].filter(Boolean);
     return `<div class="sugg" onclick="simPickDuo(${d.c1.id},${d.c2.id})" title="Picker les deux">
       <img src="${monImg(d.c1.img)}" loading="lazy" class="mon-click" draggable="true" data-drag-id="${d.c1.id}" title="Picker uniquement ${esc(d.c1.name)}" onclick="event.stopPropagation();simPick(${d.c1.id},'A')">
