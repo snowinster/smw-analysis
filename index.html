@@ -1560,7 +1560,14 @@ async function viewMonster(id){
         <div><h2 style="font-size:16px;margin-top:0">Meilleures synergies</h2><div class="panel tbl-wrap">${syn}</div></div>
         <div><h2 style="font-size:16px;margin-top:0">Pires matchups <span class="muted" style="font-size:12px;font-weight:400">(il perd contre)</span></h2><div class="panel tbl-wrap">${mat}</div></div>
       </div>
-      <h2 style="font-size:16px">Meilleurs trios <span class="muted" style="font-size:12px;font-weight:400">(winrate, joués avec lui · notre collecte de replays)</span></h2>
+      <div class="row" style="margin:22px 0 10px;gap:10px">
+        <h2 style="font-size:16px;margin:0">Meilleurs trios <span class="muted" style="font-size:12px;font-weight:400">(winrate, joués avec lui · ${monState.tier==="ladder"?"tout le ladder":monState.tier==="g3"?"Guardian 3":"Guardian+"} · notre collecte de replays)</span></h2>
+        <span class="spacer"></span>
+        <label class="muted" style="font-size:12.5px">Afficher
+          <select onchange="monState.listN=+this.value;viewMonster(${id})" style="font-size:12.5px;padding:3px 8px">${
+            [5,10,20,50].map(v=>`<option value="${v}" ${v===listN?"selected":""}>${v}</option>`).join("")}</select>
+        </label>
+      </div>
       <div class="panel tbl-wrap">${trioTable()}</div>`;
       })()}
       ${skillsHTML}
