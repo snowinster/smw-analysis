@@ -1012,7 +1012,7 @@ async function viewPlayer(id){
       </div>
       ${multiHist.some(sg=>sg.pts.length) ? `<h2>Évolution du score ${chartSeasons.length>1 ? `- S${chartSeasons[0]} → S${chartSeasons[chartSeasons.length-1]}` : `- Saison ${season}`}</h2><div class="panel chart-wrap" id="chartPanel">${scoreChart(multiHist)}</div>` : ""}
       ${bestiary.length ? `<h2>Bestiaire (${bestiary.length} monstres)</h2>${bestiaryHTML(bestiary)}` : ""}
-      ${mergedBestiaryHTML(seasons)}
+      ${await nemesisHTML(battles, id)}
       <h2>Derniers combats ${battles.length?`(${num(battles.length)})`:""}</h2>
       <div id="battleList">${battles.length ? '<div class="loading">Chargement des drafts…</div>' : '<div class="panel muted">Aucun replay disponible pour cette saison.</div>'}</div>
 `;
@@ -1052,39 +1052,37 @@ function bestiaryHTML(list){
     <div class="bestiary">${list.slice(3).map(cell).join("")}</div>
   </div>`;
 }
-/* ----- box RTA cumulée (fusion des bestiaires de toutes les saisons déjà sondées) ----- */
-function mergedBestiaryHTML(seasons){
-  // limité aux 2 dernières saisons (sauf comptes curated), le reste est trop ancien
-  if(!BOX_KEEP_ALL_SEASONS.has(plState.id)){
-    const latest = seasonsCache?.[0] ?? Math.max(...seasons);
-    seasons = seasons.filter(s => s >= latest-1);
-  }
-  if(seasons.length < 2) return "";
-  const merged = new Map();
-  for(const se of seasons){
-    const su = plSummaries[se];
-    if(!su) continue;
-    for(const b of (su.monster_played||[])){
-      let e = merged.get(b.unit_master_id);
-      if(!e){ e = {...b, plays:0, wins:0, nbSeasons:0}; merged.set(b.unit_master_id, e); }
-      e.plays += b.plays; e.wins += b.wins; e.nbSeasons++;
+/* ----- bêtes noires : les monstres adverses contre lesquels ce joueur PERD le plus -----
+   Calculé sur ses combats CLASSÉS de la saison (replays déjà chargés pour la liste du bas) :
+   pour chaque monstre vu en face, rencontres et défaites — tri par nombre de défaites. */
+async function nemesisHTML(battles, viewerId){
+  const agg = new Map();
+  for(const b of battles){
+    const users = Object.values(b.user_list||{});
+    if(!users.every(u=>(u.score||0) > 0 || (u.rank||0) > 0)) continue; // combats classés uniquement
+    const me = users.find(u=>u.wizard_id===viewerId);
+    const opp = users.find(u=>u!==me);
+    if(!me || !opp) continue;
+    const lost = me.win_lose !== 1;
+    for(const mid of new Set((opp.pick_info?.unit_list||[]).map(x=>x.unit_master_id))){
+      let e = agg.get(mid);
+      if(!e) agg.set(mid, e = {n:0, l:0});
+      e.n++; if(lost) e.l++;
     }
   }
-  if(!merged.size) return "";
-  const list = [...merged.values()].sort((a,b)=>b.plays-a.plays);
-  return `<details style="margin-top:22px">
-    <summary style="cursor:pointer;font-size:18px;font-weight:700;margin-bottom:12px">
-      Box RTA cumulée - ${list.length} monstres vus sur ${seasons.length} saisons (S${Math.min(...seasons)}–S${Math.max(...seasons)})
-      <span class="muted" style="font-size:12.5px;font-weight:400">· cliquer pour ouvrir</span>
-    </summary>
-    <div class="panel bestiary" style="margin-top:10px">${list.map(b=>{
-      const bwr = b.plays ? Math.round(100*b.wins/b.plays) : 0;
-      return `<div class="beast mon-click" onclick="location.hash='#/monster/${b.unit_master_id}'" title="${esc(b.name)} - ${b.plays} parties sur ${b.nbSeasons} saison(s)">
-        <img src="${monImg(b.image_filename)}" loading="lazy">
-        <div><div class="bn">${esc(b.name)}</div><div class="bs">${b.plays} parties · <b style="color:${bwr>=50?'var(--win)':'var(--lose)'}">${bwr} %</b></div></div></div>`;
-    }).join("")}</div>
-    <div class="note">Ce n'est pas la box complète du compte (Com2uS ne l'expose pas publiquement) : ce sont tous les monstres que ce joueur a réellement joués en RTA sur les saisons couvertes par swarena.</div>
-  </details>`;
+  const rows = [...agg.entries()].map(([mid,e])=>({mid, ...e, rate:e.l/e.n}))
+    .filter(x=>x.n >= 4 && x.l >= 3 && x.rate > 0.5)
+    .sort((a,b)=> b.l - a.l || b.rate - a.rate)
+    .slice(0, 12);
+  if(!rows.length) return "";
+  await preloadMonsters(rows.map(x=>x.mid));
+  return `<h2>Bêtes noires <span class="muted" style="font-size:12px;font-weight:400">(les monstres adverses contre lesquels tu perds le plus — combats classés de la saison)</span></h2>
+    <div class="panel bestiary">${rows.map(x=>{
+      const m = monCache.get(x.mid) || {};
+      return `<div class="beast mon-click" onclick="location.hash='#/monster/${x.mid}'" title="${esc(m.name||x.mid)} : ${x.l} défaites sur ${x.n} rencontres cette saison · cliquer pour sa fiche (counters, matchups)">
+        <img src="${monImg(m.image_filename)}" loading="lazy">
+        <div><div class="bn">${esc(m.name||("#"+x.mid))}</div><div class="bs">${x.l} défaites / ${x.n} rencontres · <b style="color:var(--lose)">${Math.round(100*x.rate)} %</b></div></div></div>`;
+    }).join("")}</div>`;
 }
 
 /* ----- graphe score (SVG) ----- */
