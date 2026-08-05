@@ -225,6 +225,52 @@ tr.clickable:hover{background:var(--card2)}
 .b3-card.nem.r1{border-color:rgba(240,92,92,.5);background:linear-gradient(180deg,rgba(240,92,92,.10),var(--card2) 60%)}
 .b3-card.nem.r2,.b3-card.nem.r3{background:linear-gradient(180deg,rgba(240,92,92,.05),var(--card2) 60%)}
 .b3-medal.nem-rank{background:var(--lose);color:#fff;width:26px;height:26px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:13.5px;font-weight:800;filter:none;box-shadow:0 3px 8px rgba(0,0,0,.5)}
+
+/* ---------- ESSAI « Arène World » : peau dorée de la page d'ACCUEIL (scopée .aw) ----------
+   Même langage graphique que login.html. Réversible : retirer la classe .aw et ce bloc. */
+.aw{position:relative}
+.aw::before{content:"";position:fixed;inset:0;z-index:-1;background:
+  radial-gradient(1100px 600px at 50% -10%, #3a2b4d 0%, transparent 55%),
+  radial-gradient(900px 700px at 12% 110%, #4a3013 0%, transparent 60%),
+  radial-gradient(900px 700px at 88% 110%, #33230e 0%, transparent 60%),
+  linear-gradient(180deg,#100c14 0%,#171009 55%,#0d0906 100%)}
+.aw > *{position:relative;z-index:1}
+.aw .aw-fx{position:absolute;inset:0;pointer-events:none;overflow:hidden;z-index:0}
+.aw-mon{position:absolute;border-radius:14px;border:2px solid #8a6a35;opacity:0;background:#20180f;
+  box-shadow:0 6px 22px rgba(0,0,0,.55),0 0 18px rgba(216,169,78,.18);animation:awBob ease-in-out infinite alternate;transition:opacity 1.2s}
+.aw-mon.show{opacity:.6}
+@keyframes awBob{0%{transform:translate(0,0) rotate(var(--r0))}100%{transform:translate(var(--bx),var(--by)) rotate(var(--r1))}}
+.aw-ember{position:absolute;bottom:-12px;border-radius:50%;background:#f5d78a;opacity:0;animation:awRise linear infinite}
+@keyframes awRise{0%{transform:translate(0,0) scale(1);opacity:0}8%{opacity:.7}100%{transform:translate(var(--dx),-105vh) scale(.25);opacity:0}}
+.aw .hero{background:linear-gradient(180deg,#241b10,#1a130b);border:2px solid #8a6a35;border-radius:18px;
+  box-shadow:0 0 46px rgba(216,169,78,.14),0 24px 70px rgba(0,0,0,.6)}
+.aw .hero::before,.aw .hero::after{content:"◆";position:absolute;top:-13px;color:#d8a94e;font-size:15px;text-shadow:0 0 8px rgba(216,169,78,.8)}
+.aw .hero::before{left:26px}
+.aw .hero::after{right:26px}
+.aw .kicker{color:#d8a94e;letter-spacing:.32em;text-transform:uppercase;font-size:11px}
+.aw .aw-stars{color:#e04fd0;letter-spacing:6px;font-size:14px;margin:6px 0 4px;text-shadow:0 0 10px rgba(224,79,208,.6);animation:awStar 2.6s ease-in-out infinite}
+@keyframes awStar{0%,100%{opacity:.85}50%{opacity:1;text-shadow:0 0 16px rgba(224,79,208,.95)}}
+.aw .hero h1{background:linear-gradient(180deg,#f5d78a 20%,#d8a94e 75%);-webkit-background-clip:text;background-clip:text;color:transparent}
+.aw .sub{color:#cdbd9c}
+.aw .hstat{background:rgba(23,16,9,.8);border:1px solid #5d4522;border-radius:14px}
+.aw .hstat .v{color:#f5d78a}
+.aw .hstat .l{color:#a8977a}
+.aw .tool{background:linear-gradient(180deg,#241b10,#1a130b);border:1px solid #5d4522}
+.aw .tool:hover{border-color:#d8a94e;box-shadow:0 8px 30px rgba(216,169,78,.18)}
+.aw .tool b{color:#f5d78a}
+.aw .tool p{color:#a8977a}
+.aw .hm-sec h2{background:linear-gradient(180deg,#f5d78a,#d8a94e);-webkit-background-clip:text;background-clip:text;color:transparent}
+.aw .hm-sec .ln{background:linear-gradient(90deg,#8a6a35,transparent)}
+.aw .panel{background:linear-gradient(180deg,#241b10,#1a130b);border-color:#5d4522}
+.aw .sugg{border-bottom-color:rgba(93,69,34,.45)}
+.aw .sugg:hover{background:#2a2013}
+.aw .pod{background:linear-gradient(180deg,#2a2013,#1a130b);border:1px solid #5d4522}
+.aw .pod.p1{border-color:rgba(216,169,78,.55);box-shadow:0 0 24px rgba(216,169,78,.15)}
+.aw .btn{background:#171009;border-color:#5d4522}
+.aw .btn:hover{border-color:#d8a94e}
+.aw .rank-badge{background:#5d4522;color:#f5d78a}
+.aw select{background:#171009;border-color:#5d4522}
+@media (max-width:1100px){ .aw-mon{display:none} }
 @media (max-width:700px){.b3-row{grid-template-columns:1fr;align-items:stretch}.b3-card.r1 img{width:70px;height:70px}}
 
 /* battles */
@@ -252,6 +298,7 @@ tr.clickable:hover{background:var(--card2)}
 .fp-badge{font-size:10.5px;font-weight:700;color:var(--accent2);border:1px solid var(--accent2);padding:1px 7px;border-radius:10px;white-space:nowrap}
 /* combats : CARTES compactes en grille (plusieurs par ligne selon la largeur),
    équipes empilées comme avant — tes picks en haut, l'adversaire en bas */
+#battleList{overflow-anchor:none} /* l'ancrage auto du navigateur luttait contre la restauration du scroll */
 .bl-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(560px,100%),1fr));gap:12px;margin-bottom:10px}
 .battle.bc{margin-bottom:0;padding-bottom:10px}
 .battle.bc.win{border-left:4px solid var(--win)}
@@ -705,8 +752,10 @@ async function viewHome(){
     const [stats, seasons] = await Promise.all([api("/general/stats"), getSeasons()]);
     if(!homeState.season || !seasons.includes(homeState.season)) homeState.season = seasons[0]; // défaut : saison en cours
     $app.innerHTML = `
+      <div class="aw"><div class="aw-fx" id="awFx"></div>
       <div class="hero hm-fade">
-        <div class="kicker">Summoners War · Arène World (RTA)</div>
+        <div class="kicker">◆ Summoners War · Arène World ◆</div>
+        <div class="aw-stars">★★★★★★</div>
         <h1>Analyse le ladder,<br>domine ta draft.</h1>
         <p class="sub">Stats de méta saison par saison, classement mondial, et un simulateur de draft qui lit ton écran, identifie l'adversaire et conseille chaque pick sur les vrais matchups Guardian+.</p>
         <div class="hero-stats">
@@ -740,7 +789,9 @@ async function viewHome(){
           <div class="hm-mons" id="homeTopMons"><div class="loading">Chargement…</div></div>
         </div>
       </div>
+      </div>
 `;
+    awAmbientFX(seasons[0]);
     // compteurs animés du hero (dégradé cubique, ~1 s)
     document.querySelectorAll("#app [data-count]").forEach(el=>{
       const target = +el.dataset.count, t0 = performance.now(), D = 950;
@@ -754,6 +805,50 @@ async function viewHome(){
     document.getElementById("homeSeason").onchange = e => { homeState.season = +e.target.value; loadHomeTops(); };
     loadHomeTops();
   }catch(e){ fail(e); }
+}
+/* ambiance « Arène World » de l'accueil : braises montantes + monstres flottants sur les bords
+   (mêmes recettes que login.html, mais confinées au conteneur .aw — nettoyage automatique
+   à la navigation puisque tout vit dans $app) */
+async function awAmbientFX(season){
+  const $fx = document.getElementById("awFx");
+  if(!$fx) return;
+  const R = (a,b)=>a+Math.random()*(b-a);
+  for(let i=0;i<22;i++){
+    const d = document.createElement("div");
+    d.className = "aw-ember";
+    const s = 2 + Math.random()*3.5;
+    d.style.width = d.style.height = s.toFixed(1)+"px";
+    d.style.left = R(0,100).toFixed(1)+"%";
+    d.style.setProperty("--dx", R(-80,80).toFixed(0)+"px");
+    d.style.animationDuration = R(7,16).toFixed(1)+"s";
+    d.style.animationDelay = (-R(0,14)).toFixed(1)+"s";
+    $fx.appendChild(d);
+  }
+  try{
+    const meta = await fetch(`api/meta-s${season}.json`, {cache:"no-cache"}).then(r=>r.ok?r.json():null);
+    if(!meta?.monsters?.length || !document.getElementById("awFx")) return;
+    const mons = meta.monsters.filter(m=>m.image_filename).sort((a,b)=>(b.played||0)-(a.played||0)).slice(0,60);
+    for(let i = mons.length-1; i>0; i--){ const k = Math.floor(Math.random()*(i+1)); [mons[i],mons[k]] = [mons[k],mons[i]]; }
+    mons.slice(0,10).forEach((m,i)=>{
+      const img = document.createElement("img");
+      img.className = "aw-mon";
+      img.src = monImg(m.image_filename);
+      img.title = m.name;
+      const size = R(46,84);
+      img.style.width = img.style.height = size.toFixed(0)+"px";
+      img.style.left = (i%2===0 ? R(0.5,8) : R(90,97)).toFixed(1)+"%";
+      img.style.top = R(4,88).toFixed(1)+"%";
+      img.style.setProperty("--bx", R(-22,22).toFixed(0)+"px");
+      img.style.setProperty("--by", R(-30,30).toFixed(0)+"px");
+      img.style.setProperty("--r0", R(-7,7).toFixed(1)+"deg");
+      img.style.setProperty("--r1", R(-7,7).toFixed(1)+"deg");
+      img.style.animationDuration = R(4.5,9).toFixed(1)+"s";
+      img.style.animationDelay = (-R(0,8)).toFixed(1)+"s";
+      img.onerror = ()=>img.remove();
+      img.onload = ()=>setTimeout(()=>img.classList.add("show"), 80 + i*120);
+      $fx.appendChild(img);
+    });
+  }catch(e){}
 }
 async function loadHomeTops(){
   const s = homeState.season;
@@ -955,7 +1050,10 @@ function monstersTable(rows, offset=0, sortable=false){
 const plState = { id:null, season:null };
 let plSummaries = {}; // cache des résumés par saison pour le joueur affiché
 async function viewPlayer(id){
-  $app.innerHTML = '<div class="loading">Chargement du profil…</div>';
+  // même principe que viewMonster : re-rendu du même profil (onglet saison…) sans remonter
+  const sameView = plState.id === id && !!document.querySelector(".player-head");
+  const keepY = sameView ? window.scrollY : 0;
+  if(!sameView) $app.innerHTML = '<div class="loading">Chargement du profil…</div>';
   try{
     if(plState.id !== id){ plState.id = id; plState.season = null; plSummaries = {}; plState.hists = {}; }
     const sr = await api(`/player/${id}/seasons`);
@@ -1028,6 +1126,7 @@ async function viewPlayer(id){
     attachChartTips();
     bpState.page = 0; bpState.list = battles; bpState.viewer = id;
     if(battles.length) renderBattles(battles, id);
+    window.scrollTo({top: keepY, behavior: "instant"});
   }catch(e){ fail(e); }
 }
 
@@ -1180,8 +1279,7 @@ function plBattlesPer(){
 }
 function plBattlesGo(p){
   bpState.page = p;
-  renderBattles(bpState.list, bpState.viewer);
-  document.getElementById("battleList")?.scrollIntoView({behavior:"smooth", block:"start"});
+  renderBattles(bpState.list, bpState.viewer); // pas de scroll : on reste où on est
 }
 function plBattlesSetPer(v){
   try{ localStorage.setItem("plBattlesPer_v1", String(v)); }catch(e){}
@@ -1225,6 +1323,7 @@ async function renderBattles(battles, viewerId){
   await preloadMonsters(ids);
   const $bl = document.getElementById("battleList");
   if(!$bl) return;
+  const keepY = window.scrollY; // les cartes changent de hauteur entre pages : on ré-ancre après
   const pager = pages > 1 || filtered.length > 5 ? `
     <div class="row" style="justify-content:flex-end;gap:12px;margin-top:2px">
       <label class="muted" style="font-size:13px">Par page
@@ -1258,6 +1357,15 @@ async function renderBattles(battles, viewerId){
   }).join("") + `</div>` + pager;
   $bl.innerHTML = filterBar + (slice.length ? listHTML :
     `<div class="panel muted">Aucun combat ${filter==="ranked"?"classé":filter==="normal"?"normal":""} pour cette saison.</div>`);
+  // le chargement paresseux des icônes re-décale la page pendant ~1/2 s : on maintient la
+  // position par restaurations échelonnées (abandonnées si l'utilisateur re-scrolle lui-même)
+  let hold = true;
+  const stop = () => { hold = false; window.removeEventListener("wheel", stop); window.removeEventListener("touchmove", stop); };
+  window.addEventListener("wheel", stop, {passive:true});
+  window.addEventListener("touchmove", stop, {passive:true});
+  // behavior "instant" : html{scroll-behavior:smooth} transformerait ces restaurations en
+  // animations concurrentes qui se disputent la position
+  for(const ms of [0, 120, 300, 550]) setTimeout(()=>{ if(hold) window.scrollTo({top: keepY, behavior: "instant"}); if(ms===550) stop(); }, ms);
 }
 /* une équipe au FORMAT PLATEAU : case isolée + carré 2x2 — le first pick a sa case isolée
    en PREMIER (son pick d'ouverture, cerclée), le second pick l'a en DERNIER (son 5e pick).
@@ -1418,7 +1526,12 @@ async function getMetaMap(season){
   return m;
 }
 async function viewMonster(id){
-  $app.innerHTML = '<div class="loading">Chargement de la fiche monstre…</div>';
+  // re-rendu du MÊME monstre (flèche de page, filtre, saison…) : l'ancien contenu reste à
+  // l'écran pendant le rechargement et la position de défilement est restaurée — fini la
+  // remontée en haut de page à chaque clic de pagineur
+  const sameView = monState.id === id && !!document.querySelector(".mon-hero");
+  const keepY = sameView ? window.scrollY : 0;
+  if(!sameView) $app.innerHTML = '<div class="loading">Chargement de la fiche monstre…</div>';
   try{
     if(monState.id !== id){ monState.id = id; monState.season = null; monState.userChose = false; monState.trioQ = ""; }
     if(monState.tier === "sub") monState.tier = "ladder"; // filtre retiré : la collecte sous Guardian ne sert plus qu'à « Tout le ladder »
@@ -1656,6 +1769,7 @@ async function viewMonster(id){
 `;
     attachChartTips();
     monTrioPaint();
+    window.scrollTo({top: keepY, behavior: "instant"});
   }catch(e){ fail(e); }
 }
 /* ----- tableau des trios : peint à part pour que la recherche filtre sans re-rendre la page ----- */
@@ -1779,13 +1893,18 @@ function dualChart(hist, gran){
       lastLblX = x;
     }
   });
-  // courbe lissée (Catmull-Rom → Bézier)
+  // courbe lissée (Catmull-Rom → Bézier). Les points de CONTRÔLE de chaque segment sont
+  // BORNÉS entre les deux points de données du segment : le lissage brut dépassait les
+  // valeurs réelles (winrate dessiné au-dessus de 100 % ou sous 0 % entre deux jours).
   const smooth = arr => {
     if(arr.length < 3) return "M" + arr.map(p=>p[0].toFixed(1)+","+p[1].toFixed(1)).join(" L");
     let path = `M${arr[0][0].toFixed(1)},${arr[0][1].toFixed(1)}`;
     for(let i=0;i<arr.length-1;i++){
       const p0=arr[Math.max(0,i-1)], p1=arr[i], p2=arr[i+1], p3=arr[Math.min(arr.length-1,i+2)];
-      path += `C${(p1[0]+(p2[0]-p0[0])/6).toFixed(1)},${(p1[1]+(p2[1]-p0[1])/6).toFixed(1)} ${(p2[0]-(p3[0]-p1[0])/6).toFixed(1)},${(p2[1]-(p3[1]-p1[1])/6).toFixed(1)} ${p2[0].toFixed(1)},${p2[1].toFixed(1)}`;
+      const lo = Math.min(p1[1], p2[1]), hi = Math.max(p1[1], p2[1]);
+      const c1y = Math.max(lo, Math.min(hi, p1[1]+(p2[1]-p0[1])/6));
+      const c2y = Math.max(lo, Math.min(hi, p2[1]-(p3[1]-p1[1])/6));
+      path += `C${(p1[0]+(p2[0]-p0[0])/6).toFixed(1)},${c1y.toFixed(1)} ${(p2[0]-(p3[0]-p1[0])/6).toFixed(1)},${c2y.toFixed(1)} ${p2[0].toFixed(1)},${p2[1].toFixed(1)}`;
     }
     return path;
   };
