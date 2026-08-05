@@ -221,6 +221,10 @@ tr.clickable:hover{background:var(--card2)}
 .b3-card.low .b3-bar div{background:linear-gradient(90deg,var(--lose),#ff9aa8)}
 .b3-wr{font-size:12.5px;font-weight:700}
 .b3-others{font-size:11.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin:16px 0 10px}
+/* variante « bêtes noires » du podium : accents rouges, rang numéroté */
+.b3-card.nem.r1{border-color:rgba(240,92,92,.5);background:linear-gradient(180deg,rgba(240,92,92,.10),var(--card2) 60%)}
+.b3-card.nem.r2,.b3-card.nem.r3{background:linear-gradient(180deg,rgba(240,92,92,.05),var(--card2) 60%)}
+.b3-medal.nem-rank{background:var(--lose);color:#fff;width:26px;height:26px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:13.5px;font-weight:800;filter:none;box-shadow:0 3px 8px rgba(0,0,0,.5)}
 @media (max-width:700px){.b3-row{grid-template-columns:1fr;align-items:stretch}.b3-card.r1 img{width:70px;height:70px}}
 
 /* battles */
@@ -984,6 +988,7 @@ async function viewPlayer(id){
     const multiHist = chartSeasons.map(x=>({season:x, pts:(plState.hists[x]||[]).filter(h=>h.score>0)}));
     const s = plSummaries[season] || {};
     const battles = lbR.data || [];
+    const nemHtml = await nemesisHTML(battles, id);
 
     const wr  = s.wizard_battles ? s.wizard_wins/s.wizard_battles : null;
     const fwr = s.first_pick_battles ? s.first_pick_wins/s.first_pick_battles : null;
@@ -1011,8 +1016,11 @@ async function viewPlayer(id){
         <div class="card"><div class="lbl">Second pick</div><div class="big">${pct(swr)}</div><div class="muted" style="font-size:12px">${num(s.second_pick_wins)} / ${num(s.second_pick_battles)}</div></div>
       </div>
       ${multiHist.some(sg=>sg.pts.length) ? `<h2>Évolution du score ${chartSeasons.length>1 ? `- S${chartSeasons[0]} → S${chartSeasons[chartSeasons.length-1]}` : `- Saison ${season}`}</h2><div class="panel chart-wrap" id="chartPanel">${scoreChart(multiHist)}</div>` : ""}
-      ${bestiary.length ? `<h2>Bestiaire (${bestiary.length} monstres)</h2>${bestiaryHTML(bestiary)}` : ""}
-      ${await nemesisHTML(battles, id)}
+      ${(bestiary.length || nemHtml) ? `<div class="two-col">
+        <div>${bestiary.length ? `<h2>Bestiaire <span class="muted" style="font-size:12px;font-weight:400">(${bestiary.length} monstres, tes plus joués)</span></h2>${bestiaryHTML(bestiary)}` : ""}
+        </div>
+        <div>${nemHtml || ""}</div>
+      </div>` : ""}
       <h2>Derniers combats ${battles.length?`(${num(battles.length)})`:""}</h2>
       <div id="battleList">${battles.length ? '<div class="loading">Chargement des drafts…</div>' : '<div class="panel muted">Aucun replay disponible pour cette saison.</div>'}</div>
 `;
@@ -1076,13 +1084,31 @@ async function nemesisHTML(battles, viewerId){
     .slice(0, 12);
   if(!rows.length) return "";
   await preloadMonsters(rows.map(x=>x.mid));
-  return `<h2>Bêtes noires <span class="muted" style="font-size:12px;font-weight:400">(les monstres adverses contre lesquels tu perds le plus — combats classés de la saison)</span></h2>
-    <div class="panel bestiary">${rows.map(x=>{
-      const m = monCache.get(x.mid) || {};
-      return `<div class="beast mon-click" onclick="location.hash='#/monster/${x.mid}'" title="${esc(m.name||x.mid)} : ${x.l} défaites sur ${x.n} rencontres cette saison · cliquer pour sa fiche (counters, matchups)">
-        <img src="${monImg(m.image_filename)}" loading="lazy">
-        <div><div class="bn">${esc(m.name||("#"+x.mid))}</div><div class="bs">${x.l} défaites / ${x.n} rencontres · <b style="color:var(--lose)">${Math.round(100*x.rate)} %</b></div></div></div>`;
-    }).join("")}</div>`;
+  const cell = x => {
+    const m = monCache.get(x.mid) || {};
+    return `<div class="beast mon-click" onclick="location.hash='#/monster/${x.mid}'" title="${esc(m.name||x.mid)} : ${x.l} défaites sur ${x.n} rencontres cette saison · cliquer pour sa fiche (counters, matchups)">
+      <img src="${monImg(m.image_filename)}" loading="lazy">
+      <div><div class="bn">${esc(m.name||("#"+x.mid))}</div><div class="bs">${x.l} déf. / ${x.n} · <b style="color:var(--lose)">${Math.round(100*x.rate)} %</b></div></div></div>`;
+  };
+  // podium miroir du bestiaire : 2e — 1re (au centre, plus grande) — 3e, en rouge
+  const card = (x, i) => {
+    if(!x) return "";
+    const m = monCache.get(x.mid) || {};
+    return `<div class="b3-card nem r${i+1} low mon-click" onclick="location.hash='#/monster/${x.mid}'" title="${esc(m.name||x.mid)} · cliquer pour sa fiche (counters, matchups)">
+      <div class="b3-medal nem-rank">${i+1}</div>
+      <img src="${monImg(m.image_filename)}" loading="lazy" style="border-color:var(--lose)">
+      <div class="b3-name">${esc(m.name||("#"+x.mid))}</div>
+      <div class="b3-sub">${x.l} défaites / ${x.n} rencontres</div>
+      <div class="b3-bar"><div style="width:${Math.round(100*x.rate)}%"></div></div>
+      <div class="b3-wr" style="color:var(--lose)">${Math.round(100*x.rate)} % de défaites</div>
+    </div>`;
+  };
+  const rest = rows.slice(3);
+  return `<h2>Bêtes noires <span class="muted" style="font-size:12px;font-weight:400">(tu perds le plus contre eux — combats classés de la saison)</span></h2>
+    <div class="panel">
+      <div class="b3-row">${card(rows[1],1)}${card(rows[0],0)}${card(rows[2],2)}</div>
+      ${rest.length ? `<div class="b3-others">Les autres (${rest.length})</div><div class="bestiary">${rest.map(cell).join("")}</div>` : ""}
+    </div>`;
 }
 
 /* ----- graphe score (SVG) ----- */
