@@ -1070,12 +1070,14 @@ function bestiaryHTML(list){
    pour chaque monstre vu en face, rencontres et défaites — tri par nombre de défaites. */
 async function nemesisHTML(battles, viewerId){
   const agg = new Map();
+  let ranked = 0;
   for(const b of battles){
     const users = Object.values(b.user_list||{});
     if(!users.every(u=>(u.score||0) > 0 || (u.rank||0) > 0)) continue; // combats classés uniquement
     const me = users.find(u=>u.wizard_id===viewerId);
     const opp = users.find(u=>u!==me);
     if(!me || !opp) continue;
+    ranked++;
     const lost = me.win_lose !== 1;
     for(const mid of new Set((opp.pick_info?.unit_list||[]).map(x=>x.unit_master_id))){
       let e = agg.get(mid);
@@ -1087,7 +1089,9 @@ async function nemesisHTML(battles, viewerId){
     .filter(x=>x.n >= 4 && x.l >= 3 && x.rate > 0.5)
     .sort((a,b)=> b.l - a.l || b.rate - a.rate)
     .slice(0, 12);
-  if(!rows.length) return "";
+  // pas assez de données : on le DIT au lieu de faire disparaître la section
+  if(!rows.length) return `<h2>Bêtes noires <span class="muted" style="font-size:12px;font-weight:400">(tu perds le plus contre eux — combats classés de la saison)</span></h2>
+    <div class="panel muted">Pas encore assez de données cette saison${ranked ? ` (${num(ranked)} combat${ranked>1?"s":""} classé${ranked>1?"s":""} analysé${ranked>1?"s":""})` : ""} : une bête noire demande au moins <b>4 rencontres</b> et <b>3 défaites</b> contre un même monstre, avec plus de 50 % de défaites. Reviens après quelques combats de plus.</div>`;
   await preloadMonsters(rows.map(x=>x.mid));
   const cell = x => {
     const m = monCache.get(x.mid) || {};
